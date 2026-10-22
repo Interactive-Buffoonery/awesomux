@@ -316,10 +316,15 @@ notification can fall through to the missing/unknown row
 (`attentionReason=userInputRequired`) instead. Treat the dedicated
 `PermissionRequest` hook, not the notification subtype, as load-bearing.
 
-This channel carries permission *attention* only — no command content and no
-decision return. For what a bidirectional permission channel (in-pane
-Allow/Deny cards, INT-110) would take on top of it, see
-[`docs/reference/int-110-implementation-research.md`](reference/int-110-implementation-research.md).
+This JSONL channel carries permission *attention* only, without command content
+or decision returns. Local Claude permission cards use a separate app-owned
+decision core with a local bridge lane and file-pair fallback. See
+[ADR-0028](adr/0028-permission-decision-transport-bridge-primary.md),
+[ADR-0038](adr/0038-phone-as-permission-decision-source.md), and the
+[local permission helper fixtures](../script/local-permission-e2e/README.md)
+for the implemented identity, fall-through, and delivery contract. The earlier
+[implementation research](reference/int-110-implementation-research.md) is
+historical context.
 
 Codex mapping:
 
@@ -546,10 +551,40 @@ imports the old `awesoMux-dev` manifest once. When both exist, production state
 wins; use **Repair** to recanonicalize an integration last installed by an older
 development build.
 
-Manifest records are keyed by provider alone. Installs are global-only and
-one-per-provider, so `binary_path` and `config_home` are attributes of that
-single record rather than part of its identity; changing the config home moves
-the install rather than creating a second record. When an install writes into a
+File-drop manifest records are keyed by provider alone, so `binary_path` and
+`config_home` are attributes of that single record; changing the config home
+moves the install. CLI-managed records (Claude Code, Codex, Grok) are keyed by
+provider and config home: each folder keeps its own record, status, and
+actions, and installing into a second folder leaves the first in place.
+Folders beyond the primary `config_home` are listed in
+`additional_config_homes`:
+
+```toml
+[agent_integrations.claude_code]
+enabled = true
+config_home = "/Users/example/.claude"
+additional_config_homes = ["/Users/example/.claude-work"]
+```
+
+Settings > Agents also lists the provider's default folder (`~/.claude`,
+`~/.codex`, `~/.grok`) when `config_home` points elsewhere, and folders that
+have an install record but are no longer configured, so they can still be
+removed. Folders that resolve to the same path appear once. The card summary
+gives an installed count only after every folder has reported; while checks
+run, or when one fails, it says so instead.
+
+The CLI-managed manifest is format version 2. Earlier builds wrote version 1
+with one record per provider and would drop the other folders' records on
+their next save, so they treat version 2 as unsupported and block changes. A
+version 1 manifest is read as-is and rewritten as version 2 on the next change.
+
+Status checks run up to two folders at a time per provider. Changes still run
+one at a time and wait for that provider's checks to finish. A check that
+starts while the canonical manifest is missing and a legacy manifest exists
+imports it under the install-state lock. A concurrent check that finds that
+lock busy does not import or warn: it reads the canonical manifest, or a valid
+legacy manifest when no canonical one exists, read-only. Importing and every
+change still take the lock. When an install writes into a
 provider directory, the manifest records the final installed path as
 `installedPath`. Automatic uninstall removes only manifest-owned files whose
 contents still match awesoMux's rendered template; modified installed files are

@@ -130,8 +130,8 @@ struct CommandBridgeRuntimeDeathHealViewTests {
         #expect(pane.attentionReason == (created ? nil : .permissionPrompt))
     }
 
-    @Test("ordinary command completion keeps the bridge surface mounted")
-    func ordinaryCommandCompletionKeepsBridgeSurfaceMounted() throws {
+    @Test("ordinary command completion keeps the bridge surface mounted", arguments: [Int16(0), -1])
+    func ordinaryCommandCompletionKeepsBridgeSurfaceMounted(exitCode: Int16) throws {
         let fixture = try makeSplitFixture()
         let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
         let view = runtime.surfaceView(
@@ -147,7 +147,15 @@ struct CommandBridgeRuntimeDeathHealViewTests {
         view.beginCommandBridgeStatusWatch(channel: channel)
         #expect(view.commandBridgeStatusWatcher?.isArmed == true)
 
-        view.handleCommandFinished(exitCode: 0)
+        let now = Date().timeIntervalSinceReferenceDate
+        view.commandExitCache.record(exitCode: 7, at: now)
+        #expect(view.commandExitCache.hasFreshNonZeroExitCode(now: now))
+        view.handleCommandFinished(exitCode: exitCode)
+
+        #expect(view.commandExitCache.exitCode == (exitCode >= 0 ? exitCode : nil))
+        #expect(!view.commandExitCache.hasFreshNonZeroExitCode(now: Date().timeIntervalSinceReferenceDate))
+        #expect(!view.commandExitCache.shouldSignalSiblingPaneExit(now: Date().timeIntervalSinceReferenceDate, paneCount: 2))
+        #expect(!CommandExitCache(exitCode: -1, recordedAt: now).hasFreshNonZeroExitCode(now: now))
 
         #expect(runtime.cachedSurfaceView(for: fixture.deadPane.id) === view)
         #expect(!view.ignoresProcessExitAfterCommandBridgeHeal)

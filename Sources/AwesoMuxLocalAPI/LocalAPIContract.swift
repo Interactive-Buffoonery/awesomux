@@ -1,14 +1,15 @@
+import AwesoMuxCompanionProtocol
 import Foundation
 
 public enum LocalAPIContract {
-    public static let version = 1
-    public static let maximumRequestBytes = 8 * 1024
-    public static let maximumResponseBytes = 256 * 1024
+    public static let version = CompanionProtocol.version
+    public static let maximumRequestBytes = CompanionProtocol.maximumRequestBytes
+    public static let maximumResponseBytes = CompanionProtocol.maximumResponseBytes
     public static let timeout: TimeInterval = 5
     public static let maximumClients = 8
     public static let maximumContextBytes = 24 * 1024
     public static let maximumAttentionEvents = 512
-    public static let maximumAttentionPageSize = 100
+    public static let maximumAttentionPageSize = CompanionProtocol.maximumAttentionPageSize
 
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -44,6 +45,8 @@ public struct LocalAPIRequest: Codable, Sendable {
     public let limit: Int?
     public let source: LocalAPIContextSource?
     public let cursor: String?
+    public let includeCommandEvents: Bool?
+    public let terminalPreviewAllowed: Bool?
 
     public init(
         profile: String,
@@ -51,7 +54,8 @@ public struct LocalAPIRequest: Codable, Sendable {
         connectionID: UUID? = nil,
         credential: String? = nil,
         paneID: UUID? = nil, targetVersion: UUID? = nil,
-        limit: Int? = nil, source: LocalAPIContextSource? = nil, cursor: String? = nil
+        limit: Int? = nil, source: LocalAPIContextSource? = nil, cursor: String? = nil,
+        includeCommandEvents: Bool? = nil
     ) {
         schemaVersion = LocalAPIContract.version
         requestID = UUID()
@@ -64,6 +68,8 @@ public struct LocalAPIRequest: Codable, Sendable {
         self.limit = limit
         self.source = source
         self.cursor = cursor
+        self.includeCommandEvents = includeCommandEvents
+        terminalPreviewAllowed = nil
     }
 }
 
@@ -83,6 +89,8 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case responseTooLarge = "response_too_large"
     case timeout
     case cancelled
+    case invalidTitle = "invalid_title"
+    case nonterminalTarget = "nonterminal_target"
     case staleTarget = "stale_target"
     case transportFailure = "transport_failure"
     case contextUnavailable = "context_unavailable"

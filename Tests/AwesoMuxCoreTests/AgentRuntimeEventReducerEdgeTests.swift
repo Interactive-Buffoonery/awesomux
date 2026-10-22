@@ -500,61 +500,34 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.agentKind == .shell)
     }
 
-    @Test("a tool that ends after the turn does not downgrade waiting")
-    func trailingToolEndAfterStopKeepsWaiting() throws {
+    @Test("trailing tool ends preserve waiting after a stop or restore", arguments: [false, true])
+    func trailingToolEndAfterStopKeepsWaiting(restored: Bool) throws {
         var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
         let paneID = session.activePaneID
-        seedExecutionState(&session, paneID: paneID, .thinking)
+        seedExecutionState(&session, paneID: paneID, restored ? .waiting : .thinking)
         var reducer = AgentRuntimeEventReducer()
 
-        let stopResult = reducer.decision(
-            for: AgentRuntimeEvent(
-                source: .claudeCode,
-                executionState: .waiting,
-                phase: .stop,
-                eventID: "stop",
-                timestamp: Date(timeIntervalSince1970: 10)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: true,
-            now: Date(timeIntervalSince1970: 10)
-        )
-        let stop = try #require(stopResult)
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session, paneID: paneID, update: stop.update, now: Date(timeIntervalSince1970: 10))
-        #expect(session.agentState == .waiting)
+        if !restored {
+            let stopResult = reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .waiting,
+                    phase: .stop,
+                    eventID: "stop",
+                    timestamp: Date(timeIntervalSince1970: 10)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: true,
+                now: Date(timeIntervalSince1970: 10)
+            )
+            let stop = try #require(stopResult)
+            _ = WorkspaceAttentionReducer.updatePane(
+                &session, paneID: paneID, update: stop.update, now: Date(timeIntervalSince1970: 10))
+            #expect(session.agentState == .waiting)
+        }
 
         // A background Bash task or a subagent finishing after the turn ended.
-        let trailingResult = reducer.decision(
-            for: AgentRuntimeEvent(
-                source: .claudeCode,
-                executionState: .thinking,
-                phase: .toolEnd,
-                eventID: "trailing",
-                timestamp: Date(timeIntervalSince1970: 12)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: true,
-            now: Date(timeIntervalSince1970: 12)
-        )
-        let trailing = try #require(trailingResult)
-        #expect(trailing.update.agentExecutionState == nil)
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session, paneID: paneID, update: trailing.update, now: Date(timeIntervalSince1970: 12))
-        #expect(session.agentState == .waiting)
-    }
-
-    @Test("a restored waiting pane is between turns before the reducer sees a stop")
-    func restoredWaitingPaneSeedsBetweenTurns() throws {
-        // The reducer's state is rebuilt empty on relaunch, but the pane's
-        // `.waiting` survives — a job that outlived the quit must not downgrade it.
-        var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
-        let paneID = session.activePaneID
-        seedExecutionState(&session, paneID: paneID, .waiting)
-        var reducer = AgentRuntimeEventReducer()
-
         let trailingResult = reducer.decision(
             for: AgentRuntimeEvent(
                 source: .claudeCode,

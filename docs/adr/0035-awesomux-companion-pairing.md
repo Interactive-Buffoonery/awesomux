@@ -3,11 +3,14 @@
 - **Status:** Proposed
 - **Date:** 2026-10-17
 - **Amended:** 2026-10-18 — one pairing with LAN and Tailscale routes (#782)
+- **Amended:** 2026-10-20 — per-device terminal, decision and transcript grants (see Amendment)
+- **Amended:** 2026-10-20 — Companion-only pane roster and bounded previews (#785)
 
 ## Context
 
-awesoMux Companion is a read-only iPhone app showing agent status, alerts, a
-widget, and a Live Activity. Its prototype reached the Mac through a Python
+awesoMux Companion shows agent status, alerts, a widget, and a Live Activity
+on iPhone. Paired phones remain read-only unless the Mac user explicitly
+enables terminal-pane renaming for that phone. Its prototype reached the Mac through a Python
 relay that called `awesomux-agent` with a manually created Outside app access
 grant. That works, but pairing a phone should take one scan, not a grant
 editor, a connection UUID, and a script.
@@ -30,7 +33,19 @@ the Companion pane: they do not appear under Outside app access and do not
 depend on its global switch, which is unreleased. Unpairing is revocation.
 Context sharing is not offered to phones.
 
-**One pairing carries up to two routes.** The planned v2 pairing link carries
+**Pane renaming is a separate opt-in.** The Mac's per-phone **Allow pane
+renaming** control stores an optional `paneRenameScope`; absent means denied,
+including existing and newly paired phones. A rename must satisfy both that
+scope and the phone's status scope. Preview permission never grants mutation
+authority. Only terminal panes can be renamed, using native pane and workspace
+UUIDs and `SessionStore.renamePane`; create, split, close, document-group rename,
+and workspace rename remain outside this layer (#795). Recheck the certificate
+and original revisioned lease at the synchronous MainActor mutation, holding the
+authority lock through the store change. Cancellation or an expired request
+deadline prevents a pending mutation. Policy changes invalidate outstanding
+leases before saving and deny the phone for the run if saving fails.
+
+**One pairing carries up to two routes.** The v2 pairing link carries
 one LAN IPv4 address and one Tailscale IPv4 address, omitting unavailable
 routes and requiring at least one. Both use the same stable port, Mac identity,
 phone grant, and exact runtime profile. The app binds only the listed private
@@ -59,18 +74,17 @@ Bonjour, and other VPN support are outside this decision.
 The phone tries LAN first, then Tailscale, verifying the same SPKI pin on either
 route before sending a secret or API request. On network change or foreground,
 it prefers LAN again with a cooldown to prevent flapping. A pinned,
-authenticated `get_connection_status` response may replace the whole route set,
-so a DHCP change need not require re-pairing when another saved route is still
+authenticated `get_connection_status` response updates each route kind it
+reports and keeps the last-known address of any kind it omits, so a DHCP change need not require re-pairing when another saved route is still
 reachable. If all routes are unreachable, the phone remains offline; it does
 not discover arbitrary replacement addresses or change trust after an identity
 failure. The [pairing protocol](../companion-pairing-protocol.md) defines the
 v2 link, route metadata, and legacy v1 rules.
 
-This amendment is a planned contract, not shipped behavior. Mac listeners and
-current-address reporting are implementation work in #783; phone v2 parsing,
-persistence, and route selection also need support. The current implementation
-uses a v1 link with one chosen transport. There is no silent v2 downgrade or
-reinterpretation. Framed pairing messages and the local API schema remain v1.
+Mac listeners and current-address reporting implement this contract in #783.
+Phone v2 parsing, persistence, and route selection still need phone-side support.
+There is no silent v2 downgrade or reinterpretation. Framed pairing messages
+and the local API schema remain v1.
 
 **Both sides authenticate with pinned keys.** The listener requires mutual
 TLS 1.3. The Mac's identity is a self-signed key in its Keychain. The phone
@@ -92,12 +106,23 @@ All listeners share one secret, consumed atomically by the first valid attempt;
 concurrent attempts through different routes cannot create separate approvals
 or grants. Unpairing or revocation invalidates the shared grant on every route.
 
-**The wire is the existing contract.** Inside TLS the listener accepts the
-same framed v1 requests, limited to `get_connection_status`, `list_agents`,
-and `get_attention_events`, and applies the same bounds, leases, and per-write
-authorization. A paired phone's key replaces the bearer credential. The phone
-groups agents and drives its widget and Live Activity from those responses. No companion-specific status contract or relay
-exists on the Mac.
+**The wire reuses the existing framing and authorization.** Inside TLS the
+listener accepts framed v1 requests for `get_connection_status`, `unpair`,
+`list_agents`, `get_attention_events`, and Companion-only `list_panes` and
+`set_terminal_preview`, plus separately Mac-approved `rename_pane`, with the
+same bounds, leases, and per-write authorization. A paired phone's key replaces
+the bearer credential. The #785 amendment adds an ordered workspace/pane roster
+and a bounded last-output preview from each terminal's active screen; it does
+not expose previews through the local bearer API or grant context/history.
+The shared wire DTOs and current payload/privacy rules are defined in the
+[pairing protocol](../companion-pairing-protocol.md#pane-roster-and-terminal-content-access).
+Terminal previews default off for existing pairings. Explicit Mac pairing
+approval or the named per-phone Mac switch can enable them; an authenticated
+phone can also enable or disable only its own previews through
+`set_terminal_preview` without further Mac approval. Permission revisions and
+per-write authorization protect both previews and mutation acknowledgements.
+The phone-side content gate remains a release requirement there. No relay or parallel workspace model is introduced. The amendment below defines
+additional independently granted capabilities.
 
 **Delivery is pull-only in this stage.** The phone reads while open and when
 iOS grants background time, and posts local notifications for new alerts.
@@ -122,3 +147,22 @@ they change signing or data custody.
 - ADR-0019 is unchanged: the app is not sandboxed, so listening needs no
   entitlement. Physical-device and TestFlight builds of the iPhone app need
   Developer Team signing.
+
+## Amendment (2026-10-20): per-device capability grants
+
+The status-only operation limit above is extended by capabilities that each
+need a separate, default-off, Mac-approved grant per paired phone. Pairing
+identity, mutual TLS, route rules, leases and revocation are unchanged, and
+none of these grants is implied by pairing or by another grant:
+
+- **Terminal** ([ADR-0036](0036-multi-client-terminal-leadership.md)): Mac-approved
+  access to a specific pane, defaulting to Watch, with a separate input grant.
+- **Decide** (ADR-0038, #793):
+  pending-decision reads and once-only answers for Mac-selected workspaces.
+- **Transcript** (ADR-0039, #829):
+  `get_agent_context` with `source: transcript` for Mac-selected workspaces.
+
+Each grant is stored with the companion connection, is removed by unpairing or
+revocation, and is enforced on the Mac rather than by hiding phone controls.
+ADR-0038 and ADR-0039 land in their own pull requests; this amendment covers
+all three so the scope change is recorded once.

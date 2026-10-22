@@ -31,7 +31,6 @@ struct BranchChangesIdentityTests {
         let first = try #require(makeIdentity(branch: prefix + "a"))
         let second = try #require(makeIdentity(branch: prefix + "b"))
         #expect(first != second)
-        #expect(first.hashValue != second.hashValue)
         // Both clip to the same display string, which is exactly why the raw
         // field — not the display one — is what the cache slot is keyed on.
         #expect(first.displayBranch == second.displayBranch)

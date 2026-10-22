@@ -1,6 +1,9 @@
 import Foundation
 import AwesoMuxAgentHookSupport
 
+// A broken provider pipe must fail the write and leave delivery unacknowledged.
+signal(SIGPIPE, SIG_IGN)
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 let input = AgentHookCommand.shouldReadStandardInput(arguments: arguments)
     ? AgentHookInputReader.read(

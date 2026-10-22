@@ -44,3 +44,16 @@ regression suite before publishing a rebuilt library.
 - A separate feature can offer recent output or paging for large histories.
   That work must preserve this native safety boundary and clearly describe any
   omitted text. VoiceOver's separate history API remains tracked in #523.
+
+## Recent-output viewer amendment (#582)
+
+The original whole-history API and its limits remain unchanged. The Show
+Scrollback sheet now uses a separate bounded recent-output read: it admits
+pages backwards from the newest row using live metadata, then formats only
+that suffix into a 256 KiB host buffer. Overflow retries fewer complete rows;
+a single oversized row still rejects. The same row/cell/page limits, renderer
+mutex, off-main worker and deferred native ownership apply. The sheet reports
+omitted older output explicitly; its Copy action copies only the exact shown
+terminal text. This is a transient snapshot, not a document or a saved history.
+Native responsiveness and accessibility require the focused
+[verification recipe](../verification/recent-scrollback.md).

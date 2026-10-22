@@ -50,6 +50,13 @@ protocol AgentPluginRunner: Sendable {
         provider: AgentPluginProvider,
         setup: AgentIntegrationSetup
     ) -> AgentPluginConfirmation
+
+    /// The resolved config folder a setup targets; install records key on it.
+    func pluginConfigHome(provider: AgentPluginProvider, setup: AgentIntegrationSetup) -> String
+
+    /// Folders with an awesoMux install record, so installs outside the
+    /// configured folders stay visible and removable.
+    func recordedConfigHomes(provider: AgentPluginProvider) -> [String]
 }
 
 // MARK: - AgentPluginAction
@@ -332,7 +339,7 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
             )
         case .codex:
             let codexHome = codexHome(setup: setup).path
-            let recordedRecord = installRecordReadOnly(provider: .codex)
+            let recordedRecord = installRecordReadOnly(provider: .codex, setup: setup)
             let staleRecord: AgentPluginInstallRecord?
             if case .enableOrInstall = action, let helper = helperPathResolver() {
                 staleRecord = staleCachedInstallRecord(
@@ -406,8 +413,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     ///   prompt so the next install records a digest and future app updates can
     ///   alert automatically. Safe: Repair reinstalls the current plugin.
     /// - Recorded digest ≠ current → standard "newer plugin available" Repair.
-    func outdatedSourceContentGuidance(provider: AgentPluginProvider) -> String? {
-        guard let record = installRecord(provider: provider) else {
+    func outdatedSourceContentGuidance(provider: AgentPluginProvider, configHome: String) -> String? {
+        guard let record = loadInstallManifest().record(for: provider, configHome: configHome) else {
             return nil
         }
         guard
@@ -441,22 +448,13 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     /// destructive uninstall.
     func staleCachedInstallRecord(
         provider: AgentPluginProvider,
+        setup: AgentIntegrationSetup,
         tree: AgentPluginRenderedTree
-    ) -> AgentPluginInstallRecord? {
-        staleCachedInstallRecord(provider: provider, helperPath: tree.helperPath)
-    }
-
-    /// Pure stale-cache check for confirmation: it mirrors the render-time
-    /// comparison without rendering a plugin tree, so the consent sheet can name
-    /// the recorded profile a conditional clean reinstall will touch.
-    func staleCachedInstallRecord(
-        provider: AgentPluginProvider,
-        helperPath: String
     ) -> AgentPluginInstallRecord? {
         staleCachedInstallRecord(
             provider: provider,
-            record: installRecord(provider: provider),
-            helperPath: helperPath
+            record: installRecord(provider: provider, setup: setup),
+            helperPath: tree.helperPath
         )
     }
 

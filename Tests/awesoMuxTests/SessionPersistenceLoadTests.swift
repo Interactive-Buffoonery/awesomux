@@ -15,7 +15,6 @@ extension SessionPersistenceSerializationDomainTests {
     struct SessionPersistenceLoadTests {
 
         enum SanitizedRestoreCase: String, CaseIterable {
-            case dirtySnapshotReturnsSanitizedWarning
             case sanitizedRestoreCopiesOriginalSnapshotBeforeCleanedSave
             case genuineV6MixedSnapshotRecoversThroughFullLoadPipeline
         }
@@ -23,20 +22,6 @@ extension SessionPersistenceSerializationDomainTests {
         @Test(arguments: SanitizedRestoreCase.allCases)
         func sanitizedRestore(_ scenario: SanitizedRestoreCase) throws {
             switch scenario {
-            case .dirtySnapshotReturnsSanitizedWarning:
-                try Self.withTemporarySupportDirectory { tempDir in
-                    let snapshot = Self.snapshot(groupName: "ops\u{202E}")
-                    try Self.write(snapshot, to: tempDir)
-
-                    let result = SessionPersistence.load()
-
-                    guard case let .sanitizedRestore(summary, _, _) = result.recoveryWarning?.kind else {
-                        Issue.record("expected sanitized restore warning")
-                        return
-                    }
-                    #expect(summary.groupNameAdjustments == 1)
-                    #expect(result.store.groups.first?.name == "ops")
-                }
             case .sanitizedRestoreCopiesOriginalSnapshotBeforeCleanedSave:
                 try Self.withTemporarySupportDirectory { tempDir in
                     let snapshot = Self.snapshot(groupName: "ops\u{202E}")
@@ -44,10 +29,12 @@ extension SessionPersistenceSerializationDomainTests {
 
                     let result = SessionPersistence.load()
 
-                    guard case let .sanitizedRestore(_, archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
+                    guard case let .sanitizedRestore(summary, archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
                         Issue.record("expected sanitized restore warning")
                         return
                     }
+                    #expect(summary.groupNameAdjustments == 1)
+                    #expect(result.store.groups.first?.name == "ops")
                     let archiveURL = try #require(archivedSnapshotURL)
                     #expect(archiveError == nil)
                     #expect(FileManager.default.fileExists(atPath: archiveURL.path))
@@ -1094,68 +1081,13 @@ extension SessionPersistenceSerializationDomainTests {
         @Test(arguments: PathStateAtAcknowledgementCase.allCases)
         func pathStateAtAcknowledgement(_ scenario: PathStateAtAcknowledgementCase) async throws {
             switch scenario {
-            case .deletedSnapshotCanResumeSaving0:
-                let kind = 0
-                try Self.withTemporarySupportDirectory { tempDir in
-                    let snapshotURL = tempDir.appending(path: "session-state.json")
-                    try Self.write(Self.snapshot(groupName: kind == 2 ? "ops\u{202E}" : "original"), to: tempDir)
-                    if kind == 0 { try Data("{not-json".utf8).write(to: snapshotURL) }
-                    let result = SessionPersistence.load(afterSnapshotOpen: {
-                        if kind != 0 {
-                            try FileManager.default.removeItem(at: snapshotURL)
-                            try Data("replacement".utf8).write(to: snapshotURL, options: .atomic)
-                        }
-                    })
-                    let warning = try #require(result.recoveryWarning)
-                    #expect(SessionPersistence.activeRecoveryWarning?.id == warning.id)
-                    switch (kind, warning.kind) {
-                    case (0, .archivedSnapshot), (1, .snapshotConflict), (2, .sanitizedRestore): break
-                    default: Issue.record("unexpected recovery warning kind")
+            case .deletedSnapshotCanResumeSaving0, .deletedSnapshotCanResumeSaving1, .deletedSnapshotCanResumeSaving2:
+                let kind =
+                    switch scenario {
+                    case .deletedSnapshotCanResumeSaving0: 0
+                    case .deletedSnapshotCanResumeSaving1: 1
+                    default: 2
                     }
-                    if kind != 0 {
-                        #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
-                        #expect(try Data(contentsOf: snapshotURL) == Data("replacement".utf8))
-                    }
-                    try FileManager.default.removeItem(at: snapshotURL)
-                    #expect(SessionPersistence.canAcknowledgeRecoveryWarning(warning))
-                    #expect(SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
-                    #expect(SessionPersistence.activeRecoveryWarning == nil)
-                    let store = SessionStore(restoring: Self.snapshot(groupName: "resumed"))
-                    try SessionPersistence.flush(store).get()
-                    #expect(try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL)).groups.map(\.name) == ["resumed"])
-                }
-            case .deletedSnapshotCanResumeSaving1:
-                let kind = 1
-                try Self.withTemporarySupportDirectory { tempDir in
-                    let snapshotURL = tempDir.appending(path: "session-state.json")
-                    try Self.write(Self.snapshot(groupName: kind == 2 ? "ops\u{202E}" : "original"), to: tempDir)
-                    if kind == 0 { try Data("{not-json".utf8).write(to: snapshotURL) }
-                    let result = SessionPersistence.load(afterSnapshotOpen: {
-                        if kind != 0 {
-                            try FileManager.default.removeItem(at: snapshotURL)
-                            try Data("replacement".utf8).write(to: snapshotURL, options: .atomic)
-                        }
-                    })
-                    let warning = try #require(result.recoveryWarning)
-                    #expect(SessionPersistence.activeRecoveryWarning?.id == warning.id)
-                    switch (kind, warning.kind) {
-                    case (0, .archivedSnapshot), (1, .snapshotConflict), (2, .sanitizedRestore): break
-                    default: Issue.record("unexpected recovery warning kind")
-                    }
-                    if kind != 0 {
-                        #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
-                        #expect(try Data(contentsOf: snapshotURL) == Data("replacement".utf8))
-                    }
-                    try FileManager.default.removeItem(at: snapshotURL)
-                    #expect(SessionPersistence.canAcknowledgeRecoveryWarning(warning))
-                    #expect(SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
-                    #expect(SessionPersistence.activeRecoveryWarning == nil)
-                    let store = SessionStore(restoring: Self.snapshot(groupName: "resumed"))
-                    try SessionPersistence.flush(store).get()
-                    #expect(try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL)).groups.map(\.name) == ["resumed"])
-                }
-            case .deletedSnapshotCanResumeSaving2:
-                let kind = 2
                 try Self.withTemporarySupportDirectory { tempDir in
                     let snapshotURL = tempDir.appending(path: "session-state.json")
                     try Self.write(Self.snapshot(groupName: kind == 2 ? "ops\u{202E}" : "original"), to: tempDir)
@@ -1235,27 +1167,8 @@ extension SessionPersistenceSerializationDomainTests {
         @Test(arguments: ExplicitReplacementCase.allCases)
         func explicitReplacement(_ scenario: ExplicitReplacementCase) async throws {
             switch scenario {
-            case .blockedWarningCanBeExplicitlyReplacedFalse:
-                let sanitized = false
-                try await Self.withTemporarySupportDirectoryAsync { tempDir in
-                    let snapshotURL = tempDir.appending(path: "session-state.json")
-                    try Self.write(Self.snapshot(groupName: sanitized ? "ops\u{202E}" : "original"), to: tempDir)
-                    let result = SessionPersistence.load(afterSnapshotOpen: {
-                        try FileManager.default.removeItem(at: snapshotURL)
-                        try Data("replacement".utf8).write(to: snapshotURL, options: .atomic)
-                    })
-                    let warning = try #require(result.recoveryWarning)
-                    #expect(!SessionPersistence.canAcknowledgeRecoveryWarning(warning))
-                    let store = SessionStore(restoring: Self.snapshot(groupName: "approved"))
-                    try await SessionPersistence.replaceSnapshotAfterRecovery(
-                        with: store, warning: warning, generatedDocumentPrune: { _ in }
-                    ).get()
-                    #expect(SessionPersistence.activeRecoveryWarning == nil)
-                    #expect(try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL)).groups.map(\.name) == ["approved"])
-                    try SessionPersistence.flush(store).get()
-                }
-            case .blockedWarningCanBeExplicitlyReplacedTrue:
-                let sanitized = true
+            case .blockedWarningCanBeExplicitlyReplacedFalse, .blockedWarningCanBeExplicitlyReplacedTrue:
+                let sanitized = scenario == .blockedWarningCanBeExplicitlyReplacedTrue
                 try await Self.withTemporarySupportDirectoryAsync { tempDir in
                     let snapshotURL = tempDir.appending(path: "session-state.json")
                     try Self.write(Self.snapshot(groupName: sanitized ? "ops\u{202E}" : "original"), to: tempDir)
@@ -1554,7 +1467,10 @@ extension SessionPersistenceSerializationDomainTests {
                             warning: warning,
                             snapshotWriter: { snapshot in
                                 writerStarted.signal()
-                                permitWriterToFinish.wait()
+                                guard permitWriterToFinish.wait(timeout: .now() + 30) == .success else {
+                                    Issue.record("Writer release did not arrive within 30 seconds")
+                                    return .failure(.writeFailed)
+                                }
                                 do {
                                     try JSONEncoder().encode(snapshot).write(
                                         to: snapshotURL,
@@ -1567,11 +1483,17 @@ extension SessionPersistenceSerializationDomainTests {
                             }
                         )
                     }
-                    await withCheckedContinuation { continuation in
+                    let writerDidStart = await awaitValue(fallback: false) { continuation in
                         DispatchQueue.global().async {
-                            writerStarted.wait()
-                            continuation.resume()
+                            let started = writerStarted.wait(timeout: .now() + 30) == .success
+                            #expect(started)
+                            continuation.resume(returning: started)
                         }
+                    }
+                    guard writerDidStart else {
+                        permitWriterToFinish.signal()
+                        _ = await replacementTask.value
+                        return
                     }
 
                     _ = SessionPersistence.flush(
@@ -1612,11 +1534,17 @@ extension SessionPersistenceSerializationDomainTests {
                             }
                         )
                     }
-                    await withCheckedContinuation { continuation in
+                    let writerDidStart = await awaitValue(fallback: false) { continuation in
                         DispatchQueue.global().async {
-                            writerStarted.wait()
-                            continuation.resume()
+                            let started = writerStarted.wait(timeout: .now() + 30) == .success
+                            #expect(started)
+                            continuation.resume(returning: started)
                         }
+                    }
+                    guard writerDidStart else {
+                        permitWriterToFinish.signal()
+                        _ = await replacementTask.value
+                        return
                     }
 
                     let flushResult = SessionPersistence.flush(
@@ -1659,7 +1587,10 @@ extension SessionPersistenceSerializationDomainTests {
                             warning: warning,
                             snapshotWriter: { snapshot in
                                 writerStarted.signal()
-                                permitWriterToFinish.wait()
+                                guard permitWriterToFinish.wait(timeout: .now() + 30) == .success else {
+                                    Issue.record("Writer release did not arrive within 30 seconds")
+                                    return .failure(.writeFailed)
+                                }
                                 do {
                                     try JSONEncoder().encode(snapshot).write(
                                         to: snapshotURL,
@@ -1672,11 +1603,17 @@ extension SessionPersistenceSerializationDomainTests {
                             }
                         )
                     }
-                    await withCheckedContinuation { continuation in
+                    let writerDidStart = await awaitValue(fallback: false) { continuation in
                         DispatchQueue.global().async {
-                            writerStarted.wait()
-                            continuation.resume()
+                            let started = writerStarted.wait(timeout: .now() + 30) == .success
+                            #expect(started)
+                            continuation.resume(returning: started)
                         }
+                    }
+                    guard writerDidStart else {
+                        permitWriterToFinish.signal()
+                        _ = await replacementTask.value
+                        return
                     }
 
                     // The write is in flight, so the terminate path must know to flush

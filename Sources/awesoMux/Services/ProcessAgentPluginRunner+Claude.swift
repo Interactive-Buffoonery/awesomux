@@ -13,18 +13,13 @@ extension ProcessAgentPluginRunner {
     // MARK: Status
 
     func claudeStatus(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
-        var report = await claudeStatusReport(setup: liveSetup)
-        // Like Codex: an edited-after-install Config home field can split where
-        // status reads from and where actions write to, at any status, so the
-        // drift note is attached uniformly rather than folded into one status.
-        report.note = claudeConfigHomeDriftNote(live: liveSetup)
-        return report
+        await claudeStatusReport(setup: liveSetup)
     }
 
     private func claudeStatusReport(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: liveSetup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        let recordedRef = effectiveRefForRecordedInstall(provider: .claudeCode)
+        let recordedRef = effectiveRefForRecordedInstall(provider: .claudeCode, setup: setup)
         guard let currentRef = (try? marketplaceRef(provider: .claudeCode)) ?? recordedRef else {
             return AgentPluginStatusReport(status: .unsupported("Bundled marketplace catalog is missing"))
         }
@@ -127,7 +122,9 @@ extension ProcessAgentPluginRunner {
                 return AgentPluginStatusReport(
                     status: .needsRepair(
                         "Claude settings enable the awesoMux status plugin, but Claude does not list it; Repair to reinstall it"
-                    ))
+                    ),
+                    presence: .absent
+                )
             }
             return AgentPluginStatusReport(status: .notInstalled)
         }
@@ -137,7 +134,8 @@ extension ProcessAgentPluginRunner {
             ?? matches[0]
         if !entry.errors.isEmpty {
             return AgentPluginStatusReport(
-                status: .needsRepair("The plugin reported errors: \(entry.errors.joined(separator: "; "))")
+                status: .needsRepair("The plugin reported errors: \(entry.errors.joined(separator: "; "))"),
+                presence: .present
             )
         }
 
@@ -165,12 +163,12 @@ extension ProcessAgentPluginRunner {
         // `installPath`.
         switch await claudeDeployedFreshness(entry: entry, setup: setup) {
         case .concluded(let status):
-            return AgentPluginStatusReport(status: status)
+            return AgentPluginStatusReport(status: status, presence: .present)
         case .inconclusive:
             break
         }
 
-        if let guidance = outdatedSourceContentGuidance(provider: .claudeCode) {
+        if let guidance = outdatedSourceContentGuidance(provider: .claudeCode, configHome: claudeConfigHome(setup: setup).path) {
             return AgentPluginStatusReport(status: .updateAvailable(guidance))
         }
 
@@ -217,11 +215,15 @@ extension ProcessAgentPluginRunner {
         guard let installPath = entry.installPath else {
             return .inconclusive
         }
-        guard
-            let tree = try? renderedTree(provider: .claudeCode, setup: setup),
-            let hookURL = tree.hookConfigURLs.first,
-            let renderedData = try? Data(contentsOf: hookURL)
-        else {
+        // Folder probes run concurrently and each re-renders the shared tree, so
+        // the read must not interleave with another probe's re-copy.
+        let renderedData = renderer.withRenderLock { () -> Data? in
+            guard let tree = try? renderedTree(provider: .claudeCode, setup: setup),
+                let hookURL = tree.hookConfigURLs.first
+            else { return nil }
+            return try? Data(contentsOf: hookURL)
+        }
+        guard let renderedData else {
             return .inconclusive
         }
         let deployedURL = URL(fileURLWithPath: installPath)
@@ -295,7 +297,7 @@ extension ProcessAgentPluginRunner {
         // "successful" reinstall with the record rewritten — exactly the silent
         // failure the clean-reinstall gate exists to prevent. Without a record
         // there is nothing recorded to target, so the fresh ref stands in.
-        var probeRef = installRecord(provider: .claudeCode)?.pluginRef ?? ref
+        var probeRef = installRecord(provider: .claudeCode, setup: setup)?.pluginRef ?? ref
         var presence: ClaudeInstalledPresence
         do {
             presence = try await claudePresence(ref: probeRef, executable: probeExecutable, env: probeEnv)
@@ -367,7 +369,7 @@ extension ProcessAgentPluginRunner {
         // deployed-copy drift, where the records are fresh but the cache copy
         // Claude actually executes differs from the render. A definitively
         // absent plugin skips the uninstall either way.
-        let recordStale = staleCachedInstallRecord(provider: .claudeCode, tree: tree)
+        let recordStale = staleCachedInstallRecord(provider: .claudeCode, setup: setup, tree: tree)
         var deployedDrift = false
         if case .installed(.some(let installPath)) = presence {
             deployedDrift = await Self.deployedCopyDiffersFromRender(
@@ -387,7 +389,7 @@ extension ProcessAgentPluginRunner {
                         env: probeEnv
                     )
                 )
-            } else if let record = recordStale ?? installRecord(provider: .claudeCode) {
+            } else if let record = recordStale ?? installRecord(provider: .claudeCode, setup: setup) {
                 let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
                 let recordedEnv = claudeEnvironment(setup: recordedSetup)
                 steps.append(
@@ -432,7 +434,9 @@ extension ProcessAgentPluginRunner {
     func claudeDisable(setup: AgentIntegrationSetup) async -> AgentPluginActionOutcome {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard let preferredRef = effectiveRefForRecordedInstall(provider: .claudeCode) ?? (try? marketplaceRef(provider: .claudeCode))
+        guard
+            let preferredRef = effectiveRefForRecordedInstall(provider: .claudeCode, setup: setup)
+                ?? (try? marketplaceRef(provider: .claudeCode))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
@@ -468,7 +472,9 @@ extension ProcessAgentPluginRunner {
     func claudeUninstall(setup: AgentIntegrationSetup) async -> AgentPluginActionOutcome {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard let preferredRef = effectiveRefForRecordedInstall(provider: .claudeCode) ?? (try? marketplaceRef(provider: .claudeCode))
+        guard
+            let preferredRef = effectiveRefForRecordedInstall(provider: .claudeCode, setup: setup)
+                ?? (try? marketplaceRef(provider: .claudeCode))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
@@ -499,7 +505,7 @@ extension ProcessAgentPluginRunner {
             return failure
         }
 
-        try? removeInstallRecord(provider: .claudeCode)
+        try? removeInstallRecord(provider: .claudeCode, setup: setup)
         return AgentPluginActionOutcome(status: .notInstalled)
     }
 
@@ -641,24 +647,6 @@ extension ProcessAgentPluginRunner {
             fileManager: fileManager,
             ladderProbe: ladderProbe
         )?.differsFromCurrentRender ?? false
-    }
-
-    /// A note when the live Config home field diverges from the home the recorded
-    /// install actually targeted. Status/disable/uninstall follow the recorded
-    /// home; enable/repair follow the live field — so a post-install field edit
-    /// silently splits where status reads from and where actions land. Surfacing
-    /// the split lets the user reconcile it deliberately. `nil` when there is no
-    /// record or the two agree.
-    private func claudeConfigHomeDriftNote(live liveSetup: AgentIntegrationSetup) -> String? {
-        guard let record = installRecord(provider: .claudeCode) else { return nil }
-        let recordedHome = record.configHome
-        let liveHome = claudeConfigHome(setup: liveSetup).path
-        guard recordedHome != liveHome else { return nil }
-        return
-            String(
-                localized:
-                    "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home.",
-                comment: "Explains recorded and current provider configuration homes")
     }
 
     func claudeConfigHome(setup: AgentIntegrationSetup) -> URL {

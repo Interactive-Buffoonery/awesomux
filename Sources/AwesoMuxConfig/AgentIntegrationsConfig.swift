@@ -45,23 +45,29 @@ public struct AgentIntegrationSetup: Codable, Equatable, Sendable {
 
     public var binaryPath: String?
     public var configHome: String?
+    /// More config folders to manage alongside `configHome` (e.g. a second
+    /// `CLAUDE_CONFIG_DIR`). Each folder keeps its own install.
+    public var additionalConfigHomes: [String]?
 
     public static let defaultValue = AgentIntegrationSetup()
 
     public init(
         enabled: Bool = false,
         binaryPath: String? = nil,
-        configHome: String? = nil
+        configHome: String? = nil,
+        additionalConfigHomes: [String]? = nil
     ) {
         self.enabled = enabled
         self.binaryPath = binaryPath
         self.configHome = configHome
+        self.additionalConfigHomes = additionalConfigHomes
     }
 
     enum CodingKeys: String, CodingKey {
         case enabled
         case binaryPath = "binary_path"
         case configHome = "config_home"
+        case additionalConfigHomes = "additional_config_homes"
     }
 }
 

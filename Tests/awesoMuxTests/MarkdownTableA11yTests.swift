@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import SwiftUI
 import Testing
 
@@ -158,7 +159,7 @@ struct WideTableOverflowTests {
         defer { NotificationCenter.default.removeObserver(coordinator) }
         scroll.setFrameSize(NSSize(width: 500, height: 400))
         // Geometry is queued on the common run loop; enqueue behind that pass.
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
         let after = try #require(CommentBadgeOverlay.cellRectInTextView(range: range, in: text))
@@ -233,38 +234,6 @@ struct TableAXGridTests {
     }
 }
 
-// MARK: - AXTable element tree (INT-687)
-
-@Suite("AXTable element tree (INT-687)")
-@MainActor
-struct TableAXElementTreeTests {
-
-    @Test("every exposed cell, including empty rows, has a live frame")
-    func exposedCellsHaveFrames() throws {
-        let source = "| A | B |\n| - | - |\n| x | y |\n|  |  |\n| z | w |"
-        let (scroll, text, _, attr) = makeWideTableHarness(source: source)
-        let window = NSWindow(contentRect: scroll.bounds, styleMask: [], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = scroll
-        defer { window.contentView = nil; window.close() }
-        let overlay = CommentBadgeOverlay(frame: text.bounds)
-        text.addSubview(overlay)
-        overlay.updateBadges(attr: attr, textView: text)
-        let table = try #require(overlay.tableAccessibilityElements.first)
-        let rows = try #require(table.accessibilityRows() as? [NSAccessibilityElement])
-        #expect(rows.count == 4)
-        for row in rows {
-            let cells = try #require(row.accessibilityChildren() as? [NSAccessibilityElement])
-            #expect(cells.count == 2)
-            for cell in cells {
-                #expect(cell.accessibilityFrame().width > 0)
-                #expect(cell.accessibilityFrame().height > 0)
-            }
-        }
-    }
-
-}
-
 // MARK: - AXTable lazy materialization
 
 /// Accessibility clients can attach after rendering and must see current cells.
@@ -303,9 +272,14 @@ struct TableAXLazyMaterializationTests {
         #expect(cells[1].accessibilityLabel() == "Status: Great")
     }
 
-    @Test("a client attaching after the render still reaches every cell, with live frames")
-    func clientAttachingAfterRender() throws {
-        let (scrollView, _, overlay) = makeOverlay()
+    @Test("a client attaching after the render still reaches every cell, with live frames", arguments: [false, true])
+    func clientAttachingAfterRender(emptyRow: Bool) throws {
+        let source =
+            emptyRow
+            ? "| A | B |\n| - | - |\n| x | y |\n|  |  |\n| z | w |"
+            : Self.source
+        let (scrollView, _, overlay) = makeOverlay(source: source)
+        let rowCount = emptyRow ? 4 : 3
 
         // The whole point of deferring: the tree is built by the first query,
         // which can arrive long after the document rendered.
@@ -321,11 +295,11 @@ struct TableAXLazyMaterializationTests {
 
         let table = try #require(children.first { $0.accessibilityRole() == .table })
         #expect(table.accessibilityRole() == .table)
-        #expect(table.accessibilityRowCount() == 3)
+        #expect(table.accessibilityRowCount() == rowCount)
         #expect(table.accessibilityColumnCount() == 2)
 
         let rows = try #require(table.accessibilityRows() as? [NSAccessibilityElement])
-        #expect(rows.count == 3)
+        #expect(rows.count == rowCount)
         #expect(rows[1].accessibilityRole() == .row)
         #expect(rows[1].accessibilityIndex() == 1)
 
@@ -338,15 +312,23 @@ struct TableAXLazyMaterializationTests {
         #expect(bodyCells[0].accessibilityRole() == .cell)
         #expect(bodyCells[0].accessibilityRowIndexRange() == NSRange(location: 1, length: 1))
         #expect(bodyCells[0].accessibilityColumnIndexRange() == NSRange(location: 0, length: 1))
-        #expect(bodyCells[0].accessibilityLabel() == "Name: Rocket")
+        #expect(bodyCells[0].accessibilityLabel() == (emptyRow ? "A: x" : "Name: Rocket"))
 
         let headerCells = try #require(rows[0].accessibilityChildren() as? [NSAccessibilityElement])
-        #expect(headerCells[0].accessibilityLabel() == "Name, column header")
+        #expect(headerCells[0].accessibilityLabel() == (emptyRow ? "A, column header" : "Name, column header"))
 
         let headerElements = try #require(
             table.accessibilityColumnHeaderUIElements() as? [NSAccessibilityElement]
         )
         #expect(headerElements.count == 2)
         #expect(bodyCells[0].accessibilityFrame() != .zero)
+        for row in rows {
+            let cells = try #require(row.accessibilityChildren() as? [NSAccessibilityElement])
+            #expect(cells.count == 2)
+            for cell in cells {
+                #expect(cell.accessibilityFrame().width > 0)
+                #expect(cell.accessibilityFrame().height > 0)
+            }
+        }
     }
 }

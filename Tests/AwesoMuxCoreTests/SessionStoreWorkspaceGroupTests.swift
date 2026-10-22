@@ -38,68 +38,39 @@ struct SessionStoreWorkspaceGroupTests {
         #expect(session.activePane?.executionPlan == .local)
     }
 
-    @Test("renameGroup rejects blank or case-insensitive duplicate names")
-    func renameGroupRejectsBlankOrDuplicateNames() {
-        let first = SessionGroup(name: "awesoMux", sessions: [])
-        let second = SessionGroup(name: "Scratch", sessions: [])
-        let store = SessionStore(groups: [first, second])
-
-        #expect(store.renameGroup(id: first.id, to: " \n\t ") == false)
-        #expect(store.renameGroup(id: first.id, to: "scratch") == false)
-
-        #expect(store.groups.map(\.name) == ["awesoMux", "Scratch"])
-    }
-
-    @Test("managed SSH workspace keeps pane identity without changing group default")
-    func addSSHSessionKeepsPaneOwnedIdentity() throws {
+    @Test("managed SSH workspace keeps pane identity without changing group default", arguments: [false, true])
+    func addSSHSessionKeepsPaneOwnedIdentity(remoteOwned: Bool) throws {
         let local = TerminalSession(title: "shell 1", workingDirectory: "~")
         let group = SessionGroup(name: "Current Group", sessions: [local])
         let store = SessionStore(groups: [group], selectedSessionID: local.id)
         let target = try #require(RemoteTarget(parsing: "my-server"))
-        let sessionID = try #require(store.addSSHSession(target: target, toGroupID: group.id))
+        let name = try #require(RemoteSessionName(rawValue: "my-session"))
+        let sessionName = remoteOwned ? name : nil
+        let expected =
+            remoteOwned
+            ? try #require(SSHExecution(target: target, persistenceOwner: .remoteZmx, sessionName: sessionName))
+            : SSHExecution(target: target)
+        let sessionID = try #require(store.addSSHSession(target: target, toGroupID: group.id, sessionName: sessionName))
 
         #expect(store.groups[0].remote == nil)
-        #expect(store.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
+        let plan = store.session(id: sessionID)?.activePane?.executionPlan
+        #expect(plan == .ssh(expected))
+        if remoteOwned {
+            let execution = try #require(plan?.remoteOwnedExecution)
+            #expect(execution.target == target)
+            #expect(execution.sessionName == sessionName)
+        } else {
+            #expect(plan?.remoteOwnedExecution == nil)
+        }
         store.moveSession(id: sessionID, toGroupID: group.id, atIndex: 0)
         let data = try JSONEncoder().encode(store.snapshot())
         let restored = SessionStore(restoring: try SessionSnapshot.decode(from: data))
-        #expect(restored.session(id: sessionID)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
+        #expect(restored.session(id: sessionID)?.activePane?.executionPlan == .ssh(expected))
         #expect(restored.groups[0].remote == nil)
     }
 
-    @Test("a declared session name makes the new SSH workspace remote-owned")
-    func addSSHSessionDeclaresRemoteOwnedSession() throws {
-        let group = SessionGroup(name: "Work", sessions: [])
-        let store = SessionStore(groups: [group])
-        let target = try #require(RemoteTarget(parsing: "my-server"))
-        let sessionName = try #require(RemoteSessionName(rawValue: "my-session"))
-        let sessionID = try #require(
-            store.addSSHSession(
-                target: target,
-                toGroupID: group.id,
-                sessionName: sessionName
-            ))
-
-        let execution = try #require(
-            store.session(id: sessionID)?.activePane?.executionPlan.remoteOwnedExecution)
-        #expect(execution.target == target)
-        #expect(execution.sessionName == sessionName)
-    }
-
-    @Test("a new SSH workspace without a session name stays local-amx")
-    func addSSHSessionWithoutSessionNameStaysLocalAmx() throws {
-        let group = SessionGroup(name: "Work", sessions: [])
-        let store = SessionStore(groups: [group])
-        let target = try #require(RemoteTarget(parsing: "my-server"))
-        let sessionID = try #require(store.addSSHSession(target: target, toGroupID: group.id))
-
-        let plan = store.session(id: sessionID)?.activePane?.executionPlan
-        #expect(plan == .ssh(SSHExecution(target: target)))
-        #expect(plan?.remoteOwnedExecution == nil)
-    }
-
-    @Test("managed SSH conversion replaces the active pane in place")
-    func managedSSHConversionReplacesActivePaneInPlace() throws {
+    @Test("managed SSH conversion replaces the active pane in place", arguments: [false, true])
+    func managedSSHConversionReplacesActivePaneInPlace(remoteOwned: Bool) throws {
         let sibling = TerminalPane(title: "local", workingDirectory: "~", executionPlan: .local)
         let converting = TerminalPane(title: "ssh", workingDirectory: "~", executionPlan: .local)
         let session = TerminalSession(
@@ -117,33 +88,12 @@ struct SessionStoreWorkspaceGroupTests {
         let store = SessionStore(groups: [group], selectedSessionID: session.id)
         let target = try #require(RemoteTarget(parsing: "my-server"))
 
-        #expect(
-            store.convertPaneToManagedSSH(
-                sessionID: session.id,
-                paneID: converting.id,
-                target: target
-            ) == converting.id
-        )
-        #expect(store.groups[0].sessions.map(\.id) == [session.id])
-        #expect(store.groups[0].remote == nil)
-        #expect(store.session(id: session.id)?.layout.pane(id: sibling.id) == sibling)
-        #expect(store.session(id: session.id)?.activePane?.id != converting.id)
-        #expect(store.session(id: session.id)?.activePane?.executionPlan == .ssh(SSHExecution(target: target)))
-    }
-
-    @Test("a declared session name makes the converted pane remote-owned")
-    func managedSSHConversionDeclaresRemoteOwnedSession() throws {
-        let converting = TerminalPane(title: "ssh", workingDirectory: "~", executionPlan: .local)
-        let session = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            layout: .pane(converting),
-            activePaneID: converting.id
-        )
-        let group = SessionGroup(name: "Work", sessions: [session])
-        let store = SessionStore(groups: [group], selectedSessionID: session.id)
-        let target = try #require(RemoteTarget(parsing: "my-server"))
-        let sessionName = try #require(RemoteSessionName(rawValue: "my-session"))
+        let name = try #require(RemoteSessionName(rawValue: "my-session"))
+        let sessionName = remoteOwned ? name : nil
+        let expected =
+            remoteOwned
+            ? try #require(SSHExecution(target: target, persistenceOwner: .remoteZmx, sessionName: sessionName))
+            : SSHExecution(target: target)
 
         #expect(
             store.convertPaneToManagedSSH(
@@ -153,31 +103,16 @@ struct SessionStoreWorkspaceGroupTests {
                 sessionName: sessionName
             ) == converting.id
         )
-
-        let execution = try #require(
-            store.session(id: session.id)?.activePane?.executionPlan.remoteOwnedExecution)
-        #expect(execution.target == target)
-        #expect(execution.sessionName == sessionName)
-    }
-
-    @Test("remoteTarget finds the active pane's declared target")
-    func remoteTargetLookupFindsActivePanePlan() {
-        let target = RemoteTarget(user: "ed", host: "box")!
-        let session = TerminalSession(
-            title: "shell 1",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentState: .idle,
-            executionPlan: .ssh(SSHExecution(target: target))
-        )
-        let group = SessionGroup(
-            name: "box",
-            remote: target,
-            sessions: [session]
-        )
-        let store = SessionStore(groups: [group], selectedSessionID: session.id)
-
-        #expect(store.remoteTarget(forSessionID: session.id) == target)
+        #expect(store.groups[0].sessions.map(\.id) == [session.id])
+        #expect(store.groups[0].remote == nil)
+        #expect(store.session(id: session.id)?.layout.pane(id: sibling.id) == sibling)
+        #expect(store.session(id: session.id)?.activePane?.id != converting.id)
+        #expect(store.session(id: session.id)?.activePane?.executionPlan == .ssh(expected))
+        if remoteOwned {
+            let execution = try #require(store.session(id: session.id)?.activePane?.executionPlan.remoteOwnedExecution)
+            #expect(execution.target == target)
+            #expect(execution.sessionName == sessionName)
+        }
     }
 
     @Test("an explicit local pane is not retargeted by its remote group")

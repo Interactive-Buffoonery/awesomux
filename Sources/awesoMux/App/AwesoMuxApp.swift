@@ -824,6 +824,7 @@ struct AwesoMuxApp: App {
             let rootContentAfterGroupsWatch =
                 rootContentAfterSaveStatus
             .onChange(of: sessionStore.groups) { _, _ in
+                    companionPairingCoordinator.reconcileDecisionWorkspaces()
                 saveSessionIfRestoreEnabled()
                     Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
@@ -5008,6 +5009,13 @@ struct AwesoMuxApp: App {
         let candidates =
             [session.activePaneID]
             + session.layout.paneIDs.filter { $0 != session.activePaneID }
+        if let paneID = candidates.first(where: {
+            ghosttyRuntime.localPermissionCoordinator.cards[$0]?.outcome.state == .pending
+        }) {
+            sessionStore.setActivePane(id: paneID, in: sessionID)
+            DispatchQueue.main.async { ghosttyRuntime.localPermissionCoordinator.requestFocus(paneID: paneID) }
+            return
+        }
         guard
             let target = candidates.lazy.compactMap({ paneID -> (TerminalPane.ID, BridgePermissionCoordinator)? in
                 guard let terminalSessionID = session.layout.pane(id: paneID)?.terminalSessionID,

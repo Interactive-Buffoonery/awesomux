@@ -367,6 +367,20 @@ ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test \
   -Dapp-runtime=none -Demit-macos-app=false \
   -Dtest-filter=awesomux-link-paths --summary all
 
+# Preserve unknown OSC 133 status through semantic conversion and the C export.
+ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test \
+  --cache-dir "$AWESOMUX_ZIG_CACHE_DIR" \
+  -Doptimize="$AWESOMUX_GHOSTTY_OPTIMIZE" \
+  -Dapp-runtime=none -Demit-macos-app=false \
+  -Dtest-filter=awesomux-command-status --summary all
+
+# Erasing scrollback must not relocate old image placements onto the screen.
+ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test \
+  --cache-dir "$AWESOMUX_ZIG_CACHE_DIR" \
+  -Doptimize="$AWESOMUX_GHOSTTY_OPTIMIZE" \
+  -Dapp-runtime=none -Demit-macos-app=false \
+  -Dtest-filter=awesomux-kitty-clear --summary all
+
 if [[ ! -d "$GHOSTTY_BUILT_SHARE_DIR" ]]; then
   echo "Ghostty build completed without required artifacts." >&2
   exit 1

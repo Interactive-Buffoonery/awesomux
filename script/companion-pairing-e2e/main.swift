@@ -1,6 +1,8 @@
+import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
+import Darwin
 import Foundation
 import Network
 import Security
@@ -17,31 +19,24 @@ private struct PairingLink {
     let secret: String
     let macName: String
     let transport: String
+    let advertisedRoutes: [String: String]
 
     init(_ rawValue: String) throws {
-        guard let components = URLComponents(string: rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
-            components.scheme == "awesomuxcompanion", components.host == "pair",
-            let queryItems = components.queryItems, queryItems.count == 7
-        else { throw E2EFailure("invalid pairing link") }
-        var values: [String: String] = [:]
-        for item in queryItems {
-            guard values[item.name] == nil, let value = item.value else { throw E2EFailure("duplicate pairing field") }
-            values[item.name] = value
-        }
-        guard Set(values.keys) == ["v", "h", "p", "fp", "s", "n", "t"], values["v"] == "1",
-            let rawHost = values["h"], let rawPort = values["p"], let portValue = UInt16(rawPort),
-            let port = NWEndpoint.Port(rawValue: portValue),
-            let fingerprint = Data(base64URL: values["fp"] ?? ""), fingerprint.count == 32,
-            let secretData = Data(base64URL: values["s"] ?? ""), secretData.count == 32,
-            let secret = values["s"], let macName = values["n"], !macName.isEmpty,
-            let transport = values["t"], transport == "lan" || transport == "tailscale"
+        let link = try CompanionPairingLinkV2(rawValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let rawHost = link.routes.lan ?? link.routes.tailscale,
+            let port = NWEndpoint.Port(rawValue: link.routes.p),
+            let fingerprint = Data(base64URL: link.macFingerprint), fingerprint.count == 32,
+            let secretData = Data(base64URL: link.secret), secretData.count == 32,
+            !link.macName.isEmpty
         else { throw E2EFailure("invalid pairing field") }
+        let transport = link.routes.lan != nil ? "lan" : "tailscale"
         host = NWEndpoint.Host(rawHost)
         self.port = port
         macFingerprint = fingerprint
-        self.secret = secret
-        self.macName = macName
+        self.secret = link.secret
+        self.macName = link.macName
         self.transport = transport
+        advertisedRoutes = ["lan": link.routes.lan, "tailscale": link.routes.tailscale].compactMapValues { $0 }
     }
 }
 
@@ -138,7 +133,7 @@ private enum CompanionClient {
         return object
     }
 
-    private static func sendFrame(_ data: Data, connection: NWConnection) async throws {
+    static func sendFrame(_ data: Data, connection: NWConnection) async throws {
         var length = UInt32(data.count).bigEndian
         var frame = withUnsafeBytes(of: &length) { Data($0) }
         frame.append(data)
@@ -151,7 +146,7 @@ private enum CompanionClient {
         }
     }
 
-    private static func readFrame(_ connection: NWConnection) async throws -> Data {
+    static func readFrame(_ connection: NWConnection) async throws -> Data {
         let header = try await receive(connection, count: 4)
         let length = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
         guard length > 0, length <= LocalAPIContract.maximumResponseBytes else {
@@ -181,28 +176,51 @@ private enum CompanionClient {
 struct CompanionPairingE2E {
     @MainActor
     static func main() async {
+        var ownedIdentity: E2EClientIdentity?
         do {
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            if arguments.first == "--cleanup-client-identity" {
+                guard arguments.count == 2 else { throw E2EFailure("invalid client cleanup command") }
+                try E2EClientIdentity.cleanup(receiptPath: arguments[1])
+                print("client_identity=removed_and_verified")
+                return
+            }
+            if arguments == ["--decision-outcomes-only"] {
+                try verifyDecisionOutcomeOrdering()
+                print("decision_outcome_ordering=passed")
+                return
+            }
+            if try handleFixtureCommand() { return }
+            if Array(CommandLine.arguments.dropFirst()) == ["--alert-preferences-only"] {
+                try verifyAlertPreferenceWireFixtures()
+                try verifyAlertPreferenceStorageAndJournal()
+                try verifyAlertPresenceSamplingInStore()
+                return
+            }
             let invocation = try invocation()
             if let cleanupResult = invocation.cleanupResult {
                 try cleanup(resultFile: cleanupResult)
                 print("cleanup=revoked")
                 return
             }
+            try verifyAlertPreferenceStorageAndJournal()
+            try verifyAlertPresenceSamplingInStore()
             guard let rawLink = invocation.link else { throw E2EFailure("pairing link is missing") }
             guard let expectedProfile = invocation.profile else { throw E2EFailure("development profile is missing") }
             let link = try PairingLink(rawLink)
-            let identity = try E2EClientIdentity.make()
-            defer { identity.cleanup() }
+            guard let resultFile = invocation.resultFile else { throw E2EFailure("the result file is missing") }
+            let receiptPath = URL(fileURLWithPath: resultFile).deletingLastPathComponent().appending(path: "client-identity.json").path
+            let identity = try E2EClientIdentity.make(receiptPath: receiptPath)
+            ownedIdentity = identity
             print("endpoint=\(link.host):\(link.port) transport=\(link.transport) mac=\(link.macName)")
             print("client_spki_sha256=\(Data(SHA256.hash(data: identity.spki)).base64URL)")
 
             try await verifyWrongSecretIsDenied(link: link, identity: identity)
             let connectionID = try await pair(link: link, identity: identity)
-            guard let resultFile = invocation.resultFile else { throw E2EFailure("the result file is missing") }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile)
             try await verifyMacPin(link: link, identity: identity)
             var profile: String?
-            for operation in ["get_connection_status", "list_agents", "get_attention_events"] {
+            for operation in ["get_connection_status", "list_agents", "list_panes", "get_attention_events"] {
                 var request: [String: Any] = [
                     "schemaVersion": 1,
                     "requestID": UUID().uuidString.lowercased(),
@@ -212,8 +230,45 @@ struct CompanionPairingE2E {
                 if operation == "get_attention_events" { request["limit"] = 100 }
                 let response = try await call(request, link: link, identity: identity)
                 guard response["error"] == nil else { throw E2EFailure("\(operation) was denied") }
-                if operation == "get_connection_status" { profile = response["profile"] as? String }
-                printJSON(label: operation, object: response)
+                if operation == "get_connection_status" {
+                    profile = response["profile"] as? String
+                    guard let routes = response["routes"] as? [String: Any], routes["v"] as? Int == 2,
+                        routes["p"] as? Int == Int(link.port.rawValue),
+                        link.advertisedRoutes.allSatisfy({ routes[$0.key] as? String == $0.value })
+                    else { throw E2EFailure("status did not report the advertised v2 routes") }
+                    print("advertised_routes=\(link.advertisedRoutes.keys.sorted().joined(separator: ","))")
+                    guard response["terminalPreviewAllowed"] as? Bool == true else {
+                        throw E2EFailure("new pairing did not retain disclosed preview consent")
+                    }
+                }
+                if operation == "list_panes" {
+                    let encoded = try JSONSerialization.data(withJSONObject: response)
+                    let roster = try CompanionProtocol.decoder().decode(CompanionAPIResponse.self, from: encoded)
+                    guard let workspaces = roster.workspaces, !workspaces.isEmpty,
+                        workspaces.contains(where: { $0.panes.contains(where: { $0.kind == "terminal" }) })
+                    else { throw E2EFailure("list_panes did not return terminal workspaces") }
+                    if let fixtureSnapshot = invocation.fixtureSnapshot {
+                        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: fixtureSnapshot)))
+                        guard let snapshot = object as? [String: Any], let groups = snapshot["groups"] as? [[String: Any]] else {
+                            throw E2EFailure("native fixture snapshot is invalid")
+                        }
+                        let sessions = groups.flatMap { $0["sessions"] as? [[String: Any]] ?? [] }
+                        let expectedIDs = sessions.compactMap { ($0["id"] as? String).flatMap(UUID.init(uuidString:)) }
+                        guard expectedIDs.count == 2,
+                            workspaces.compactMap({ UUID(uuidString: $0.workspaceID) }) == expectedIDs,
+                            workspaces.allSatisfy({ $0.panes.count == 1 && $0.panes[0].kind == "terminal" })
+                        else { throw E2EFailure("pane roster did not match the two owned native fixtures") }
+                    }
+                    for pane in workspaces.flatMap(\.panes) {
+                        guard pane.lastOutputLine.map({ !$0.contains(where: \.isNewline) && $0.utf8.count <= 512 }) ?? true,
+                            pane.kind == "terminal" || pane.lastOutputLine == nil
+                        else { throw E2EFailure("list_panes returned an invalid preview") }
+                    }
+                    // Do not retain terminal content in the E2E log.
+                    print("list_panes=validated workspaces=\(workspaces.count) panes=\(workspaces.flatMap(\.panes).count)")
+                } else {
+                    printJSON(label: operation, object: response)
+                }
             }
             let denied = try await call(
                 [
@@ -237,6 +292,174 @@ struct CompanionPairingE2E {
                     "operation": operation, "connectionID": id ?? connectionID,
                 ]
             }
+            // Synthetic decisions use a separate coordinator and cannot reach
+            // a real provider. Production gate rejection is checked separately.
+            let productionStatus = try await call(request("get_connection_status"), link: link, identity: identity)
+            guard productionStatus["remoteDecisionsEnabled"] as? Bool == false else {
+                throw E2EFailure("synthetic transport fixture enabled the production provider gate")
+            }
+            let fixtureURL = URL(fileURLWithPath: resultFile).deletingLastPathComponent().appendingPathComponent("decision-identities.json")
+            guard let identities = try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any],
+                let expiredIdentity = identities["expired"] as? [String: Any],
+                let outsideIdentity = identities["outside"] as? [String: Any]
+            else { throw E2EFailure("synthetic decision identities are missing") }
+            let pending = try await call(request("list_pending_decisions"), link: link, identity: identity)
+            guard pending["error"] == nil, pending["remoteDecisionsEnabled"] as? Bool == false,
+                let decisions = pending["pendingDecisions"] as? [[String: Any]], decisions.count == 2,
+                let live = decisions.first?["identity"] as? [String: Any]
+            else { throw E2EFailure("scoped pending decisions fixture did not list both queued live requests") }
+            func answer(_ identity: [String: Any], choice: String, retry: String) throws -> sending [String: Any] {
+                var value = request("decide")
+                value["decisionAnswer"] = ["identity": identity, "choice": choice, "retryID": retry]
+                // Detach reused fixture identities before crossing the async client boundary.
+                let data = try JSONSerialization.data(withJSONObject: value)
+                return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            }
+            var staleDecision = live
+            staleDecision["revision"] = 999
+            let staleReply = try await call(
+                answer(staleDecision, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
+            guard (staleReply["decisionReceipt"] as? [String: Any])?["result"] as? String == "unknown" else {
+                throw E2EFailure("stale revision was accepted")
+            }
+            var malformedDecision = try answer(live, choice: "allow", retry: UUID().uuidString)
+            malformedDecision["summary"] = "device-supplied authority"
+            let malformedReply = try await call(malformedDecision, link: link, identity: identity)
+            guard malformedReply["error"] as? String == "invalid_request" else { throw E2EFailure("decision extra fields were accepted") }
+            let retry = UUID().uuidString
+            let accepted = try await call(answer(live, choice: "allow", retry: retry), link: link, identity: identity)
+            guard accepted["remoteDecisionsEnabled"] as? Bool == false,
+                let original = accepted["decisionReceipt"] as? [String: Any], original["result"] as? String == "recorded"
+            else {
+                throw E2EFailure("fixture answer was not recorded")
+            }
+            let repeated = try await call(answer(live, choice: "allow", retry: retry), link: link, identity: identity)
+            guard let replay = repeated["decisionReceipt"] as? [String: Any], NSDictionary(dictionary: replay).isEqual(to: original) else {
+                throw E2EFailure("identical retry did not return the original receipt")
+            }
+            for (choice, retryID, expected) in [("deny", retry, "retryConflict"), ("deny", UUID().uuidString, "alreadyAnswered")] {
+                let response = try await call(answer(live, choice: choice, retry: retryID), link: link, identity: identity)
+                guard (response["decisionReceipt"] as? [String: Any])?["result"] as? String == expected else {
+                    throw E2EFailure("duplicate/conflicting answer was not rejected")
+                }
+            }
+            let refreshedDecisions = try await call(request("list_pending_decisions"), link: link, identity: identity)
+            try verifyRefreshedDecisionList(refreshedDecisions, live: live, connectionID: connectionID)
+            let expired = try await call(
+                answer(expiredIdentity, choice: "deny", retry: UUID().uuidString), link: link, identity: identity)
+            guard (expired["decisionReceipt"] as? [String: Any])?["result"] as? String == "expired" else {
+                throw E2EFailure("remote-expired fixture accepted an answer")
+            }
+            let outside = try await call(
+                answer(outsideIdentity, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
+            guard outside["error"] as? String == "permission_denied" else { throw E2EFailure("out-of-scope decision was not denied") }
+            let wrongDecisionPhone = try await call(
+                request("list_pending_decisions", id: UUID().uuidString), link: link, identity: identity)
+            guard wrongDecisionPhone["error"] as? String == "permission_denied" else {
+                throw E2EFailure("decision authentication failed open")
+            }
+            print("decisions=list,answer,scope,auth,expiry,duplicate,retry-conflict,stable-retry fixture-only")
+            for allowed in [false, true, true] {
+                var mutation = request("set_terminal_preview")
+                mutation["terminalPreviewAllowed"] = allowed
+                let receipt = try await call(mutation, link: link, identity: identity)
+                guard receipt["error"] == nil, receipt["terminalPreviewAllowed"] as? Bool == allowed,
+                    receipt["workspaces"] == nil, receipt["agents"] == nil
+                else { throw E2EFailure("self preview permission update was not acknowledged") }
+                let status = try await call(request("get_connection_status"), link: link, identity: identity)
+                guard status["terminalPreviewAllowed"] as? Bool == allowed else {
+                    throw E2EFailure("preview permission readback did not match")
+                }
+                let roster = try await call(request("list_panes"), link: link, identity: identity)
+                guard roster["error"] == nil, let workspaces = roster["workspaces"] as? [[String: Any]] else {
+                    throw E2EFailure("preview toggle lost status roster")
+                }
+                if !allowed {
+                    for pane in workspaces.flatMap({ $0["panes"] as? [[String: Any]] ?? [] }) {
+                        guard pane["lastOutputLine"] == nil else { throw E2EFailure("disabled phone received terminal preview") }
+                    }
+                }
+                print("set_terminal_preview=validated allowed=\(allowed)")
+            }
+            for invalidValue: Any in [NSNull(), 1, "true"] {
+                var malformed = request("set_terminal_preview")
+                malformed["terminalPreviewAllowed"] = invalidValue
+                let deniedMutation = try await call(malformed, link: link, identity: identity)
+                guard deniedMutation["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("malformed preview permission was accepted")
+                }
+            }
+            var wrongPhone = request("set_terminal_preview", id: UUID().uuidString)
+            wrongPhone["terminalPreviewAllowed"] = true
+            let deniedPhone = try await call(wrongPhone, link: link, identity: identity)
+            guard deniedPhone["error"] as? String == "permission_denied" else {
+                throw E2EFailure("preview permission changed another phone")
+            }
+            var attentionRequest = request("get_attention_events")
+            attentionRequest["limit"] = 100
+            let beforePreferences = try await call(attentionRequest, link: link, identity: identity)
+            guard let beforePage = beforePreferences["attentionEvents"] as? [String: Any],
+                let beforeCursor = beforePage["nextCursor"] as? String
+            else { throw E2EFailure("preferences cursor fixture is missing") }
+            for operation in ["get_alert_preferences", "set_alert_preferences"] {
+                var valid = request(operation)
+                if operation == "set_alert_preferences" { valid["alertPreferences"] = ["categories": ["permission", "commandFailed"]] }
+                let response = try await call(valid, link: link, identity: identity)
+                guard response["error"] == nil, response["alertPreferences"] is [String: Any] else {
+                    throw E2EFailure("alert preferences operation failed")
+                }
+                let expectedCategories =
+                    operation == "get_alert_preferences"
+                    ? CompanionAlertCategory.allCases.map(\.rawValue) : ["permission", "commandFailed"]
+                guard let payload = response["alertPreferences"] as? [String: Any],
+                    payload["categories"] as? [String] == expectedCategories
+                else { throw E2EFailure("preferences response did not match saved categories") }
+                for (field, invalid) in try alertPreferenceExtraFieldRequests(valid, expectedProfile: expectedProfile) {
+                    let denied = try await call(invalid, link: link, identity: identity)
+                    guard denied["error"] as? String == "invalid_request" else {
+                        throw E2EFailure("preferences accepted argument \(field)")
+                    }
+                }
+                var other = valid
+                other["connectionID"] = UUID().uuidString
+                let denied = try await call(other, link: link, identity: identity)
+                guard denied["error"] as? String == "permission_denied" else { throw E2EFailure("preferences accepted another pairing") }
+            }
+            for payload: Any in [
+                NSNull(), ["categories": ["bogus"]], ["categories": "permission"], ["categories": ["permission"], "scope": "all"], [:],
+            ] {
+                var malformed = request("set_alert_preferences")
+                malformed["alertPreferences"] = payload
+                let response = try await call(malformed, link: link, identity: identity)
+                guard response["error"] as? String == "invalid_request" else { throw E2EFailure("malformed alert preferences accepted") }
+            }
+            var missingPreferences = request("set_alert_preferences")
+            let missingResponse = try await call(missingPreferences, link: link, identity: identity)
+            guard missingResponse["error"] as? String == "invalid_request" else { throw E2EFailure("missing preferences accepted") }
+            missingPreferences["operation"] = "get_alert_preferences"
+            missingPreferences["alertPreferences"] = ["categories": [] as [String]]
+            let unexpectedResponse = try await call(missingPreferences, link: link, identity: identity)
+            guard unexpectedResponse["error"] as? String == "invalid_request" else { throw E2EFailure("get accepted preferences payload") }
+            let savedPreferences = try await call(request("get_alert_preferences"), link: link, identity: identity)
+            guard let savedPayload = savedPreferences["alertPreferences"] as? [String: Any],
+                savedPayload["categories"] as? [String] == ["permission", "commandFailed"]
+            else { throw E2EFailure("get did not return saved preferences") }
+            attentionRequest["cursor"] = beforeCursor
+            let changedPreferences = try await call(attentionRequest, link: link, identity: identity)
+            guard let changedPage = changedPreferences["attentionEvents"] as? [String: Any],
+                changedPage["cursorStatus"] as? String == "access_changed",
+                let changedCursor = changedPage["nextCursor"] as? String
+            else { throw E2EFailure("TLS preference change did not invalidate cursor") }
+            var identical = request("set_alert_preferences")
+            identical["alertPreferences"] = ["categories": ["commandFailed", "permission", "permission"]]
+            let noOp = try await call(identical, link: link, identity: identity)
+            guard noOp["error"] == nil else { throw E2EFailure("identical effective preferences failed") }
+            attentionRequest["cursor"] = changedCursor
+            let unchanged = try await call(attentionRequest, link: link, identity: identity)
+            guard let unchangedPage = unchanged["attentionEvents"] as? [String: Any],
+                unchangedPage["cursorStatus"] as? String == "current"
+            else { throw E2EFailure("identical effective set invalidated cursor") }
+            print("alert_preferences_wire=passed cases=33")
             for (operation, id, expected) in [
                 ("unpair", UUID().uuidString, "permission_denied"),
                 ("unknown_companion_operation", connectionID, "unsupported_operation"),
@@ -246,6 +469,12 @@ struct CompanionPairingE2E {
                     throw E2EFailure("\(operation) did not return \(expected)")
                 }
                 printJSON(label: "\(operation)_denied", object: response)
+            }
+            var invalidPaneList = request("list_panes")
+            invalidPaneList["limit"] = 1
+            let invalidRoster = try await call(invalidPaneList, link: link, identity: identity)
+            guard invalidRoster["error"] as? String == "invalid_request" else {
+                throw E2EFailure("list_panes arguments did not return invalid_request")
             }
             var invalidUnpair = request("unpair")
             invalidUnpair["limit"] = 1
@@ -258,6 +487,49 @@ struct CompanionPairingE2E {
             guard stillPaired["connectionStatus"] as? String == "connected" else {
                 throw E2EFailure("denied requests revoked the phone")
             }
+            var rename = request("rename_pane")
+            rename["workspaceID"] = UUID().uuidString
+            rename["paneID"] = UUID().uuidString
+            rename["title"] = "E2E pane"
+            let renameDenied = try await call(rename, link: link, identity: identity)
+            guard renameDenied["error"] as? String == "permission_denied" else {
+                throw E2EFailure("a newly paired phone could rename without Mac opt-in")
+            }
+            printJSON(label: "rename_default_denied", object: renameDenied)
+            for key in ["workspaceID", "paneID", "title"] {
+                for value in [NSNull(), 1, true] as [Any] {
+                    var malformed = rename
+                    malformed[key] = value
+                    let result = try await call(malformed, link: link, identity: identity)
+                    guard result["error"] as? String == "invalid_request" else {
+                        throw E2EFailure("rename accepted malformed \(key)")
+                    }
+                }
+                var missing = rename
+                missing.removeValue(forKey: key)
+                let result = try await call(missing, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("rename accepted missing \(key)")
+                }
+            }
+            for key in ["limit", "cursor", "targetVersion", "source"] {
+                var extra = rename
+                extra[key] = "unexpected"
+                let result = try await call(extra, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("rename accepted unrelated \(key)")
+                }
+            }
+            for operation in ["get_connection_status", "list_agents", "unpair"] {
+                var unrelated = request(operation)
+                unrelated["title"] = "E2E pane"
+                let result = try await call(unrelated, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("\(operation) accepted rename arguments")
+                }
+            }
+            print("rename_arguments=invalid_request")
+            try await verifyTerminalWatch(link: link, identity: identity, connectionID: connectionID)
             // Keep a TLS session open across revocation to exercise stale authorization too.
             let stale = try await CompanionClient.open(link: link, identity: identity).connection
             defer { stale.cancel() }
@@ -267,7 +539,7 @@ struct CompanionPairingE2E {
             else { throw E2EFailure("self-unpair was not acknowledged") }
             printJSON(label: "self_unpair", object: unpaired)
             do {
-                let response = try await CompanionClient.exchange(request("list_agents"), connection: stale)
+                let response = try await CompanionClient.exchange(request("list_panes"), connection: stale)
                 guard response["error"] != nil else { throw E2EFailure("revoked connection returned data") }
                 printJSON(label: "revoked_connection", object: response)
             } catch let error as E2EFailure where error.description == "revoked connection returned data" {
@@ -276,7 +548,7 @@ struct CompanionPairingE2E {
                 print("revoked_connection=closed")
             }
             do {
-                let response = try await call(request("get_connection_status"), link: link, identity: identity)
+                let response = try await call(request("list_panes"), link: link, identity: identity)
                 guard response["error"] != nil else { throw E2EFailure("revoked phone reconnected") }
             } catch let error as E2EFailure where error.description == "revoked phone reconnected" {
                 throw error
@@ -284,11 +556,93 @@ struct CompanionPairingE2E {
                 print("revoked_reconnect=denied")
             }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile, expectRevoked: true)
-            print("PASS: pairing, reads, context denial, invalid and unknown requests, self-unpair, and revoked access")
+            ownedIdentity = nil
+            try identity.cleanup()
+            print("client_identity=removed_and_verified")
+            print(
+                "PASS: pairing, reads, context denial, invalid and unknown requests, rename opt-in denial and argument validation, self-unpair, and revoked access"
+            )
         } catch {
+            if let ownedIdentity {
+                do {
+                    try ownedIdentity.cleanup()
+                    print("client_identity=removed_and_verified")
+                } catch {
+                    FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
+                }
+            }
             FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
             Foundation.exit(1)
         }
+    }
+
+    private static func physicalPath(_ path: String) throws -> String {
+        guard let resolved = Darwin.realpath(path, nil) else { throw E2EFailure("cannot resolve the physical fixture path") }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    private static func handleFixtureCommand() throws -> Bool {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard arguments.first == "--fixture-run" else { return false }
+        guard arguments.count == 6 || (arguments.count == 7 && arguments[6] == "--cleanup-identity"),
+            arguments[2] == "--home", arguments[4] == "--profile"
+        else { throw E2EFailure("invalid fixture command") }
+        // Darwin realpath matches the shell's pwd -P; Foundation may preserve
+        // /tmp while the shell hashes /private/tmp on macOS.
+        let runPath = try physicalPath(arguments[1])
+        let artifactRootPath = try physicalPath("/tmp/companion-pairing-e2e")
+        let runParentPath = try physicalPath((runPath as NSString).deletingLastPathComponent)
+        let suffix = SHA256.hash(data: Data(runPath.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        let profile = "development:" + suffix
+        guard (runPath as NSString).lastPathComponent.hasPrefix("run."),
+            runParentPath == artifactRootPath, arguments[5] == profile
+        else { throw E2EFailure("refusing a non-owned fixture profile") }
+        let home = try physicalPath(arguments[3])
+        let environment = ProcessInfo.processInfo.environment
+        let paths = [FileManager.default.homeDirectoryForCurrentUser.path, NSHomeDirectory(), environment["HOME"] ?? ""]
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard environment["CFFIXED_USER_HOME"] == nil,
+            try paths.allSatisfy({ try physicalPath($0) == home }),
+            try physicalPath(support.path) == home + "/Library/Application Support"
+        else { throw E2EFailure("real HOME/Foundation Application Support mismatch") }
+        // Real HOME preserves Keychain access, but Ghostty may still load its
+        // normal Application Support config in addition to the fixture XDG config.
+        // Only this exact profile directory outside the artifact run is owned;
+        // the real HOME and its default Keychain remain unchanged.
+        let profileSupport = support.appending(path: "awesoMux-dev-" + suffix, directoryHint: .isDirectory)
+        if FileManager.default.fileExists(atPath: profileSupport.path) {
+            guard try physicalPath(profileSupport.path) == home + "/Library/Application Support/awesoMux-dev-" + suffix else {
+                throw E2EFailure("invalid fixture support directory")
+            }
+        }
+        // Match CompanionIdentityStore's profile namespace; these queries never
+        // return private key material and are restricted to the derived profile.
+        let namespace = SHA256.hash(data: Data(profile.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let queries: [[String: Any]] = [
+            [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: "awesoMux Companion " + namespace],
+            [
+                kSecClass as String: kSecClassKey,
+                kSecAttrApplicationTag as String: Data(("com.interactivebuffoonery.awesomux.companion." + namespace).utf8),
+                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            ],
+        ]
+        for query in queries {
+            if arguments.count == 7 {
+                let status = SecItemDelete(query as CFDictionary)
+                guard status == errSecSuccess || status == errSecItemNotFound else {
+                    throw E2EFailure("fixture identity cleanup failed: \(status)")
+                }
+            } else {
+                let status = SecItemCopyMatching(query as CFDictionary, nil)
+                guard status == errSecItemNotFound else {
+                    throw E2EFailure(
+                        status == errSecSuccess ? "fixture identity already exists" : "fixture identity collision check failed: \(status)")
+                }
+            }
+        }
+        print(arguments.count == 7 ? "fixture_identity=removed" : "fixture_home=verified identity=unclaimed")
+        return true
     }
 
     private struct Invocation {
@@ -296,6 +650,7 @@ struct CompanionPairingE2E {
         let resultFile: String?
         let profile: String?
         let cleanupResult: String?
+        var fixtureSnapshot: String? = nil
     }
 
     private static func invocation() throws -> Invocation {
@@ -303,18 +658,19 @@ struct CompanionPairingE2E {
         if arguments.count == 2, arguments[0] == "--cleanup-result" {
             return Invocation(link: nil, resultFile: nil, profile: nil, cleanupResult: arguments[1])
         }
-        if arguments.count == 6, arguments[0] == "--link-file", arguments[2] == "--result-file",
-            arguments[4] == "--profile"
+        if (arguments.count == 6 || (arguments.count == 8 && arguments[6] == "--fixture-snapshot")),
+            arguments[0] == "--link-file", arguments[2] == "--result-file", arguments[4] == "--profile"
         {
             return Invocation(
                 link: try String(contentsOfFile: arguments[1], encoding: .utf8),
                 resultFile: arguments[3],
                 profile: arguments[5],
-                cleanupResult: nil
+                cleanupResult: nil,
+                fixtureSnapshot: arguments.count == 8 ? arguments[7] : nil
             )
         }
         throw E2EFailure(
-            "usage: companion-pairing-e2e --link-file path --result-file path --profile development-profile | --cleanup-result path"
+            "usage: companion-pairing-e2e --link-file path --result-file path --profile development-profile [--fixture-snapshot path] | --cleanup-result path"
         )
     }
 
@@ -408,6 +764,135 @@ struct CompanionPairingE2E {
         }
     }
 
+    /// ADR-0040 watch path: validation errors, a full snapshot, phone input
+    /// ending the stream, and revocation ending a second stream.
+    private static func verifyTerminalWatch(link: PairingLink, identity: E2EClientIdentity, connectionID: String) async throws {
+        typealias Stream = CompanionTerminalStream
+        func request(_ operation: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+            var object: [String: Any] = [
+                "schemaVersion": 1, "requestID": UUID().uuidString.lowercased(), "operation": operation,
+                "connectionID": connectionID,
+            ]
+            object.merge(extra) { _, new in new }
+            return object
+        }
+        let status = try await call(request("get_connection_status"), link: link, identity: identity)
+        let discovery = try await call(request("get_capabilities"), link: link, identity: identity)
+        guard let capabilities = status["terminalStream"] as? [String: Any],
+            capabilities["maximumDataBytes"] as? Int == Stream.maximumDataBytes,
+            let discovered = discovery["terminalStream"] as? [String: Any],
+            discovered["version"] as? Int == Stream.version,
+            discovered["maximumPendingBytes"] as? Int == Stream.maximumPendingBytes
+        else { throw E2EFailure("status did not advertise the terminal stream capabilities") }
+        let rosterObject = try await call(request("list_panes"), link: link, identity: identity)
+        let roster = try CompanionProtocol.decoder().decode(
+            CompanionAPIResponse.self, from: JSONSerialization.data(withJSONObject: rosterObject))
+        guard let pane = roster.workspaces?.flatMap(\.panes).first(where: { $0.kind == "terminal" && $0.targetVersion != nil }),
+            let targetVersion = pane.targetVersion
+        else { throw E2EFailure("list_panes had no watchable terminal pane") }
+        let watch = ["paneID": pane.paneID, "targetVersion": targetVersion, "streamVersion": 1] as [String: Any]
+        let checks: [(String, [String: Any], String)] = [
+            ("stream version", ["streamVersion": 2], "unsupported_version"),
+            ("unknown pane", ["paneID": UUID().uuidString.lowercased()], "stale_target"),
+            ("bad grid", ["grid": ["rows": 0, "cols": 80]], "invalid_request"),
+            ("missing target", ["targetVersion": NSNull()], "invalid_request"),
+        ]
+        for (label, extra, expected) in checks {
+            var object = watch
+            for (key, value) in extra {
+                if value is NSNull { object.removeValue(forKey: key) } else { object[key] = value }
+            }
+            let result = try await call(request("watch_terminal", object), link: link, identity: identity)
+            guard result["error"] as? String == expected else { throw E2EFailure("watch_terminal \(label) was not \(expected)") }
+        }
+        var stale = request("list_panes")
+        stale["streamVersion"] = 1
+        guard try await call(stale, link: link, identity: identity)["error"] as? String == "invalid_request" else {
+            throw E2EFailure("list_panes accepted stream arguments")
+        }
+        print("watch_arguments=validated")
+
+        func openStream() async throws -> (NWConnection, UInt32) {
+            let connection = try await CompanionClient.open(link: link, identity: identity).connection
+            var opened = false
+            defer { if !opened { connection.cancel() } }
+            let accepted = try await CompanionClient.exchange(request("watch_terminal", watch), connection: connection)
+            guard accepted["error"] == nil, let envelope = accepted["terminalStreamAccepted"] as? [String: Any],
+                envelope["role"] as? String == "watch", envelope["streamVersion"] as? Int == 1
+            else { throw E2EFailure("watch_terminal was not accepted: \(accepted)") }
+            var generation: UInt32?
+            var snapshotBytes = 0
+            var expectedSequence: UInt64 = 0
+            while true {
+                let (frame, frameGeneration) = try Stream.decode(try await CompanionClient.readFrame(connection))
+                if generation == nil {
+                    guard case .snapshotBegin(let begin) = frame,
+                        UUID(uuidString: begin.paneID) == UUID(uuidString: pane.paneID),
+                        UUID(uuidString: begin.targetVersion) == UUID(uuidString: targetVersion), begin.historyIncomplete
+                    else {
+                        throw E2EFailure("stream did not start with snapshot_begin")
+                    }
+                    generation = frameGeneration
+                    continue
+                }
+                guard frameGeneration == generation else { throw E2EFailure("stream changed generation mid-snapshot") }
+                switch frame {
+                case .snapshot(let sequence, let bytes):
+                    guard sequence == expectedSequence, bytes.count <= Stream.maximumDataBytes else {
+                        throw E2EFailure("snapshot chunk was out of order or oversized")
+                    }
+                    expectedSequence += 1
+                    snapshotBytes += bytes.count
+                    guard snapshotBytes <= Stream.maximumSnapshotBytes else { throw E2EFailure("snapshot exceeded its bound") }
+                case .snapshotEnd(let end):
+                    guard end.bytes == snapshotBytes else { throw E2EFailure("snapshot_end byte count mismatch") }
+                    // Do not retain terminal content in the E2E log.
+                    print("watch_snapshot=complete chunks=\(expectedSequence)")
+                    opened = true
+                    return (connection, generation!)
+                default:
+                    throw E2EFailure("unexpected frame before snapshot_end: \(frame.type)")
+                }
+            }
+        }
+        func expectEnd(_ connection: NWConnection, _ reason: Stream.EndReason) async throws {
+            while true {
+                let (frame, _) = try Stream.decode(try await CompanionClient.readFrame(connection))
+                switch frame {
+                case .end(let end):
+                    guard end.reason == reason else { throw E2EFailure("stream ended with \(end.reason) not \(reason)") }
+                    return
+                case .output, .heartbeat, .grid, .leader:
+                    continue
+                default:
+                    throw E2EFailure("unexpected frame while waiting for end: \(frame.type)")
+                }
+            }
+        }
+
+        let (first, generation) = try await openStream()
+        defer { first.cancel() }
+        var claim = Data([Stream.FrameType.claim.rawValue])
+        claim.append(contentsOf: withUnsafeBytes(of: generation.bigEndian) { Data($0) })
+        try await CompanionClient.sendFrame(claim, connection: first)
+        try await expectEnd(first, .protocolError)
+        print("watch_phone_claim=protocol_error")
+
+        let (replaced, _) = try await openStream()
+        defer { replaced.cancel() }
+        let (second, _) = try await openStream()
+        defer { second.cancel() }
+        try await expectEnd(replaced, .superseded)
+        print("watch_reconnect=superseded fresh_snapshot=complete")
+        for allowed in [false, true] {
+            let toggled = try await call(
+                request("set_terminal_preview", ["terminalPreviewAllowed": allowed]), link: link, identity: identity)
+            guard toggled["error"] == nil else { throw E2EFailure("preview toggle failed during watch") }
+            if !allowed { try await expectEnd(second, .revoked) }
+        }
+        print("watch_permission_change=revoked")
+    }
+
     private static func call(_ request: [String: Any], link: PairingLink, identity: E2EClientIdentity) async throws -> [String: Any] {
         let connection = try await CompanionClient.open(link: link, identity: identity).connection
         defer { connection.cancel() }
@@ -427,11 +912,7 @@ struct CompanionPairingE2E {
     }
 
     private static func confirmationWords(macSPKI: Data, phoneSPKI: Data) throws -> [String] {
-        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Resources/companion-pairing-words.txt")
-        let words = try String(contentsOf: path, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
-        guard words.count == 256, Set(words).count == 256 else { throw E2EFailure("invalid confirmation word list") }
-        return SHA256.hash(data: macSPKI + phoneSPKI).prefix(3).map { words[Int($0)] }
+        CompanionPairingWords.words(macSPKI: macSPKI, phoneSPKI: phoneSPKI)
     }
 }
 
@@ -445,19 +926,24 @@ private struct PairingLinkForPin {
             macFingerprint: fingerprint,
             secret: source.secret,
             macName: source.macName,
-            transport: source.transport
+            transport: source.transport,
+            advertisedRoutes: source.advertisedRoutes
         )
     }
 }
 
 private extension PairingLink {
-    init(host: NWEndpoint.Host, port: NWEndpoint.Port, macFingerprint: Data, secret: String, macName: String, transport: String) {
+    init(
+        host: NWEndpoint.Host, port: NWEndpoint.Port, macFingerprint: Data, secret: String, macName: String, transport: String,
+        advertisedRoutes: [String: String]
+    ) {
         self.host = host
         self.port = port
         self.macFingerprint = macFingerprint
         self.secret = secret
         self.macName = macName
         self.transport = transport
+        self.advertisedRoutes = advertisedRoutes
     }
 }
 

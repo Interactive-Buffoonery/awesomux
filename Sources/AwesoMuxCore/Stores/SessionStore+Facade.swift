@@ -964,11 +964,14 @@ extension SessionStore {
             )
             if outcome.didMutate {
                 _groups[position.groupIndex].sessions[position.sessionIndex] = session
-                if let pane = session.layout.pane(id: paneID) {
-                    reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
-                }
                 commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange), now: now)
             }
+        }
+
+        // Accepted runtime decisions can latch identity without changing pane
+        // presentation. Maintain exact-target versions even without a journal.
+        if let pane = session(id: sessionID)?.layout.pane(id: paneID) {
+            reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
         }
 
         // A `.rename` event resolves to a pane-title action that the reducer

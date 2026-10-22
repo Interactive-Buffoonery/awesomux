@@ -750,8 +750,15 @@ extension GhosttySurfaceNSView {
 
     func handleCommandFinished(
         exitCode: Int16,
+        durationNanoseconds: UInt64 = 0,
         finishedAt: TimeInterval = Date().timeIntervalSinceReferenceDate
     ) {
+        if let completion = ShellCommandCompletion(exitCode: exitCode, durationNanoseconds: durationNanoseconds) {
+            sessionStore.recordCommandCompletion(
+                sessionID: sessionID, paneID: paneID, terminalSessionID: pane.terminalSessionID, executionPlan: pane.executionPlan,
+                completion: completion, at: Date(timeIntervalSinceReferenceDate: finishedAt)
+            )
+        }
         // Cache the exit code for `closeAfterProcessExit` to consult. This event
         // fires after every shell command, so process-exit supervision must wait
         // for libghostty's separate close callback.
@@ -967,6 +974,27 @@ extension GhosttySurfaceNSView {
             rectangle: false
         )
         return readTerminalText(surface: surface, selection: selection)
+    }
+
+    /// Active screen only: scrolling the Mac viewport must not expose history
+    /// through Companion's last-output preview.
+    func companionLastOutputLine() -> String? {
+        guard let surface else {
+            companionPreviewCache.invalidate()
+            return nil
+        }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0, y: 0),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0, y: 0),
+            rectangle: false
+        )
+        return companionPreviewCache.get(source: lifecycleState.mouseSurfaceIncarnationID) {
+            readTerminalText(surface: surface, selection: selection)
+        }
     }
 
     private func sampleUnmanagedSSHAgentIdentity(now: TimeInterval) {
