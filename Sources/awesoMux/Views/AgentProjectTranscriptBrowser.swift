@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import DesignSystem
 import SwiftUI
 
 struct AgentProjectTranscriptBrowser: View {
@@ -20,11 +21,11 @@ struct AgentProjectTranscriptBrowser: View {
                     comment: "Heading of the current-project agent transcript browser"
                 )
             )
-            .font(.headline)
+            .awFont(AwFont.UI.title)
             .accessibilityAddTraits(.isHeader)
 
             Text(verbatim: projectDirectory.path)
-                .font(.caption)
+                .awFont(AwFont.UI.meta)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .lineLimit(2)
@@ -35,12 +36,12 @@ struct AgentProjectTranscriptBrowser: View {
                     comment: "Scope explanation in the current-project transcript browser"
                 )
             )
-            .font(.callout)
+            .awFont(AwFont.UI.body)
 
             if let listing {
                 if listing.isIncomplete {
                     Text(Self.limitationNotice)
-                        .font(.callout)
+                        .awFont(AwFont.UI.body)
                         .foregroundStyle(.secondary)
                 }
                 if listing.entries.isEmpty {
@@ -67,13 +68,13 @@ struct AgentProjectTranscriptBrowser: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(verbatim: entry.identity.agentKind.displayName)
-                                        .font(.headline)
+                                        .awFont(AwFont.UI.title)
                                     Spacer()
                                     Text(entry.modified, style: .date)
                                     Text(entry.modified, style: .time)
                                 }
                                 Text(verbatim: entry.identity.sessionID)
-                                    .font(.system(.caption, design: .monospaced))
+                                    .awFont(AwFont.Mono.meta)
                                     .foregroundStyle(.secondary)
                             }
                             .padding(.vertical, 4)
@@ -114,6 +115,7 @@ struct AgentProjectTranscriptBrowser: View {
                 .disabled(selectedEntry == nil)
             }
         }
+        .awFont(AwFont.UI.body)
         .padding(20)
         .frame(minWidth: 560, idealWidth: 640, minHeight: 400, idealHeight: 480)
         .task(id: generation) { await load() }
