@@ -20,6 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PRODUCTION = [
     "docs/shortcuts.md", "docs/amx-automation.md", "script/runtime-profile.sh",
+    "Sources/awesoMux/Views/AgentProjectTranscriptBrowser.swift",
+    "Sources/AwesoMuxCore/Services/AgentProjectTranscripts.swift",
+    "Sources/awesoMux/Services/AgentTranscriptPaneInputs.swift",
+    "Sources/awesoMux/Services/AgentTranscriptOpener.swift",
     "Sources/awesoMux/App/AwesoMuxApp.swift",
     "Sources/awesoMux/Services/AppRuntimeProfile.swift",
     "Sources/awesoMux/Services/AmxBackend.swift",
@@ -139,6 +143,7 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--bundle", type=Path, default=ROOT / "dist/awesoMux.app")
     parser.add_argument("--check-prerequisites", action="store_true")
+    parser.add_argument("--project-transcripts", action="store_true")
     parser.add_argument("--check-freshness", type=Path)
     args = parser.parse_args()
     if args.check_freshness:
@@ -149,7 +154,7 @@ def main():
         parser.error("--output is required")
     output = args.output.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    report = {"status": "blocked", "mode": "prerequisites" if args.check_prerequisites else "lifecycle",
+    report = {"status": "blocked", "mode": "prerequisites" if args.check_prerequisites else ("project-transcripts" if args.project_transcripts else "lifecycle"),
               "steps": [], "screenshots": [], "cleanup": {"status": "not-needed"}}
     helper = output / "native"
     app_pid = None
@@ -427,7 +432,8 @@ def main():
             (config / "config.toml").write_text(
                 "[terminal]\ncommand_bridge_enabled = true\n"
                 "[workspaces]\nconfirm_close_with_running_agent = true\n"
-                "[notifications]\nmuted = true\n")
+                "[notifications]\nmuted = true\n"
+                + (("[appearance]\nui_text_scale = " + os.environ.get("PR775_SCALE", "1.0") + "\nui_font = \"Georgia\"\n") if args.project_transcripts else ""))
             secret = secrets.token_hex(32)
             (fixtures / "secret").write_text(secret)
             report["runID"] = secrets.token_hex(6)
@@ -523,79 +529,146 @@ export GHOSTTY_SHELL_FEATURES=""
                 return len(sessions()) == 1
             poll("first backend", first_backend)
             first = next(iter(sessions()))
-            menu("Pane", "Split Right")
-            poll("two backend sessions", lambda: len(sessions()) == 2)
-            current = sessions()
-            identities = {}
-            for session in current:
-                data = poll("shell identity", lambda s=session: receipt(fixtures / (s + ".json")))
-                if data["session"] != session or data["profile"] != profile["profile"] \
+            if args.project_transcripts:
+                data = poll("shell identity", lambda: receipt(fixtures / (first + ".json")))
+                if data["session"] != first or data["profile"] != profile["profile"] \
                         or Path(data["namespace"]).resolve() != socket.resolve() or not alive(data["shellPID"]) \
                         or data["home"] != str(fixture_home) or data["fixedHome"] != str(fixture_home) \
                         or data["startupZDOTDIR"] != str(fixtures) or data["zdotdir"] != str(fixtures) \
-                        or str(Path(data["cwd"]).resolve()) != title(session):
+                        or str(Path(data["cwd"]).resolve()) != title(first):
                     raise RuntimeError("Fixture shell/profile identity mismatch")
-                identities[session] = data
-            second = next(iter(current - {first}))
-            if identities[first]["workspace"] != identities[second]["workspace"]:
-                raise RuntimeError("Split created another workspace")
-            report["identities"] = identities
-            poll("two native terminals", lambda: len(snapshot()["terminals"]) == 2)
-            capture("two-panes-ready")
-            log("TL01", "pass", sessions=sorted(current))
-            report["activeScenario"] = "TL02"
-            menu("Pane", "Focus Pane 1")
-            challenge(first, "TL02-pane1")
-            menu("Pane", "Focus Pane 2")
-            challenge(second, "TL02-pane2")
-            log("TL02", "pass")
-            report["activeScenario"] = "TL03"
-            type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} job $$")
-            job = poll("controlled foreground job", lambda: receipt(fixtures / "job.json"))
-            if not same_identity(job, second) or not alive(job["jobPID"]):
-                raise RuntimeError("Controlled job identity mismatch")
-            report["job"] = job
-            menu("Pane", "Focus Pane 1")
-            type_into(first, "exit")
-            poll("exited pane removed", lambda: first not in sessions() and len(snapshot()["terminals"]) == 1)
-            poll("exited root shell gone", lambda: not alive(identities[first]["shellPID"]))
-            before = receipt(fixtures / "job.json")["heartbeat"]
-            poll("sibling job survived", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
-            if not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Sibling shell died")
-            log("TL03", "pass", shellPID=identities[second]["shellPID"], jobPID=job["jobPID"])
-            report["activeScenario"] = "TL04"
-            menu("Pane", "Close Workspace")
-            poll("busy-close modal", lambda: {"Cancel", "Close Workspace"}.issubset(
-                {b["title"] for b in snapshot()["modalButtons"]}))
-            capture("busy-close-modal")
-            before = receipt(fixtures / "job.json")["heartbeat"]
-            native("cancel", window_id)
-            poll("modal dismissed", lambda: not any(b["title"] == "Cancel" for b in snapshot()["buttons"]))
-            poll("cancel preserves running job", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
-            if sessions() != {second} or not alive(job["jobPID"]) or not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Cancel changed shell/job/backend identity")
-            log("TL04", "pass", jobPID=job["jobPID"])
-            report["activeScenario"] = "TL05"
-            (fixtures / "release").touch()
-            poll("job completed normally", lambda: receipt(fixtures / "job-finished.json") and not alive(job["jobPID"]))
-            challenge(second, "TL05-before-close")
-            menu("Workspace", "Close Workspace")
-            poll("workspace soft closed", lambda: len(snapshot()["terminals"]) == 0)
-            if sessions() != {second} or not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Soft close destroyed persistent shell")
-            menu("Workspace", "Reopen Closed Workspace")
-            def reopened():
-                terminals = snapshot()["terminals"]
-                return len(terminals) == 1 and terminal_matches(terminals[0], second)
-            poll("reopened same terminal", reopened)
-            menu("Pane", "Focus Pane 1")
-            challenge(second, "TL05-reopened")
-            if sessions() != {second} or not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Reopen replaced persistent shell")
-            capture("reopened-usable-terminal")
-            log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"])
-            audit_challenges()
+                identities = {first: data}
+                report["identities"] = identities
+                project = Path(title(first))
+                slug = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(project))
+                claude = fixture_home / ".claude/projects" / slug
+                codex = fixture_home / ".codex/sessions/2026/10/22"
+                claude.mkdir(parents=True); codex.mkdir(parents=True)
+                ids = [f"10000000-0000-4000-8000-{n:012d}" for n in range(1,5)]
+                def write(path, rows):
+                    path.write_text("".join(json.dumps(row)+"\n" for row in rows))
+                    path.chmod(0o600)
+                write(claude/(ids[0]+".jsonl"), [{"type":"user", "sessionId":ids[0], "cwd":str(project), "message":{"content":"PR775_CLAUDE_SYNTHETIC"}}])
+                for i, cwd, extra in [(1,project,{}),(2,project.parent,{}),(3,project,{"source":{"subagent":{}}})]:
+                    write(codex/("rollout-"+ids[i]+".jsonl"), [
+                        {"type":"session_meta","payload":{"id":ids[i],"cwd":str(cwd),"source":"cli",**extra}},
+                        {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"PR775_CODEX_SYNTHETIC"}]}}])
+                poll("terminal ready", lambda: any(terminal_matches(t,first) for t in snapshot()["terminals"]))
+                menu("Pane", "Browse Project Transcripts")
+                def listed():
+                    nodes=native("dump",window_id)
+                    text=json.dumps(nodes)
+                    return nodes if ids[0] in text and ids[1] in text else None
+                listing=poll("project transcript rows",listed)
+                listing_text=json.dumps(listing)
+                assert ids[2] not in listing_text and ids[3] not in listing_text
+                (output/"browser-ax.json").write_text(json.dumps(listing,indent=2))
+                capture("browser-scale-"+os.environ.get("PR775_SCALE","1.0"))
+                refresh_id = "10000000-0000-4000-8000-000000000005"
+                if refresh_id in listing_text:
+                    raise RuntimeError("Refresh fixture unexpectedly existed before creation")
+                write(claude/(refresh_id+".jsonl"), [{"type":"user", "sessionId":refresh_id, "cwd":str(project), "message":{"content":"PR775_REFRESH_SYNTHETIC"}}])
+                native("press",window_id,"Refresh")
+                def refreshed():
+                    nodes = listed()
+                    return nodes if nodes and refresh_id in json.dumps(nodes) else None
+                refreshed_listing = poll("new transcript appears after refresh", refreshed)
+                if any(excluded in json.dumps(refreshed_listing) for excluded in ids[2:]):
+                    raise RuntimeError("Refresh included an unrelated or child transcript")
+                report["refreshVerifiedID"] = refresh_id
+                native("key",window_id,"53")
+                poll("cancel dismissed browser",lambda: not any((b["title"]=="Refresh" or b["description"]=="Refresh") for b in snapshot()["buttons"]))
+                menu("Pane", "Browse Project Transcripts")
+                poll("rows after reopen",listed)
+                native("key",window_id,"125")
+                native("key",window_id,"36")
+                def opened():
+                    nodes=native("dump",window_id)
+                    text=json.dumps(nodes)
+                    return nodes if "PR775_" in text and "SYNTHETIC" in text else None
+                document=poll("opened synthetic transcript",opened)
+                (output/"document-ax.json").write_text(json.dumps(document,indent=2))
+                focus=snapshot()
+                report["documentFocus"]=focus
+                assert not focus["focusedTerminal"]
+                assert "PR775_" in focus["focusedValue"]
+                capture("opened-document")
+                report["browserVerification"]={"expectedIDs":ids[:2]+[refresh_id],"excludedIDs":ids[2:],"scale":os.environ.get("PR775_SCALE","1.0"),"font":"Georgia","voiceOverSpeech":"not tested"}
+                log("PR775", "pass", checks=["project and child filtering", "refresh", "cancel and reopen", "open", "document focus"])
+            else:
+                menu("Pane", "Split Right")
+                poll("two backend sessions", lambda: len(sessions()) == 2)
+                current = sessions()
+                identities = {}
+                for session in current:
+                    data = poll("shell identity", lambda s=session: receipt(fixtures / (s + ".json")))
+                    if data["session"] != session or data["profile"] != profile["profile"] \
+                            or Path(data["namespace"]).resolve() != socket.resolve() or not alive(data["shellPID"]) \
+                            or data["home"] != str(fixture_home) or data["fixedHome"] != str(fixture_home) \
+                            or data["startupZDOTDIR"] != str(fixtures) or data["zdotdir"] != str(fixtures) \
+                            or str(Path(data["cwd"]).resolve()) != title(session):
+                        raise RuntimeError("Fixture shell/profile identity mismatch")
+                    identities[session] = data
+                second = next(iter(current - {first}))
+                if identities[first]["workspace"] != identities[second]["workspace"]:
+                    raise RuntimeError("Split created another workspace")
+                report["identities"] = identities
+                poll("two native terminals", lambda: len(snapshot()["terminals"]) == 2)
+                capture("two-panes-ready")
+                log("TL01", "pass", sessions=sorted(current))
+                report["activeScenario"] = "TL02"
+                menu("Pane", "Focus Pane 1")
+                challenge(first, "TL02-pane1")
+                menu("Pane", "Focus Pane 2")
+                challenge(second, "TL02-pane2")
+                log("TL02", "pass")
+                report["activeScenario"] = "TL03"
+                type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} job $$")
+                job = poll("controlled foreground job", lambda: receipt(fixtures / "job.json"))
+                if not same_identity(job, second) or not alive(job["jobPID"]):
+                    raise RuntimeError("Controlled job identity mismatch")
+                report["job"] = job
+                menu("Pane", "Focus Pane 1")
+                type_into(first, "exit")
+                poll("exited pane removed", lambda: first not in sessions() and len(snapshot()["terminals"]) == 1)
+                poll("exited root shell gone", lambda: not alive(identities[first]["shellPID"]))
+                before = receipt(fixtures / "job.json")["heartbeat"]
+                poll("sibling job survived", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
+                if not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Sibling shell died")
+                log("TL03", "pass", shellPID=identities[second]["shellPID"], jobPID=job["jobPID"])
+                report["activeScenario"] = "TL04"
+                menu("Pane", "Close Workspace")
+                poll("busy-close modal", lambda: {"Cancel", "Close Workspace"}.issubset(
+                    {b["title"] for b in snapshot()["modalButtons"]}))
+                capture("busy-close-modal")
+                before = receipt(fixtures / "job.json")["heartbeat"]
+                native("cancel", window_id)
+                poll("modal dismissed", lambda: not any(b["title"] == "Cancel" for b in snapshot()["buttons"]))
+                poll("cancel preserves running job", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
+                if sessions() != {second} or not alive(job["jobPID"]) or not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Cancel changed shell/job/backend identity")
+                log("TL04", "pass", jobPID=job["jobPID"])
+                report["activeScenario"] = "TL05"
+                (fixtures / "release").touch()
+                poll("job completed normally", lambda: receipt(fixtures / "job-finished.json") and not alive(job["jobPID"]))
+                challenge(second, "TL05-before-close")
+                menu("Workspace", "Close Workspace")
+                poll("workspace soft closed", lambda: len(snapshot()["terminals"]) == 0)
+                if sessions() != {second} or not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Soft close destroyed persistent shell")
+                menu("Workspace", "Reopen Closed Workspace")
+                def reopened():
+                    terminals = snapshot()["terminals"]
+                    return len(terminals) == 1 and terminal_matches(terminals[0], second)
+                poll("reopened same terminal", reopened)
+                menu("Pane", "Focus Pane 1")
+                challenge(second, "TL05-reopened")
+                if sessions() != {second} or not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Reopen replaced persistent shell")
+                capture("reopened-usable-terminal")
+                log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"])
+                audit_challenges()
             report["status"] = "pass"
             code = 0
     except Blocked as error:

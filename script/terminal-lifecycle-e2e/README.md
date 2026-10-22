@@ -210,3 +210,19 @@ Screenshots: two panes ready, busy-close modal, reopened usable terminal, and
 last failure when an owned window is available. They are captured by exact owner
 PID + CG window ID, decoded as PNG, and never use a desktop fallback. This manual
 gate does not imply full preflight, VoiceOver, device, or hosted CI acceptance.
+
+## Project transcript browser on minimighty
+
+`heavy-gate ./script/native-ui.sh` runs preflight and staging, then invokes this
+runner with `--project-transcripts` at 1.0 and 1.5 text scales using Georgia.
+This scenario preserves the synthetic PR #775 journey formerly kept under
+`.build/pr775/harness`: project/child filtering, refresh, cancel/reopen, opening
+a transcript, and document focus. It shares the lifecycle driver's permission,
+identity, isolation and cleanup rules. It does not claim a TL01–TL05 pass or
+VoiceOver speech verification.
+
+`heavy-gate ./script/native-ui.sh --check-prerequisites` only compiles/probes the
+helper without building or launching the app. Existing Accessibility and Screen
+Recording permission grants and an unlocked runner desktop are required. Reports
+and screenshots return under `.build/minimighty-ui/` in unique run directories.
+The normal lifecycle invocation and its scenarios remain available unchanged.
