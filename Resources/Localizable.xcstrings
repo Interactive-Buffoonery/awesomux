@@ -3218,7 +3218,7 @@
       "comment" : "Caption explaining what naming a remote session does, before a destination has been entered"
     },
     "Needs Attention" : {
-      "comment" : "Accessibility label for the needs-input workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces awaiting user input."
+      "comment" : "Accessibility label for the needs-attention workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces needing attention."
     },
     "Needs approval" : {
       "comment" : "Settings label when Open at Login requires approval in System Settings."

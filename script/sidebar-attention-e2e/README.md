@@ -11,6 +11,8 @@ The runner creates a temporary Swift executable depending on this checkout's
 production search → pinned → attention projections, checking navigation order
 and preserving original group order. It writes `journey.log` and `report.json`
 to the chosen output directory and exits nonzero on a failed check/build.
+`--timeout SECONDS` (default 1800) bounds `swift run`; a timeout exits 124
+and keeps `journey.log`.
 Use a new output directory for each run; existing output is refused so an old
 passing report cannot be mistaken for a new result. `source.json` records the
 Git revision, dirty-diff hash, and Swift source/runner/package input hashes

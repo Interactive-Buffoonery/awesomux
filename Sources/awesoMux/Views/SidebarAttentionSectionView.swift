@@ -77,7 +77,7 @@ struct SidebarAttentionSectionView: View {
                     String(
                         localized: "Needs Attention",
                         comment:
-                            "Accessibility label for the needs-input workspaces section header in the collapsed sidebar."
+                            "Accessibility label for the needs-attention workspaces section header in the collapsed sidebar."
                     )
                 )
                 .accessibilityValue(countPhrase)
@@ -93,7 +93,7 @@ struct SidebarAttentionSectionView: View {
                 Text(
                     String(
                         localized: "Needs Attention",
-                        comment: "Sidebar section header for workspaces awaiting user input."
+                        comment: "Sidebar section header for workspaces needing attention."
                     )
                 )
                 .awFont(AwFont.Mono.kicker)

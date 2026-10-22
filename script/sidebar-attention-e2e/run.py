@@ -9,6 +9,7 @@ import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--timeout", type=float, default=1800, help="seconds allowed for swift run (default: 1800)")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 out = args.output.resolve()
@@ -17,7 +18,7 @@ out.mkdir(parents=True, exist_ok=False)
 
 def source_receipt():
     def git(*arguments):
-        return subprocess.check_output(["git", *arguments], cwd=root)
+        return subprocess.check_output(["git", *arguments], cwd=root, timeout=60)
 
     inputs = [root / "Package.swift", root / "Package.resolved", Path(__file__), Path(__file__).with_name("main.swift")]
     inputs += sorted((root / "Sources").rglob("*.swift"))
@@ -41,13 +42,17 @@ import PackageDescription
 let package = Package(name: "SidebarAttentionJourney", platforms: [.macOS(.v15)], dependencies: [.package(path: %s)], targets: [.executableTarget(name: "Journey", dependencies: [.product(name: "AwesoMuxCore", package: %s)])])
 ''' % (json.dumps(str(root), ensure_ascii=False), json.dumps(root.name, ensure_ascii=False)))
     with (out / "journey.log").open("w") as log:
-        result = subprocess.run(["swift", "run", "--package-path", str(package), "--scratch-path", str(root / ".build" / "sidebar-attention-e2e"), "Journey", str(out / "report.json")], stdout=log, stderr=subprocess.STDOUT)
+        try:
+            returncode = subprocess.run(["swift", "run", "--package-path", str(package), "--scratch-path", str(root / ".build" / "sidebar-attention-e2e"), "Journey", str(out / "report.json")], stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout).returncode
+        except subprocess.TimeoutExpired:
+            log.write(f"\nFAIL: journey exceeded {args.timeout:g}s timeout.\n")
+            returncode = 124
     source_after = source_receipt()
     unchanged = source_before == source_after
     source_path.write_text(json.dumps({"before": source_before, "after": source_after,
-                                      "unchanged": unchanged, "exitCode": result.returncode}, indent=2) + "\n")
+                                      "unchanged": unchanged, "exitCode": returncode}, indent=2) + "\n")
     print((out / "journey.log").read_text())
     if not unchanged:
         print("FAIL: source changed during the journey; rerun in a stable checkout.")
     print(f"Artifacts: {out}")
-    raise SystemExit(result.returncode if unchanged else 1)
+    raise SystemExit(returncode if unchanged else 1)
