@@ -237,7 +237,7 @@ struct CompanionSettingsPane: View {
             .foregroundStyle(Color.aw.text3)
             Toggle(
                 isOn: Binding(
-                    get: { phone.companion?.terminalWatchScope == .allWorkspaces },
+                    get: { phone.companion?.terminalWatchScope != nil },
                     set: { allowed in
                         do {
                             try coordinator.setTerminalWatchAllowed(allowed, for: phone)
