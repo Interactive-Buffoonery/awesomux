@@ -49,26 +49,7 @@ struct CommandPaletteView: View {
             resultList
             footer
         }
-        // Fill the panel's content size (which the controller clamps responsively
-        // to the visible frame) rather than a hard 620×430, so the layout reflows
-        // on small displays / Split View instead of clipping.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(focusState.isKeyWindow ? Color.aw.border2 : Color.aw.border, lineWidth: 0.5)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                // Snapshot-only: this bare NSHostingController panel root reads the live accent mailbox at each per-summon rebind.
-                .strokeBorder(Color.aw.accent.opacity(focusState.isKeyWindow ? 0.18 : 0.06), lineWidth: 1)
-        }
-        .background {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.aw.surface.chrome.opacity(focusState.isKeyWindow ? 0.97 : 0.94))
-                .awShadow(.sheet, rendering: .composited)
-        }
+        .palettePanelStyle(isKeyWindow: focusState.isKeyWindow)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command Palette")
         .accessibilityHint("Type to search workspaces and actions. Press Escape to dismiss.")
@@ -96,14 +77,7 @@ struct CommandPaletteView: View {
             KBD("esc")
                 .accessibilityLabel("Escape")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.aw.surface.chrome2.opacity(0.62))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.aw.border2)
-                .frame(height: 0.5)
-        }
+        .paletteHeaderStyle()
     }
 
     @ViewBuilder
@@ -247,16 +221,7 @@ struct CommandPaletteView: View {
                 .foregroundStyle(Color.aw.textFaint)
                 .accessibilityHidden(true)
         }
-        .awFont(AwFont.Mono.meta)
-        .foregroundStyle(Color.aw.text3)
-        .padding(.horizontal, 16)
-        .frame(minHeight: 42)
-        .background(Color.aw.surface.chrome2.opacity(0.70))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.aw.border2)
-                .frame(height: 0.5)
-        }
+        .paletteFooterStyle()
     }
 
     private var quickRunFooterHints: some View {
@@ -283,22 +248,6 @@ struct CommandPaletteView: View {
         .padding(.horizontal, isActive ? 8 : 0)
         .padding(.vertical, isActive ? 4 : 0)
         .background(isActive ? Color.aw.accentSoft : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-    }
-
-    @ViewBuilder
-    private var panelBackground: some View {
-        ZStack {
-            Color.aw.surface.chrome.opacity(0.97)
-            LinearGradient(
-                colors: [
-                    Color.aw.accent.opacity(0.08),
-                    Color.clear,
-                    Color.aw.teal.opacity(0.05)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
     }
 
     private func accessibilityLabel(for result: PaletteResult) -> String {
@@ -379,29 +328,13 @@ private struct CommandPaletteResultRow: View {
                     .accessibilityLabel(shortcut.spokenForm)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 5))
-        .overlay(alignment: .leading) {
-            if isSelected {
-                Capsule()
-                    .fill(Color.aw.accent)
-                    .frame(width: 2)
-                    .padding(.vertical, 7)
-            }
-        }
-        .padding(.horizontal, 6)
-        .contentShape(Rectangle())
+        .paletteRowStyle(isSelected: isSelected)
     }
 
     private var icon: some View {
         Text(iconText)
             .awFont(AwFont.Mono.meta)
             .foregroundStyle(isSelected ? Color.aw.accent : Color.aw.text3)
-    }
-
-    private var rowBackground: Color {
-        isSelected ? Color.aw.accentSoft : Color.clear
     }
 
     private var iconText: String {
