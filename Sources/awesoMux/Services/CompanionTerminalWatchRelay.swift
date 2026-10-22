@@ -71,8 +71,21 @@ enum CompanionTerminalWatchRelay {
     static let zmxHeaderBytes = 8
     static let acceptTimeout: Duration = .seconds(1)
     static let writeTimeout: Duration = .seconds(Stream.idleTimeoutSeconds)
+    static let snapshotDeliveryTimeout: Duration = .seconds(Stream.idleTimeoutSeconds)
     static let maximumOverflowsPerMinute = 3
     static let finalWriteTimeout: Duration = .seconds(1)
+
+    static func phoneTCPOptions() -> NWProtocolTCP.Options {
+        let tcp = NWProtocolTCP.Options()
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = Int(Stream.heartbeatSeconds)
+        tcp.keepaliveInterval = 5
+        tcp.keepaliveCount = 3
+        // Local send completion does not prove peer receipt. This bounds TCP's
+        // unacknowledged retransmissions even while heartbeats enter its buffer.
+        tcp.connectionDropTime = Int(Stream.idleTimeoutSeconds)
+        return tcp
+    }
 
     static func zmxMessage(_ tag: ZmxTag, _ payload: Data) -> Data {
         var data = Data(count: zmxHeaderBytes)
@@ -190,6 +203,7 @@ enum CompanionTerminalWatchRelay {
             var inFlight: QueuedFrame?
             var pendingBytes = 0
             var snapshotDelivered = false
+            var snapshotStarted: ContinuousClock.Instant?
             var resync = false
             var overflows: [ContinuousClock.Instant] = []
             var reason: Stream.EndReason?
@@ -241,6 +255,7 @@ enum CompanionTerminalWatchRelay {
                 guard state.reason == nil, state.inFlight == nil, state.frames.isEmpty else { return nil }
                 state.generation += 1
                 state.snapshotDelivered = false
+                state.snapshotStarted = nil
                 state.resync = false
                 return state.generation
             }
@@ -255,6 +270,11 @@ enum CompanionTerminalWatchRelay {
         // daemon socket. Live output retains the discard-and-resync policy.
         func enqueueSnapshot(_ frame: Stream.Frame, generation: UInt32) async throws -> Step {
             guard let queued = encode(frame, generation: generation) else { return .end(.protocolError) }
+            state.withLock { state in
+                if state.generation == generation, state.snapshotStarted == nil {
+                    state.snapshotStarted = .now
+                }
+            }
             while true {
                 try Task.checkCancellation()
                 let id = UUID()
@@ -272,6 +292,19 @@ enum CompanionTerminalWatchRelay {
                 }
                 if canEnqueue { return enqueue(queued) }
                 try await operation.wait {}
+            }
+        }
+
+        func snapshotTimeRemaining(now: ContinuousClock.Instant) -> Duration? {
+            state.withLock { state in
+                guard !state.snapshotDelivered, let start = state.snapshotStarted else { return nil }
+                return snapshotDeliveryTimeout - (now - start)
+            }
+        }
+
+        func expireSnapshot(now: ContinuousClock.Instant) {
+            if let remaining = snapshotTimeRemaining(now: now), remaining <= .zero {
+                stop(.overflow)
             }
         }
 
@@ -420,6 +453,7 @@ enum CompanionTerminalWatchRelay {
             let timer = Task {
                 while !Task.isCancelled {
                     guard (try? await delay(.seconds(5))) != nil, !Task.isCancelled else { return }
+                    buffer.expireSnapshot(now: now())
                     buffer.tick()
                 }
             }
@@ -427,6 +461,12 @@ enum CompanionTerminalWatchRelay {
                 while !Task.isCancelled {
                     do {
                         let data = try await phoneFrames()
+                        guard data.count >= Stream.headerBytes else {
+                            buffer.stop(.protocolError)
+                            return
+                        }
+                        let generation = data.dropFirst().prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                        guard generation == buffer.generation else { continue }
                         guard let decoded = try? Stream.decode(data) else {
                             buffer.stop(.protocolError)
                             return
@@ -452,7 +492,9 @@ enum CompanionTerminalWatchRelay {
             var atFrameBoundary = true
             loop: for await _ in buffer.wakes {
                 while let frame = buffer.takeFrame() {
-                    if let failure = await writeBuffered(frame.data, buffer: buffer, send: send, delay: delay) {
+                    buffer.expireSnapshot(now: now())
+                    if let end = buffer.endReason { reason = end; break loop }
+                    if let failure = await writeBuffered(frame.data, buffer: buffer, send: send, delay: delay, now: now) {
                         // A failed write may have sent part of the frame. Never
                         // append end bytes to an indeterminate frame boundary.
                         atFrameBoundary = failure.atFrameBoundary
@@ -472,7 +514,7 @@ enum CompanionTerminalWatchRelay {
                 if tick, idle >= .seconds(Stream.heartbeatSeconds),
                     let heartbeat = buffer.takeHeartbeat()
                 {
-                    if let failure = await writeBuffered(heartbeat.data, buffer: buffer, send: send, delay: delay) {
+                    if let failure = await writeBuffered(heartbeat.data, buffer: buffer, send: send, delay: delay, now: now) {
                         atFrameBoundary = failure.atFrameBoundary
                         reason = buffer.endReason ?? failure.reason
                         break
@@ -537,9 +579,14 @@ enum CompanionTerminalWatchRelay {
 
     private static func writeBuffered(
         _ data: Data, buffer: Buffer, send: @escaping @MainActor @Sendable (Data) async throws -> Void,
-        delay: @escaping CompanionDelay
+        delay: @escaping CompanionDelay, now: @escaping @Sendable () -> ContinuousClock.Instant
     ) async -> WriteFailure? {
-        let writer = Task { await write(data, send: send, delay: delay) }
+        let remaining = buffer.snapshotTimeRemaining(now: now())
+        let writer = Task {
+            await write(
+                data, send: send, delay: delay, timeout: min(writeTimeout, remaining ?? writeTimeout),
+                timeoutReason: remaining == nil ? .closed : .overflow)
+        }
         buffer.installWriter(writer)
         defer { buffer.clearWriter() }
         return await withTaskCancellationHandler {
@@ -553,7 +600,7 @@ enum CompanionTerminalWatchRelay {
     /// finish. Cancelling an in-flight send closes its possibly partial frame.
     static func write(
         _ data: Data, send: @escaping @MainActor @Sendable (Data) async throws -> Void,
-        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout
+        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed
     ) async -> WriteFailure? {
         await withTaskGroup(of: WriteFailure?.self) { group in
             group.addTask {
@@ -572,7 +619,7 @@ enum CompanionTerminalWatchRelay {
             }
             group.addTask {
                 try? await delay(timeout)
-                return WriteFailure(reason: .closed, atFrameBoundary: false)
+                return WriteFailure(reason: timeoutReason, atFrameBoundary: false)
             }
             let first = await group.next() ?? WriteFailure(reason: .closed, atFrameBoundary: false)
             group.cancelAll()

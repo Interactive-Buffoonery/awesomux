@@ -91,6 +91,33 @@ struct CompanionTerminalWatchTests {
         #expect(throws: Relay.ZmxParser.Failure.messageTooLarge) { try oversize.feed(huge) }
     }
 
+    // JSON booleans bridge to NSNumber/Int; the Watch integer fields must
+    // reject them rather than accepting true as version or a one-cell grid.
+    @Test func watchHandshakeRejectsBooleanIntegers() throws {
+        for (object, expected): ([String: Any], LocalAPIError) in [
+            (["streamVersion": true], .unsupportedVersion),
+            (["streamVersion": 1, "grid": ["rows": true, "cols": 80]], .invalidRequest),
+            (["streamVersion": 1, "grid": ["rows": 24, "cols": true]], .invalidRequest),
+        ] {
+            let parsed = try #require(JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: object)) as? [String: Any])
+            #expect(throws: expected) { try CompanionTerminalWatchRequest.grid(parsed) }
+        }
+        #expect(try CompanionTerminalWatchRequest.grid(["streamVersion": 1]) == .init(rows: 24, cols: 80))
+        #expect(
+            try CompanionTerminalWatchRequest.grid(["streamVersion": 1, "grid": ["rows": 1, "cols": 1000]]) == .init(rows: 1, cols: 1000))
+    }
+
+    // TCP completion can mean local buffering; liveness requires transport
+    // probes and a retransmission deadline, without adding phone input ACKs.
+    @Test func watchTCPBoundsIdleAndUnacknowledgedConnections() {
+        let tcp = Relay.phoneTCPOptions()
+        #expect(tcp.enableKeepalive)
+        #expect(tcp.keepaliveIdle == 15)
+        #expect(tcp.keepaliveInterval == 5)
+        #expect(tcp.keepaliveCount == 3)
+        #expect(tcp.connectionDropTime == Int(Stream.idleTimeoutSeconds))
+    }
+
     @Test func translatorEmitsSnapshotThenOutputAndEnds() throws {
         let paneID = UUID()
         let targetVersion = UUID()
@@ -302,18 +329,25 @@ struct CompanionTerminalWatchLifecycleTests {
         let buffer = Relay.Buffer()
         let generation = try #require(buffer.beginGeneration())
         let data = try Stream.encode(.end(.init(reason: reason)), generation: current ? generation : generation - 1)
+        let next = OSAllocatedUnfairLock(initialState: 0)
+        let close = try Stream.encode(.end(.init(reason: .closed)), generation: generation)
         var finalReasons: [Stream.EndReason] = []
         let result = await Relay.run(
             socketPath: "unused", paneID: UUID(), targetVersion: UUID(), grid: .init(rows: 24, cols: 80),
             buffer: buffer,
-            phoneFrames: { data },
+            phoneFrames: {
+                let first = next.withLock { value in
+                    defer { value += 1 }; return value == 0
+                }
+                return first ? data : close
+            },
             send: { _ in Issue.record("Unexpected data frame") },
             sendEnd: { data in
                 if case .end(let end) = try Stream.decode(data).frame { finalReasons.append(end.reason) }
             },
             delay: { try await ContinuousClock().sleep(for: $0) },
             produce: { _ in _ = try? await CompanionNetworkOperation<Void>().wait {} })
-        let expected: Stream.EndReason = current && reason == .closed ? .closed : .protocolError
+        let expected: Stream.EndReason = !current || reason == .closed ? .closed : .protocolError
         #expect(result == expected)
         #expect(finalReasons == [expected])
     }
@@ -342,6 +376,97 @@ struct CompanionTerminalWatchLifecycleTests {
             produce: { _ in _ = try? await CompanionNetworkOperation<Void>().wait {} })
         #expect(reason == .closed)
         #expect(next.withLock { $0 } == 2)
+    }
+
+    // Stale headers must be discarded before unknown types or malformed JSON
+    // are validated; current-generation malformed frames still close the stream.
+    @Test(arguments: [true, false])
+    func malformedPhoneFrameIsValidatedOnlyInCurrentGeneration(current: Bool) async throws {
+        let buffer = Relay.Buffer()
+        let generation = try #require(buffer.beginGeneration())
+        var malformed = Data([0xff])
+        malformed.append(contentsOf: withUnsafeBytes(of: (current ? generation : generation - 1).bigEndian, Array.init))
+        let frames = [malformed, try Stream.encode(.end(.init(reason: .closed)), generation: generation)]
+        let next = OSAllocatedUnfairLock(initialState: 0)
+        let reason = await Relay.run(
+            socketPath: "unused", paneID: UUID(), targetVersion: UUID(), grid: .init(rows: 24, cols: 80), buffer: buffer,
+            phoneFrames: {
+                let index = next.withLock { value in
+                    defer { value += 1 }; return value
+                }
+                return frames[index]
+            },
+            send: { _ in Issue.record("Unexpected data frame") }, sendEnd: { _ in },
+            delay: { try await ContinuousClock().sleep(for: $0) },
+            produce: { _ in _ = try? await CompanionNetworkOperation<Void>().wait {} })
+        #expect(reason == (current ? .protocolError : .closed))
+        #expect(next.withLock { $0 } == (current ? 1 : 2))
+    }
+
+    // Writes can each complete within their own timeout while a single
+    // snapshot retains the daemon socket indefinitely. Progress must not reset it.
+    @Test func snapshotDeliveryHasOneDeadlineAcrossSuccessfulWrites() async throws {
+        let buffer = Relay.Buffer()
+        let clock = OSAllocatedUnfairLock(initialState: ContinuousClock.now)
+        var writes = 0
+        let reason = await Relay.run(
+            socketPath: "unused", paneID: UUID(), targetVersion: UUID(), grid: .init(rows: 24, cols: 80), buffer: buffer,
+            phoneFrames: { try await CompanionNetworkOperation<Data>().wait {} },
+            send: { _ in
+                writes += 1
+                clock.withLock { $0 = $0.advanced(by: .seconds(46)) }
+            }, sendEnd: { _ in },
+            delay: { try await ContinuousClock().sleep(for: $0) }, now: { clock.withLock { $0 } },
+            produce: { buffer in
+                guard let generation = buffer.beginGeneration() else { return }
+                for sequence in 0..<3 {
+                    _ = try? await buffer.enqueueSnapshot(.snapshot(sequence: UInt64(sequence), bytes: Data([1])), generation: generation)
+                }
+                buffer.finish(.sessionEnded)
+            })
+        #expect(reason == .overflow)
+        #expect(writes == 1)
+    }
+
+    @Test func snapshotDeadlineCancelsStalledWriterAndCapacityWaiter() async {
+        let buffer = Relay.Buffer(maximumPendingBytes: 64)
+        let clock = OSAllocatedUnfairLock(initialState: ContinuousClock.now)
+        let blockedWriter = CompanionNetworkOperation<Void>()
+        let producerFinished = CompanionNetworkOperation<Void>()
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        let reason = await Relay.run(
+            socketPath: "unused", paneID: UUID(), targetVersion: UUID(), grid: .init(rows: 24, cols: 80), buffer: buffer,
+            phoneFrames: { try await CompanionNetworkOperation<Data>().wait {} },
+            send: { _ in
+                try await blockedWriter.wait {
+                    signal.yield(())
+                    signal.finish()
+                }
+            }, sendEnd: { _ in Issue.record("End appended after a possibly partial snapshot frame") },
+            delay: { duration in
+                if duration == .seconds(5) {
+                    for await _ in started { break }
+                    clock.withLock { $0 = $0.advanced(by: .seconds(46)) }
+                } else {
+                    try await ContinuousClock().sleep(for: duration)
+                }
+            }, now: { clock.withLock { $0 } },
+            produce: { buffer in
+                defer { producerFinished.resolve(.success(())) }
+                guard let generation = buffer.beginGeneration() else { return }
+                do {
+                    for sequence in 0..<3 {
+                        let step = try await buffer.enqueueSnapshot(
+                            .snapshot(sequence: UInt64(sequence), bytes: Data(count: 40)), generation: generation)
+                        if step != .continue { return }
+                    }
+                    Issue.record("Snapshot producer exceeded pending capacity")
+                } catch { #expect(error is CancellationError) }
+            })
+        #expect(reason == .overflow)
+        #expect(!blockedWriter.resolve(.success(())))
+        #expect(!producerFinished.resolve(.success(())))
+        #expect(buffer.pendingBytes <= 64)
     }
 
     @Test func cancelledCallbackWaitFinishesAndIgnoresLateCompletion() async {

@@ -13,6 +13,22 @@ import UnicodeHygiene
 
 typealias CompanionDelay = @Sendable (Duration) async throws -> Void
 
+enum CompanionTerminalWatchRequest {
+    static func grid(_ object: [String: Any]) throws -> CompanionTerminalStream.Grid {
+        func integer(_ value: Any?) -> Int? {
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            return value as? Int
+        }
+        guard integer(object["streamVersion"]) == CompanionTerminalStream.version else { throw LocalAPIError.unsupportedVersion }
+        guard let raw = object["grid"] else { return .init(rows: 24, cols: 80) }
+        guard let value = raw as? [String: Any], Set(value.keys) == ["rows", "cols"],
+            let rows = integer(value["rows"]), let cols = integer(value["cols"]),
+            (1...1000).contains(rows), (1...1000).contains(cols)
+        else { throw LocalAPIError.invalidRequest }
+        return .init(rows: rows, cols: cols)
+    }
+}
+
 enum CompanionClientAdmission {
     enum Kind: Equatable { case handshake, request, watch }
 
@@ -803,7 +819,7 @@ private final class CompanionNetworkServer {
             Self.makeVerifyBlock(verifier: verifier),
             queue
         )
-        let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
+        let parameters = NWParameters(tls: tls, tcp: CompanionTerminalWatchRelay.phoneTCPOptions())
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(
             host: NWEndpoint.Host(address.host),
@@ -1221,15 +1237,7 @@ private final class CompanionNetworkServer {
     ) async throws {
         typealias Stream = CompanionTerminalStream
         guard let scope = lease.terminalWatchScope else { throw LocalAPIError.permissionDenied }
-        guard object["streamVersion"] as? Int == Stream.version else { throw LocalAPIError.unsupportedVersion }
-        var grid = Stream.Grid(rows: 24, cols: 80)
-        if let raw = object["grid"] {
-            guard let value = raw as? [String: Any], Set(value.keys) == ["rows", "cols"],
-                let rows = value["rows"] as? Int, let cols = value["cols"] as? Int,
-                (1...1000).contains(rows), (1...1000).contains(cols)
-            else { throw LocalAPIError.invalidRequest }
-            grid = Stream.Grid(rows: rows, cols: cols)
-        }
+        let grid = try CompanionTerminalWatchRequest.grid(object)
         guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
         guard let target = terminalWatchTarget(paneID), target.targetVersion == targetVersion else {
             throw LocalAPIError.staleTarget
