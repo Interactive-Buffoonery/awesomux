@@ -224,7 +224,6 @@ jobs:
       - name: Install zmx Zig toolchain
         if: matrix.group == 'zmx'
         env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
           ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
         run: |
           set -euo pipefail
@@ -514,11 +513,6 @@ jobs:
         env:
           GHOSTTY_ZIG_FORMULA: ${{ steps.ghostty-pin.outputs.zig_formula }}
           ZMX_ZIG_FORMULA: ${{ steps.ghostty-pin.outputs.zmx_zig_formula }}
-          # Homebrew's tap-trust gate aborts every brew command while any
-          # untrusted tap is present, and GitHub's macOS images ship with
-          # aws/tap preinstalled. Non-interactive CI can't answer the trust
-          # prompt, so opt out (same as prepare-native).
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           set -euo pipefail
           # The formula comes from the submodule's own minimum_zig_version, so
