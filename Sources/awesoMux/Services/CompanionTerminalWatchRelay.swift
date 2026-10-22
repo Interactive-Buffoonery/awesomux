@@ -217,11 +217,16 @@ enum CompanionTerminalWatchRelay {
 
         private let state = OSAllocatedUnfairLock(initialState: State())
         private let maximumPendingBytes: Int
+        private let now: @Sendable () -> ContinuousClock.Instant
         let wakes: AsyncStream<Void>
         private let wake: AsyncStream<Void>.Continuation
 
-        init(maximumPendingBytes: Int = Stream.maximumPendingBytes) {
+        init(
+            maximumPendingBytes: Int = Stream.maximumPendingBytes,
+            now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
+        ) {
             self.maximumPendingBytes = maximumPendingBytes
+            self.now = now
             (wakes, wake) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
         }
 
@@ -270,9 +275,10 @@ enum CompanionTerminalWatchRelay {
         // daemon socket. Live output retains the discard-and-resync policy.
         func enqueueSnapshot(_ frame: Stream.Frame, generation: UInt32) async throws -> Step {
             guard let queued = encode(frame, generation: generation) else { return .end(.protocolError) }
+            let started = now()
             state.withLock { state in
                 if state.generation == generation, state.snapshotStarted == nil {
-                    state.snapshotStarted = .now
+                    state.snapshotStarted = started
                 }
             }
             while true {
