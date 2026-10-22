@@ -1144,9 +1144,6 @@
     "Bridge" : {
       "comment" : "Diagnostics process type"
     },
-    "Bridge handshake" : {
-      "comment" : "Bridge doctor check title"
-    },
     "Browse Project Transcripts" : {
       "comment" : "Heading of the current-project agent transcript browser"
     },
