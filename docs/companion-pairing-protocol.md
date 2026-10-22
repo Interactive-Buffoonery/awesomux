@@ -549,10 +549,11 @@ translates that stream into typed frames; raw zmx messages and the socket path
 never reach the phone, and no phone input reaches the pane.
 
 Watch access is a per-phone scope persisted as `terminalWatchScope` in companion
-metadata; absent or `null` means off, and new pairings default off. The
-**Allow watching terminals in selected workspaces** controls in Mac Companion
-settings grant only the selected workspace IDs, including future panes in those
-workspaces. New workspaces need their own approval. A phone with the scope sees
+metadata; absent or `null` means off. New pairings get `allWorkspaces`, so a
+paired phone can watch any terminal, including future workspaces. The
+**Allow watching terminals** switch in Mac Companion settings turns this off and
+on per phone. Pairings that predate this default keep their stored scope until
+the switch is turned on. A phone with the scope sees
 a `terminalStream` object on
 `get_connection_status` holding the limits below; no object means `watch_terminal`
 returns `permission_denied`. The paired `get_capabilities` operation always

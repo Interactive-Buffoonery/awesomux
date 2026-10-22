@@ -691,20 +691,19 @@ struct CompanionTerminalWatchLifecycleTests {
         #expect(finalReasons == (atFrameBoundary ? [.revoked] : []))
     }
 
-    @Test func watchWorkspaceConsentIsIndependentAndEmptyDisablesIt() throws {
+    @Test func watchSwitchGrantsEveryWorkspaceAndOffDisablesIt() throws {
         let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
         let access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
         let fingerprint = Data(repeating: 7, count: 32)
         let phone = try access.registerCompanion(phoneName: "One", certificateFingerprint: fingerprint, transport: .lan, port: 1)
         let coordinator = CompanionPairingCoordinator(profile: .development(worktreeID: nil), accessStore: access)
-        let workspace = UUID()
-        try coordinator.setTerminalWatchWorkspaces([workspace], for: phone)
+        try coordinator.setTerminalWatchAllowed(true, for: phone)
         let lease = try access.runtimeAuthority.authorizeCompanion(
             connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
         ).get()
-        #expect(lease.terminalWatchScope == .persistentWorkspaces([workspace]))
-        try coordinator.setTerminalWatchWorkspaces([], for: phone)
+        #expect(lease.terminalWatchScope == .allWorkspaces)
+        try coordinator.setTerminalWatchAllowed(false, for: phone)
         let disabled = try access.runtimeAuthority.authorizeCompanion(
             connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
         ).get()

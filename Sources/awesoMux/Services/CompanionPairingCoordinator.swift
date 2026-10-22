@@ -312,10 +312,8 @@ final class CompanionPairingCoordinator {
         try accessStore.updateCompanionTerminalPreviewAllowed(connectionID: connectionID, allowed: allowed)
     }
 
-    func setTerminalWatchWorkspaces(_ workspaceIDs: Set<UUID>, for phone: LocalAPIConnectionGrant) throws {
-        try accessStore.updateCompanionTerminalWatchScope(
-            connectionID: phone.id,
-            scope: workspaceIDs.isEmpty ? nil : .persistentWorkspaces(workspaceIDs.sorted { $0.uuidString < $1.uuidString }))
+    func setTerminalWatchAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
+        try accessStore.updateCompanionTerminalWatchScope(connectionID: phone.id, scope: allowed ? .allWorkspaces : nil)
     }
 
     func unpair(_ connection: LocalAPIConnectionGrant) throws {
@@ -500,7 +498,7 @@ final class CompanionPairingCoordinator {
                     port: port,
                     pairingVersion: 2,
                     terminalPreviewAllowed: true,
-                    terminalWatchScope: self.e2eTerminalWatchScope
+                    terminalWatchScope: .allWorkspaces
                 )
                 #if DEBUG
                     if let workspaceID = service.decisionFixtureWorkspaceID {
@@ -612,19 +610,6 @@ final class CompanionPairingCoordinator {
         pairingSession = nil
         pairingGeneration = nil
         servers.forEach { $0.pairingIsOpen = false }
-    }
-
-    /// Watch access is off for every real pairing; only the development E2E
-    /// fixture turns it on so the stream path has a repeatable artifact.
-    private var e2eTerminalWatchScope: LocalAPITargetScope? {
-        #if DEBUG
-            if case .development = profile,
-                ProcessInfo.processInfo.environment["AWESOMUX_COMPANION_E2E_TERMINAL_WATCH"] == "1"
-            {
-                return .allWorkspaces
-            }
-        #endif
-        return nil
     }
 
     private func requestApproval(id: UUID, phoneName: String, words: [String]) async -> Bool {
