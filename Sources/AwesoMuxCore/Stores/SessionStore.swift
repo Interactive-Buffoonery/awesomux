@@ -422,7 +422,7 @@ public final class SessionStore {
         didSet { reconcileLiftedSessionIDs() }
     }
 
-    /// Ordered lifted list for the sidebar's synthetic Needs Input section.
+    /// Ordered lifted list for the sidebar's synthetic Needs Attention section.
     /// Membership = lifted and not pinned, array order = ARRIVAL order: first to
     /// ask sits at the top and new arrivals append at the bottom, so an existing
     /// row is never shoved down under the user's pointer. Re-asking while
@@ -495,7 +495,7 @@ public final class SessionStore {
         }
     }
 
-    /// The workspace held in the Needs Input section past the point it stopped
+    /// The workspace held in the Needs Attention section past the point it stopped
     /// needing input. Written synchronously by the `selectedSessionID` setter —
     /// a view-local `@State` written in `.onChange` would lag the body that
     /// reads it, demoting a just-clicked row for one render pass.
@@ -571,7 +571,7 @@ public final class SessionStore {
             let selected = storedSelectedSessionID,
             !pinnedSessionIDs.contains(selected),
             let session = session(id: selected),
-            session.needsUserInput
+            session.effectiveChromeState == .needsAttention
         else {
             // @Observable publishes even a nil→nil write, and this runs on every
             // dwell arm — invalidating every sidebar row for a no-op.
@@ -593,22 +593,28 @@ public final class SessionStore {
     /// Records or retracts a pane's unanswered-turn mark from a runtime event
     /// the reducer already accepted, and reconciles when membership moved.
     ///
-    /// The retraction set is deliberately narrow. `.promptSubmit` means a prompt
+    /// Claude retraction is deliberately narrow. `.promptSubmit` means a prompt
     /// was actually submitted into this pane — the one phase that proves the turn
     /// got answered, whether the user typed it or `amx send` injected it. Tool
-    /// phases are excluded on purpose: subagent tool calls inherit the pane's
+    /// phases are excluded for Claude on purpose: subagent tool calls inherit the pane's
     /// event file, and `AgentRuntimeEventReducer` measured a background
     /// `.toolStart` landing after turn-end at 11 of 32 turn-ends in a real trace.
-    /// Clearing on those would drop the row out of Needs Input a third of the
+    /// Clearing on those would drop the row out of Needs Attention a third of the
     /// time while the agent is still genuinely waiting.
     func updateUnansweredTurn(paneID: TerminalPane.ID, event: AgentRuntimeEvent) {
         let before = unansweredTurns
+        let lifecycleEnded = runtimeEventReducer.stateByPaneID[paneID]?.lifecycle.isEnded == true
         switch event.phase {
-        case .notification where event.assertsWaitingExecutionState:
-            // The only mapping that asserts `.waiting` on a notification is
-            // Claude Code's `idle_prompt`. Every other provider's notification
-            // carries an attention reason and no execution claim.
+        case .notification where event.assertsWaitingExecutionState && !lifecycleEnded:
+            // Claude Code's delayed idle prompt reports an unanswered turn.
             unansweredTurns[paneID] = event.providerSessionID
+        case .stop where event.source == .codex && event.assertsWaitingExecutionState && !lifecycleEnded:
+            // Codex has no delayed idle prompt, so its completed turn is the signal.
+            unansweredTurns[paneID] = event.providerSessionID
+        case .toolStart where event.source == .codex:
+            // Codex can continue after Stop without a new prompt; follow its working state.
+            guard retracts(event, markedFor: paneID) else { return }
+            unansweredTurns.removeValue(forKey: paneID)
         case .promptSubmit, .sessionEnd:
             guard retracts(event, markedFor: paneID) else { return }
             unansweredTurns.removeValue(forKey: paneID)
@@ -1731,7 +1737,7 @@ public final class SessionStore {
         guard session(id: sessionID) != nil else { return }
         pinnedSessionIDs.append(sessionID)
         // Pinned wins over lifted by construction, so a surviving sticky would
-        // hijack the tile back into Needs Input the moment it is unpinned.
+        // hijack the tile back into Needs Attention the moment it is unpinned.
         if attentionStickySessionID == sessionID {
             attentionStickySessionID = nil
         }

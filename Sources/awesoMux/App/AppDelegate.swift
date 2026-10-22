@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the delegate has no environment of its own.
     private var openSettings: (() -> Void)?
     private var openPrimaryWindow: (() -> Void)?
+    private var openTerminalFile: ((TerminalFileOpenRequest) -> Void)?
+    private var pendingOpenFileURLs: [URL] = []
     let notificationBridge = WorkspaceNotificationBridge()
     private lazy var menuBarMiniStatusItemController = MenuBarMiniStatusItemController(
         menuProvider: { [weak self] in
@@ -950,6 +952,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let localAPIService { companionPairingCoordinator.configure(service: localAPIService) }
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let sessionStore, let openTerminalFile else {
+            pendingOpenFileURLs.append(contentsOf: urls)
+            return
+        }
+        for url in urls {
+            guard url.isFileURL else { continue }
+            if ["md", "markdown"].contains(url.pathExtension.lowercased()) {
+                if sessionStore.selectedSession == nil {
+                    sessionStore.insertSession(
+                        TerminalSession(title: url.lastPathComponent, workingDirectory: url.deletingLastPathComponent().path),
+                        groupName: appSettingsStore?.workspaces.value.defaultGroup ?? "awesoMux"
+                    )
+                }
+                sessionStore.openDocumentPane(fileURL: url)
+                surfacePrimaryWindow()
+                continue
+            }
+            do {
+                let request = try TerminalFileOpenRequest(url: url)
+                let alert = NSAlert()
+                alert.messageText = String(localized: "Run this file in awesoMux?")
+                alert.informativeText = request.fileURL.path
+                // Cancel comes first; opening a file never runs it on Return.
+                alert.addButton(withTitle: String(localized: "Cancel"))
+                alert.addButton(withTitle: String(localized: "Run"))
+                guard alert.runModal() == .alertSecondButtonReturn else { continue }
+                openTerminalFile(request)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "Could not open terminal file")
+                alert.informativeText = String(
+                    localized: "Choose a regular executable file or an executable .command script with no control characters in its path.")
+                alert.runModal()
+            }
+        }
+    }
+
     func bind(
         sessionStore: SessionStore,
         ghosttyRuntime: GhosttyRuntime,
@@ -958,7 +998,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appSettingsStore: AppSettingsStore,
         terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache,
         openSettings: @escaping () -> Void,
-        openPrimaryWindow: @escaping () -> Void
+        openPrimaryWindow: @escaping () -> Void,
+        openTerminalFile: @escaping (TerminalFileOpenRequest) -> Void
     ) {
         self.sessionStore = sessionStore
         self.ghosttyRuntime = ghosttyRuntime
@@ -967,6 +1008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.appSettingsStore = appSettingsStore
         self.openSettings = openSettings
         self.openPrimaryWindow = openPrimaryWindow
+        self.openTerminalFile = openTerminalFile
         ghosttyRuntime.configureOutputMarksAttentionProvider {
             appSettingsStore.workspaces.value.outputMarksNeedsAttention
         }
@@ -1026,6 +1068,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let pendingDeepLinkSessionID {
             self.pendingDeepLinkSessionID = nil
             selectDeepLinkedSession(pendingDeepLinkSessionID, in: sessionStore)
+        }
+        if !pendingOpenFileURLs.isEmpty {
+            let urls = pendingOpenFileURLs
+            pendingOpenFileURLs.removeAll()
+            DispatchQueue.main.async { [weak self] in
+                self?.application(NSApp, open: urls)
+            }
         }
     }
 

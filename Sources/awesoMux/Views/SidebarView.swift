@@ -777,10 +777,16 @@ struct SidebarView: View {
                 // An unpinned workspace that still needs input moves to the Needs
                 // Input section, not back to its group — announcing a return and
                 // expanding the group would both be wrong.
-                if sessionStore.needsInputSectionEnabled, session.needsUserInput {
+                if sessionStore.needsInputSectionEnabled,
+                    SidebarAttentionProjection.isLifted(
+                        session,
+                        stickySessionID: nil,
+                        unansweredTurnPaneIDs: sessionStore.unansweredTurnPaneIDs
+                    )
+                {
                     accessibilityAnnouncer.announce(
                         String(
-                            localized: "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Input",
+                            localized: "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Attention",
                             comment:
                                 "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
                         )
@@ -798,7 +804,7 @@ struct SidebarView: View {
         }
         .onChange(of: sessionStore.liftedSessionIDs) { oldIDs, newIDs in
             // Twin of the pin handler above, for the other synthetic section. A
-            // workspace leaving Needs Input while its origin group is collapsed
+            // workspace leaving Needs Attention while its origin group is collapsed
             // otherwise just vanishes — no expand, nothing spoken.
             // An addition driven by an attention reason stays silent, because
             // WorkspaceAttentionAnnouncementTracker already speaks a workspace
@@ -824,9 +830,9 @@ struct SidebarView: View {
                 accessibilityAnnouncer.announce(
                     String(
                         localized:
-                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is still waiting for a reply, moved to Needs Input",
+                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is waiting for a reply, moved to Needs Attention",
                         comment:
-                            "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Input section; the placeholder is the workspace title"
+                            "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Attention section; the placeholder is the workspace title"
                     )
                 )
             }
@@ -851,7 +857,7 @@ struct SidebarView: View {
             accessibilityAnnouncer.announce(
                 String(
                     localized:
-                        "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Input, returned to \(group.name)",
+                        "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Attention, returned to \(group.name)",
                     comment:
                         "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name"
                 )
@@ -1244,7 +1250,7 @@ struct SidebarView: View {
 
         // Runs over the pinned projection's REDUCED entries, so a pinned
         // workspace is already absent and can never be lifted twice — that is
-        // the whole of "pinned wins". Needs Input renders above Pinned, so it
+        // the whole of "pinned wins". Needs Attention renders above Pinned, so it
         // also gets the last word on the filter's top match.
         let attentionProjection = SidebarAttentionProjection.apply(
             entries: pinnedProjection.entries,
@@ -1291,7 +1297,7 @@ struct SidebarView: View {
         )
     }
 
-    /// The synthetic Needs Input section. Extracted from `body` as a
+    /// The synthetic Needs Attention section. Extracted from `body` as a
     /// `@ViewBuilder` func (matching `pinnedSection`) so its callback closures
     /// don't push the already-large body expression past the type-checker's
     /// budget.
@@ -1433,7 +1439,7 @@ struct SidebarView: View {
         )
     }
 
-    /// "New Workspace Here" from a lifted tile (Needs Input or Pinned) lands the
+    /// "New Workspace Here" from a lifted tile (Needs Attention or Pinned) lands the
     /// new workspace in the session's origin group, matching the in-group tile.
     private func newSessionInLiftedOrigin(_ session: TerminalSession) {
         guard

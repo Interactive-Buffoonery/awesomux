@@ -135,24 +135,13 @@ public enum SidebarVisibleRows {
     ) -> SidebarWorkspaceRotorEntry {
         let session = liftedEntry.entry.session
         let originGroupName = liftedEntry.originGroup.name
-        // The rotor label ends with the agent state, and a row genuinely waiting
-        // on a human reads that state as "Needs input" — the same words the
-        // lifted phrase opens with, so appending the tile's full phrase here
-        // stutters them back to back. The tile escapes this because its value
-        // puts "Workspace 1 of 3" between the two; the rotor has no such cushion.
-        // Narrow on purpose: a pinned row, or one the Needs Input section still
-        // holds by selection stickiness, has had no reason spoken yet and keeps
-        // the full phrase.
-        let stateAlreadyNamedTheReason =
-            reason == .needsInput && session.agentRollup().state == .needsAttention
+        // The section says Needs Attention while the agent state can still say Needs input.
         return SidebarWorkspaceRotorEntry(
             id: session.id,
             label: rotorLabel(
                 for: session,
                 title: titles[session.id],
-                originGroupPhrase: stateAlreadyNamedTheReason
-                    ? originPhrase(originGroupName: originGroupName)
-                    : originGroupPhrase(liftedBecause: reason, originGroupName: originGroupName)
+                originGroupPhrase: originGroupPhrase(liftedBecause: reason, originGroupName: originGroupName)
             )
         )
     }
@@ -170,7 +159,7 @@ public enum SidebarVisibleRows {
     ///   - originGroupPhrase: appended for a row lifted into a synthetic
     ///     section, so the rotor says why it sits above its group instead of
     ///     leaving the reordering unexplained. `rotorEntry(for:liftedBecause:)`
-    ///     picks between the tile's full wording and the origin alone.
+    ///     includes the section and the origin group.
     static func rotorLabel(
         for session: TerminalSession,
         title: String? = nil,
@@ -208,11 +197,11 @@ public enum SidebarVisibleRows {
         switch reason {
         case .needsInput:
             String(
-                localized: "Needs input, from \(originGroupName)",
+                localized: "Needs attention, from \(originGroupName)",
                 bundle: bundle,
                 locale: locale,
                 comment:
-                    "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
+                    "Spoken on a workspace lifted into the sidebar's Needs Attention section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
             )
         case .pinned:
             String(

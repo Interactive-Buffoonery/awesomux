@@ -921,6 +921,7 @@ extension SessionStore {
         terminalIsFocused: Bool = false
     ) -> Bool {
         let now = Date()
+        let previousIdentityEpoch = runtimeEventReducer.stateByPaneID[paneID]?.identityEpoch
         guard let position = position(for: sessionID),
             let decision = runtimeEventReducer.decision(
                 for: event,
@@ -931,6 +932,10 @@ extension SessionStore {
             )
         else {
             return false
+        }
+        // A replacement conversation must not inherit the old unanswered turn.
+        if previousIdentityEpoch != runtimeEventReducer.stateByPaneID[paneID]?.identityEpoch {
+            clearUnansweredTurn(paneIDs: [paneID])
         }
         // Rides the reducer's accepted stream, so it inherits the dedupe,
         // staleness, and cross-provider guards. Called before the pane update

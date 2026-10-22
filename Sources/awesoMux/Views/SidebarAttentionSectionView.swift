@@ -3,7 +3,7 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-/// The synthetic Needs Input section at the top of the sidebar. Not a real
+/// The synthetic Needs Attention section at the top of the sidebar. Not a real
 /// SessionGroup: rows come from SidebarAttentionProjection, each tinted by its
 /// ORIGIN group so a lifted tile keeps answering "which project is this?".
 /// Not collapsible and not reorderable by design — membership is computed and
@@ -57,11 +57,10 @@ struct SidebarAttentionSectionView: View {
     }
 
     /// A sighted user reads the tile count off the section at a glance; without
-    /// this a VoiceOver user hears only "Needs Input, header" and has to arrow
-    /// through counting rows. Same phrase `SidebarGroupHeaderView` speaks for a
-    /// collapsed group, so the two surfaces can't drift.
+    /// this a VoiceOver user hears only "Needs Attention, header" and has to arrow
+    /// through counting rows. Count workspaces because quiet completions lift too.
     private var countPhrase: String {
-        LocalizedPluralStrings.sidebarAgentsNeedInput(count: attention.count)
+        LocalizedPluralStrings.sidebarGroupWorkspaces(count: attention.count)
     }
 
     @ViewBuilder
@@ -76,16 +75,15 @@ struct SidebarAttentionSectionView: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel(
                     String(
-                        localized: "Needs Input",
+                        localized: "Needs Attention",
                         comment:
-                            "Accessibility label for the needs-input workspaces section header in the collapsed sidebar."
+                            "Accessibility label for the needs-attention workspaces section header in the collapsed sidebar."
                     )
                 )
                 .accessibilityValue(countPhrase)
                 .accessibilityAddTraits(.isHeader)
         } else {
-            // Mirrors SidebarPinnedSectionView.header's typography; tinted peach
-            // because every row in it is showing the needs cue.
+            // Mirrors SidebarPinnedSectionView.header's typography with the attention accent.
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.bubble.fill")
                     .font(.system(size: 9, weight: .bold))
@@ -94,8 +92,8 @@ struct SidebarAttentionSectionView: View {
 
                 Text(
                     String(
-                        localized: "Needs Input",
-                        comment: "Sidebar section header for workspaces awaiting user input."
+                        localized: "Needs Attention",
+                        comment: "Sidebar section header for workspaces needing attention."
                     )
                 )
                 .awFont(AwFont.Mono.kicker)
@@ -121,7 +119,7 @@ struct SidebarAttentionSectionView: View {
         // pointer tooltip stands alone and reads better without it. Matches the
         // Pinned section's split.
         let originGroupTooltip = String(
-            localized: "Needs input from \(item.originGroup.name)",
+            localized: "Needs attention from \(item.originGroup.name)",
             comment: "Tooltip on a lifted sidebar workspace naming the group it returns to."
         )
         // Only this scope's body re-runs on a display-only title write — not

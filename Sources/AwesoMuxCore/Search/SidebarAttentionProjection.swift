@@ -1,7 +1,7 @@
 import Foundation
 
-/// Post-pinned projection that lifts workspaces awaiting a human answer into the
-/// sidebar's synthetic Needs Input section and hides them inside their origin
+/// Post-pinned projection that lifts visible attention and unanswered turns into
+/// the sidebar's synthetic Needs Attention section, hiding them inside their origin
 /// groups. Nothing moves in the store — acknowledging a workspace drops its ID
 /// from `SessionStore.liftedSessionIDs` and the row re-renders at its unchanged
 /// index in its group, exactly like unpinning.
@@ -35,7 +35,7 @@ public enum SidebarAttentionProjection {
         unansweredTurnPaneIDs: Set<TerminalPane.ID> = []
     ) -> Bool {
         session.id == stickySessionID
-            || session.needsUserInput
+            || session.effectiveChromeState == .needsAttention
             || session.hasUnansweredTurn(in: unansweredTurnPaneIDs)
     }
 

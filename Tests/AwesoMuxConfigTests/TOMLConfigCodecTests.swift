@@ -43,6 +43,27 @@ struct TOMLConfigCodecTests {
     private static var roundTripCases: [RoundTripCase] {
         let codec = TOMLConfigCodec()
         var cases: [RoundTripCase] = []
+        for version in [1, 2] {
+            let source = defaultTOML.replacing("config_schema_version = 2", with: "config_schema_version = \(version)")
+            cases.append(
+                RoundTripCase(name: "remoteMarkdownLaunchRefreshDefaultsOffV\(version)", source: source) { decoded, _, reDecoded in
+                    #expect(!GeneralConfig.defaultValue.refreshRemoteMarkdownOnLaunch)
+                    #expect(!decoded.general.refreshRemoteMarkdownOnLaunch)
+                    #expect(!reDecoded.general.refreshRemoteMarkdownOnLaunch)
+                })
+        }
+        cases.append(
+            RoundTripCase(
+                name: "remoteMarkdownLaunchRefreshOptInRoundTrips",
+                source: defaultTOML.replacing(
+                    "restore_workspaces = true", with: "restore_workspaces = true\nrefresh_remote_markdown_on_launch = true")
+            ) { decoded, reEncoded, reDecoded in
+                #expect(
+                    TOMLConfigCodec().unknownOwnedSectionKeys(inLines: ["[general]", "refresh_remote_markdown_on_launch = true"]).isEmpty)
+                #expect(decoded.general.refreshRemoteMarkdownOnLaunch)
+                #expect(reEncoded.contains("refresh_remote_markdown_on_launch = true"))
+                #expect(reDecoded.general.refreshRemoteMarkdownOnLaunch)
+            })
         do {
             let toml =
                 defaultTOML + """
@@ -413,6 +434,15 @@ struct TOMLConfigCodecTests {
 
     private static var invalidValues: [InvalidValueCase] {
         var cases: [InvalidValueCase] = []
+        cases.append(
+            InvalidValueCase(
+                source: defaultTOML.replacing(
+                    "restore_workspaces = true", with: "restore_workspaces = true\nrefresh_remote_markdown_on_launch = 1")
+            ) { path, message in
+                #expect(path.contains("general"))
+                #expect(path.contains("refresh_remote_markdown_on_launch"))
+                #expect(message.contains("Bool") || message.contains("boolean"))
+            })
         do {
             let toml = defaultTOML.replacing(
                 "confirm_clipboard_read = true",

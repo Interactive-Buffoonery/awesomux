@@ -269,11 +269,11 @@ public extension TerminalSession {
         layout.contains { $0.attentionReason != nil }
     }
 
-    /// The narrower gate the sidebar's Needs Input section lifts on: only reasons
-    /// that block on a human answer. A bell, desktop notification, or stray
-    /// background output still lights the peach cue via `needsAcknowledgement`,
-    /// but reordering the sidebar for those would make the section thrash. Same
-    /// two reasons `SessionRestoreReducer` keeps across a relaunch.
+    /// Blocking reasons that require a human answer, unlike generic attention
+    /// from a bell, desktop notification, or background output. Sidebar promotion
+    /// also includes those generic cues; input safety and passive acknowledgement
+    /// still use this narrower gate. These are the same two reasons
+    /// `SessionRestoreReducer` keeps across a relaunch.
     ///
     /// Session-wide by design: a split workspace stays lifted while ANY pane is
     /// still waiting, even though the selection dwell acknowledges only the
