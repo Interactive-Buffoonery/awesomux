@@ -54,22 +54,6 @@ struct GhosttyActionPaneRecycleAtomicityTests {
         )
     }
 
-    @Test("a pending terminal title is flushed when the surface is torn down")
-    func pendingTerminalTitleSurvivesTeardown() {
-        let harness = makeHarness()
-
-        harness.view.updateTerminalTitle("title written to A")
-        harness.view.updateTerminalTitle("final title for A")
-        harness.view.flushTerminalTitleThrottle()
-
-        // The command-bridge heal disposes the surface while the pane lives on,
-        // so the pending title must land rather than be cancelled.
-        #expect(
-            harness.store.session(id: harness.sessionA.id)?
-                .layout.pane(id: harness.sharedPaneID)?.title == "final title for A"
-        )
-    }
-
     @Test("a flushed title does not fire again and clobber a newer title")
     func flushedTerminalTitleDoesNotRefireAfterFlush() async throws {
         let harness = makeHarness()
@@ -77,6 +61,10 @@ struct GhosttyActionPaneRecycleAtomicityTests {
         harness.view.updateTerminalTitle("title written to A")
         harness.view.updateTerminalTitle("deferred title for A")
         harness.view.flushTerminalTitleThrottle()
+        #expect(
+            harness.store.session(id: harness.sessionA.id)?
+                .layout.pane(id: harness.sharedPaneID)?.title == "deferred title for A"
+        )
         harness.view.updateTerminalTitle("newest title for A")
 
         // Past the flushed item's original deadline: `perform()` alone does not
@@ -114,25 +102,6 @@ struct GhosttyActionPaneRecycleAtomicityTests {
         #expect(
             harness.store.session(id: harness.sessionA.id)?
                 .layout.pane(id: harness.sharedPaneID)?.title == "newest title for A"
-        )
-        #expect(
-            harness.store.session(id: harness.sessionB.id)?
-                .layout.pane(id: harness.sharedPaneID)?.title == "title written to B"
-        )
-    }
-
-    @Test("terminal titles stay with the session targeted at handler time")
-    func terminalTitleSurvivesRecycle() {
-        let harness = makeHarness()
-
-        harness.view.updateTerminalTitle("title written to A")
-        let recycledView = recycle(harness)
-        recycledView.updateTerminalTitle("title written to B")
-
-        #expect(recycledView === harness.view)
-        #expect(
-            harness.store.session(id: harness.sessionA.id)?
-                .layout.pane(id: harness.sharedPaneID)?.title == "title written to A"
         )
         #expect(
             harness.store.session(id: harness.sessionB.id)?

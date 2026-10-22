@@ -1,9 +1,9 @@
-# INT-110 implementation research — in-pane permission prompts
+# Issue #822 implementation research — in-pane permission prompts
 
-Research note (not an ADR). Captures what it would take to build INT-110
+Research note (not an ADR). Captures what it would take to build #822
 (in-pane permission cards for agent tool calls) given the current codebase and
 the current Claude Code / Codex hook contracts. Prerequisite decision already
-made: **Option A** — INT-110 owns the bidirectional permission channel; INT-500's
+made: **Option A** — #822 owns the bidirectional permission channel; INT-500's
 telemetry firewall stays intact.
 
 Upstream issue/PR statuses and provider doc contracts last verified
@@ -52,7 +52,7 @@ defaults to 600s). The hook returns a decision (official hooks docs):
 
 `behavior` is `allow` / `deny` — there is **no** `ask` value; falling through to
 Claude Code's own prompt is done by returning *no decision*. `allow` may carry
-`updatedInput` to rewrite the tool input. This is exactly the shape INT-110
+`updatedInput` to rewrite the tool input. This is exactly the shape #822
 needs: it fires only when permission is actually required, awesoMux can answer
 on the user's behalf, and the "Always allow → auto-allow without prompting"
 behavior is just returning `allow` without surfacing a card.
@@ -62,7 +62,7 @@ This is a **different field shape** from `PreToolUse` (which uses
 `permissionDecision`; `PermissionRequest` uses `decision.behavior` — and Codex's
 `PermissionRequest` hook now returns the **identical**
 `hookSpecificOutput.decision.behavior` shape (see Codex below), so one
-gate-helper decision contract can plausibly serve both providers. INT-110 binds
+gate-helper decision contract can plausibly serve both providers. #822 binds
 to `PermissionRequest`.
 
 Contract status + caveats:
@@ -91,7 +91,7 @@ calls (PR #18385), and can return `permissionDecision: "allow"` with
 `updatedInput`. More importantly, the bidirectional story resolved upstream:
 
 - **openai/codex#15311** ("Add blocking PermissionRequest hook for external
-  approval UIs") — the request for exactly INT-110's use case — **closed
+  approval UIs") — the request for exactly #822's use case — **closed
   completed 2026-04-22**. The blocking `PermissionRequest` hook landed in
   PR #17563 (merged 2026-04-17) and is in the official Codex hooks docs: it
   fires when Bash / `apply_patch` / MCP calls need approval, blocks, and
@@ -101,9 +101,9 @@ calls (PR #18385), and can return `permissionDecision: "allow"` with
   Claude Code's** `PermissionRequest` hook.
 - The follow-on issues (#23465 "expose reviewer / support explicit defer",
   #28833 "approval signal for passive notifications") are still open — they
-  refine the hook's ergonomics; neither blocks INT-110's three-action card.
+  refine the hook's ergonomics; neither blocks #822's three-action card.
 
-Consequences for INT-110 scoping:
+Consequences for #822 scoping:
 
 - Codex can join v1 on nearly the same shape as Claude Code — both providers
   return `hookSpecificOutput.decision.behavior`, so one gate-helper decision
@@ -117,14 +117,14 @@ Consequences for INT-110 scoping:
 
 ### OpenCode and Pi — the other two providers
 
-INT-110 is a permission-channel question, and awesoMux integrates four providers,
+#822 is a permission-channel question, and awesoMux integrates four providers,
 not two. OpenCode and Pi are the remaining two. The honest shape is **constrained,
 not "both doable."** For an in-pane Allow/Deny card a provider must expose a hook
 that fires *at the permission decision point* and can return **allow** (to
 suppress the native prompt) as well as **deny**. Claude Code clears that bar
 today; Codex clears it on paper pending the empirical check above.
 
-| Provider | Can DENY from an awesoMux hook? | Can ALLOW / always-allow (suppress native prompt)? | Net for INT-110 v1 |
+| Provider | Can DENY from an awesoMux hook? | Can ALLOW / always-allow (suppress native prompt)? | Net for #822 v1 |
 |---|---|---|---|
 | **Claude Code** | Yes | Yes — `PermissionRequest` → `hookSpecificOutput.decision.behavior` | Full three-action card (above) |
 | **Codex** | Yes (`PreToolUse` or `PermissionRequest`) | Yes — documented `PermissionRequest`, same shape as Claude Code (verify empirically) | Full three-action candidate (above) |
@@ -135,7 +135,7 @@ today; Codex clears it on paper pending the empirical check above.
 
 - `permission.ask` is a real plugin hook whose contract is bidirectional: input
   `{ id, permission, patterns, metadata }`, output `status: "allow" | "deny" | "ask"`.
-  On paper it is exactly the shape INT-110 wants.
+  On paper it is exactly the shape #822 wants.
 - **But on the target version it does not fire.** Issue #7006 ("`permission.ask`
   defined but not triggered") is OPEN; #19927 shows the partial wiring is bypassed
   for first-encounter `needsAsk=true` commands — exactly the prompts that matter;
@@ -195,8 +195,8 @@ today; Codex clears it on paper pending the empirical check above.
    path only** — an explicit decision, the sibling of "break fire-and-forget for one
    mode."
 
-**No named issue** covers OpenCode/Pi permissions (unlike INT-110). Open
-question: should this become a sibling issue rather than riding INT-110?
+**No named issue** covers OpenCode/Pi permissions (unlike #822). Open
+question: should this become a sibling issue rather than riding #822?
 
 ## Why this is NOT a pure view over INT-500
 
@@ -212,7 +212,7 @@ INT-500's side channel (`docs/agent-runtime-side-channel.md`) is deliberately:
   approval hook is the opposite: it must **hold** the process open and **write a
   decision to stdout**.
 
-INT-110 needs the two things INT-500 refuses:
+#822 needs the two things INT-500 refuses:
 
 1. a **command/target preview** for the card body, and
 2. a **decision-return path** (Allow/Deny back to the agent).
@@ -223,7 +223,7 @@ That's why Option A is real work, not a skin.
 
 ### 1. A new blocking hook mode (helper) — net new
 
-`AwesoMuxAgentHook` today is append-and-exit. INT-110 needs a second mode
+`AwesoMuxAgentHook` today is append-and-exit. #822 needs a second mode
 (e.g. `--provider claude-code --gate` or a distinct `awesoMuxAgentPermission`
 helper) that:
 
@@ -283,14 +283,14 @@ genuine risk, not the shortcut wiring. Prototype it early.
 
 ### 5. Trust model — settings surface already stubbed by INT-520
 
-**INT-520 already shipped the settings scaffolding INT-110 assumed it would have
+**INT-520 already shipped the settings scaffolding #822 assumed it would have
 to build.** `AgentsSettingsPane` has a "Permissions" section, and
 `AgentConfig` (`Sources/AwesoMuxConfig/AgentConfig.swift`) already persists:
 
 - `permissionPosture`: `.askEveryTime` / `.rememberPerWorkspace` / `.trustKnownTools`
 - `rememberToolTrust`: Bool (default true)
 
-What's **missing** for INT-110's trust model:
+What's **missing** for #822's trust model:
 
 - The per-`(workspace, tool, target-pattern)` **trust store** itself (the issue
   wants it in the workspace snapshot). `AgentConfig` today holds only the coarse
@@ -298,7 +298,7 @@ What's **missing** for INT-110's trust model:
 - The **editable trust list UI** in Settings → Workspaces → Permissions.
 - The optional **"Allow for session"** tier (trust until app/session ends).
 
-So INT-520 gives the posture toggle + the surface; INT-110 adds the tuple store,
+So INT-520 gives the posture toggle + the surface; #822 adds the tuple store,
 the list editor, and the session tier.
 
 ### 6. Edge cases (from the issue) → where they hit
@@ -315,7 +315,7 @@ the list editor, and the session tier.
 
 ADR 0008's "never capture command text / paths / prompt text" rule governs
 **diagnostics that leave the machine** (product analytics, error reports,
-feedback egress). INT-110 consuming the `PermissionRequest` command preview is
+feedback egress). #822 consuming the `PermissionRequest` command preview is
 **local, in-process UI** that never leaves the device — a different concern.
 INT-500's content-free rule is about keeping the *telemetry side channel* dumb,
 not a blanket ban on the app ever seeing command text. So the gate helper reading

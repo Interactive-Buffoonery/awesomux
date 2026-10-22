@@ -90,12 +90,11 @@ struct DocumentRevisionMonitorTests {
 
     // MARK: - Background detection
 
-    @Test("background edit records an exact diff and announces once")
-    func backgroundEditRecordsIndicator() async throws {
+    @Test("successive background edits diff from the baseline, not edit-to-edit")
+    func successiveEditsAccumulate() async throws {
         try await withFixture { fixture, monitor, log in
-            let edited = Self.baseContent + "\nline4\nline5"
-            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-
+            try (Self.baseContent + "\nline4\nline5").write(
+                to: fixture.urlB, atomically: true, encoding: .utf8)
             let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) != nil
             }
@@ -103,17 +102,6 @@ struct DocumentRevisionMonitorTests {
             #expect(exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0))
             #expect(log.messages.count == 1)
             #expect(log.messages.first?.contains("b.md") == true)
-        }
-    }
-
-    @Test("successive background edits diff from the baseline, not edit-to-edit")
-    func successiveEditsAccumulate() async throws {
-        try await withFixture { fixture, monitor, log in
-            try (Self.baseContent + "\nline4\nline5").write(
-                to: fixture.urlB, atomically: true, encoding: .utf8)
-            _ = await waitUntilEventually(deadline: .seconds(10)) {
-                monitor.indicator(for: fixture.tabB) != nil
-            }
 
             try (Self.baseContent + "\nline4\nline5\nline6").write(
                 to: fixture.urlB, atomically: true, encoding: .utf8)
@@ -225,31 +213,6 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
-    // MARK: - Selection semantics
-
-    @Test("reconcile records an edit the watcher missed during a selection change")
-    func reconcileRecordsMissedEdit() async throws {
-        try await withFixture { fixture, monitor, log in
-            // Simulate the debounce-window gap: no watcher is live when the
-            // edit lands, so only the reconcile read can see it.
-            monitor.stopAll()
-            try (Self.baseContent + "\nline4\nline5").write(
-                to: fixture.urlB, atomically: true, encoding: .utf8)
-
-            monitor.sync(
-                tabs: [fixture.tabA, fixture.tabB],
-                selectedTabID: fixture.tabB.id,
-                cachedSource: { _ in Self.baseContent }
-            )
-            monitor.reconcile(tab: fixture.tabB)
-
-            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
-                self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
-            }
-            #expect(recorded)
-        }
-    }
-
     // MARK: - Isolation and pruning
 
     @Test("two background tabs on one file both record but announce once")
@@ -308,8 +271,8 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
-    @Test("reconcile diffs against the baseline captured at selection time")
-    func reconcileUsesCapturedBaseline() async throws {
+    @Test("reconcile records missed edits against the captured baseline", arguments: [false, true])
+    func reconcileUsesCapturedBaseline(renderWinsRace: Bool) async throws {
         try await withFixture { fixture, monitor, log in
             monitor.stopAll()
             let edited = Self.baseContent + "\nline4\nline5"
@@ -324,7 +287,7 @@ struct DocumentRevisionMonitorTests {
             // Simulate the remounting pane's render winning the race: the
             // live baseline advances to the on-disk content before the
             // reconcile read commits. The captured baseline must still win.
-            monitor.noteRenderCompleted(source: edited, for: fixture.tabB)
+            if renderWinsRace { monitor.noteRenderCompleted(source: edited, for: fixture.tabB) }
 
             let recorded = await waitUntilEventually(deadline: .seconds(10)) {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)

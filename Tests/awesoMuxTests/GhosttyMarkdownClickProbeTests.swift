@@ -11,14 +11,16 @@ import Testing
         #expect(!GhosttyMarkdownClickProbe.isCurrent(press: position, reported: nil, surface: 1, reportedSurface: nil))
     }
 
-    @Test(arguments: ["notes.md", "./next.md", "../next.markdown", "café.md", "cafe\u{301}.md", "文書.md", "notes.md."])
-    func acceptsStandaloneNames(_ text: String) {
-        #expect(GhosttyMarkdownClickProbe.filename(text, start: 8, length: 10, columns: 12, rows: 4, visible: true) { _ in " " } != nil)
-    }
-
-    @Test(arguments: ["notes.md.bak", "https://example.com/a.md", "person@notes.md", "notes\u{202E}.md", "two files.md"])
-    func rejectsAmbiguousNames(_ text: String) {
-        #expect(GhosttyMarkdownClickProbe.filename(text, start: 8, length: 10, columns: 12, rows: 4, visible: true) { _ in " " } == nil)
+    @Test(arguments: [
+        ("notes.md", true), ("./next.md", true), ("../next.markdown", true),
+        ("café.md", true), ("cafe\u{301}.md", true), ("文書.md", true), ("notes.md.", true),
+        ("notes.md.bak", false), ("https://example.com/a.md", false), ("person@notes.md", false),
+        ("notes\u{202E}.md", false), ("two files.md", false),
+    ])
+    func acceptsStandaloneNames(_ text: String, accepted: Bool) {
+        #expect(
+            (GhosttyMarkdownClickProbe.filename(text, start: 8, length: 10, columns: 12, rows: 4, visible: true) { _ in " " } != nil)
+                == accepted)
     }
 
     @Test func wrappedWideAndCombiningNamesUseCellOffsets() {
@@ -49,20 +51,22 @@ import Testing
         }
     }
 
-    @Test(arguments: [" ", "\n", "'", "\"", "`", "(", ")", "[", "]", "", "|"])
-    func acceptsDelimiters(_ delimiter: String) {
-        #expect(
-            GhosttyMarkdownClickProbe.filename("notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true) { _ in delimiter }
-                == "notes.md")
-    }
-
-    @Test(arguments: ["x", ".", "/", "@", "😀", "文", "\u{301}", nil])
-    func rejectsJoinedNamesOnEitherSide(_ neighbor: String?) {
+    @Test(arguments: [
+        (Optional(" "), true), ("\n", true), ("'", true), ("\"", true), ("`", true),
+        ("(", true), (")", true), ("[", true), ("]", true), ("", true), ("|", true),
+        ("x", false), (".", false), ("/", false), ("@", false), ("😀", false), ("文", false), ("\u{301}", false), (nil, false),
+    ])
+    func rejectsJoinedNamesOnEitherSide(_ neighbor: String?, accepted: Bool) {
+        if accepted {
+            #expect(
+                GhosttyMarkdownClickProbe.filename("notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true) { _ in neighbor }
+                    == "notes.md")
+        }
         for blockedCell: UInt64 in [7, 16] {
             #expect(
                 GhosttyMarkdownClickProbe.filename("notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true) {
                     $0 == blockedCell ? neighbor : " "
-                } == nil)
+                } == (accepted ? "notes.md" : nil))
         }
     }
 

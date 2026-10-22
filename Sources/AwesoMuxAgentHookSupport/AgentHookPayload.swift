@@ -17,6 +17,7 @@ struct AgentHookPayload: Decodable {
     /// `tool_input.file_path` from a PostToolUse payload — the file the tool
     /// addressed. Forwarded only when it survives the Markdown/scalar gate.
     var toolFilePath: String?
+    var permissionSummary: String?
 
     enum CodingKeys: String, CodingKey {
         case hookEventName = "hook_event_name"
@@ -33,6 +34,8 @@ struct AgentHookPayload: Decodable {
 
     private enum ToolInputKeys: String, CodingKey {
         case filePath = "file_path"
+        case command
+        case description
     }
 
     init(from decoder: Decoder) throws {
@@ -71,6 +74,12 @@ struct AgentHookPayload: Decodable {
             keyedBy: ToolInputKeys.self, forKey: .toolInput
         ) {
             toolFilePath = try? toolInput.decode(String.self, forKey: .filePath)
+            // Select bounded review text only; never forward the argument object,
+            // tool response, file contents or environment. No summary is logged.
+            permissionSummary =
+                (try? toolInput.decode(String.self, forKey: .command))
+                ?? toolFilePath
+                ?? (try? toolInput.decode(String.self, forKey: .description))
         } else {
             toolFilePath = nil
         }

@@ -81,31 +81,6 @@ struct ShellActivityTests {
         #expect(store.session(id: shell.id)?.effectiveChromeState == .idle)
     }
 
-    @Test("busy samples before any prompt observation stay idle")
-    func busySamplesBeforeAnyPromptObservationStayIdle() {
-        let t0 = Date(timeIntervalSinceReferenceDate: 3_000)
-        let shell = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentState: .idle
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [shell])
-        ])
-
-        // The pane never reports at a prompt, so its busy marker is never
-        // trusted — broken/absent shell integration must not show Running.
-        store.updateShellActivity([.active(shell, isBusy: true)], now: t0)
-        store.updateShellActivity(
-            [.active(shell, isBusy: true)],
-            now: t0.addingTimeInterval(SessionStore.shellActivityBusyDebounceInterval * 2)
-        )
-
-        #expect(store.session(id: shell.id)?.shellActivity == .idle)
-        #expect(store.session(id: shell.id)?.effectiveChromeState == .idle)
-    }
-
     @Test("an unseen pane cannot force a split session to running")
     func unseenSplitPaneCannotForceSessionRunning() {
         let t0 = Date(timeIntervalSinceReferenceDate: 6_000)

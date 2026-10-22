@@ -250,11 +250,12 @@ def main():
                 if path.exists():
                     run('trash', str(path))
             if bundle_id:
-                subprocess.run(['defaults', 'delete', bundle_id], capture_output=True)
+                run('defaults', 'delete', bundle_id, capture_output=True, text=True)
             report['cleanup'] = 'owned groups exhausted or not started; run-owned bundle/profile removed'
         except (OSError, subprocess.CalledProcessError) as error:
             report['status'] = 'failed'
-            report['cleanupError'] = str(error)
+            report['cleanupError'] = (error.stderr.strip() or str(error)) if isinstance(
+                error, subprocess.CalledProcessError) and error.stderr else str(error)
         if report.get('artifactError') or report.get('cleanupError'):
             report['status'] = 'failed'
         else:

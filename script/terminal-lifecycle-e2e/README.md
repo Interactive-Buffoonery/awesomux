@@ -39,7 +39,12 @@ the helper, reports, fixtures, and evidence remain.
 | TL02 | Focus Pane 1/2 executes each challenge only in its intended pane; any sibling execution fails | Pane > Focus Pane 1/2; `Services/KeyboardShortcutCatalog.swift`, `Views/GhosttySurface/GhosttySurfaceInputBridge.swift`, `Views/GhosttySurface/GhosttySurfaceNSView.swift` |
 | TL03 | Exiting one shell removes that pane while sibling shell/job survives | native typed `exit`; `Views/GhosttySurface/GhosttySurfaceProcessExitHandler.swift`, `AwesoMuxCore/Stores/SessionStore.swift`, `Services/AmxBackend.swift` |
 | TL04 | Cancel busy-close preserves the same running controlled job | Pane > Close Workspace (last pane), Cancel; `App/AwesoMuxApp.swift`, `Services/DestructivePaneActionConfirmationPolicy.swift` |
-| TL05 | Soft-close/reopen restores a usable same persistent terminal | Workspace > Close Workspace / Reopen Closed Workspace; `App/AwesoMuxApp.swift`, `AwesoMuxCore/Models/SessionSnapshot.swift`, `Services/AmxBackend.swift` |
+| TL05 | Soft-close/reopen restores a usable same persistent terminal, retaining its authoritative grid until interactive input/takeover | Workspace > Close Workspace / Reopen Closed Workspace; `App/AwesoMuxApp.swift`, `AwesoMuxCore/Models/SessionSnapshot.swift`, `Services/AmxBackend.swift` |
+
+TL05's current driver proves backend identity and usable input after reopening.
+It does not observe the retained grid before that first input, or prove follower
+layout and leader presentation. The zmx socket leadership harness covers the
+daemon rule; native presentation remains a separate acceptance gap.
 
 Paths in the table are relative to `Sources/awesoMux/` except those beginning
 `AwesoMuxCore/`, which are relative to `Sources/`. The current documented

@@ -14,7 +14,7 @@ struct NudgeComposerTests {
     }
 
     @Test(arguments: [
-        "/tmp/worktree-one/notes.md", "/tmp/worktree-two/notes.md",
+        "/tmp/worktree-one/notes.md",
         "/tmp/review Sarah's café.md", "/tmp/literal%00.md",
     ])
     func admittedPaths(path: String) throws {

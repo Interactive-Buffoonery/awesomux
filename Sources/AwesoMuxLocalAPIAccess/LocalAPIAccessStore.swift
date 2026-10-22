@@ -1,7 +1,9 @@
+import AwesoMuxCompanionProtocol
 import AwesoMuxConfig
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPICredentials
 import CryptoKit
+import CoreFoundation
 import Darwin
 import Foundation
 import Observation
@@ -23,18 +25,62 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public let transport: LocalAPICompanionTransport
     public let pairedAt: Date
     public let port: UInt16
+    public var paneRenameScope: LocalAPITargetScope?
+    public var decideWorkspaceIDs: [UUID]?
+    public let pairingVersion: Int?
+    public var alertPreferences: CompanionAlertPreferences?
+
+    public func allows(_ transport: LocalAPICompanionTransport) -> Bool {
+        pairingVersion == 2 || self.transport == transport
+    }
+    public var terminalPreviewAllowed: Bool
+    /// Panes this phone may watch live (ADR-0040); nil means no Watch grant.
+    public var terminalWatchScope: LocalAPITargetScope?
 
     public init(
         certificateFingerprint: Data,
         transport: LocalAPICompanionTransport,
         pairedAt: Date,
-        port: UInt16
+        port: UInt16,
+        paneRenameScope: LocalAPITargetScope? = nil,
+        pairingVersion: Int? = nil,
+        terminalPreviewAllowed: Bool = false,
+        alertPreferences: CompanionAlertPreferences? = nil,
+        decideWorkspaceIDs: [UUID]? = nil,
+        terminalWatchScope: LocalAPITargetScope? = nil
     ) {
         self.certificateFingerprint = certificateFingerprint
         self.transport = transport
         self.pairedAt = pairedAt
         self.port = port
+        self.paneRenameScope = paneRenameScope
+        self.decideWorkspaceIDs = decideWorkspaceIDs
+        self.pairingVersion = pairingVersion
+        self.terminalPreviewAllowed = terminalPreviewAllowed
+        self.alertPreferences = alertPreferences
+        self.terminalWatchScope = terminalWatchScope
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences,
+            decideWorkspaceIDs
+        case terminalWatchScope
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        certificateFingerprint = try values.decode(Data.self, forKey: .certificateFingerprint)
+        transport = try values.decode(LocalAPICompanionTransport.self, forKey: .transport)
+        pairedAt = try values.decode(Date.self, forKey: .pairedAt)
+        port = try values.decode(UInt16.self, forKey: .port)
+        decideWorkspaceIDs = try values.decodeIfPresent([UUID].self, forKey: .decideWorkspaceIDs)
+        paneRenameScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .paneRenameScope)
+        pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
+        terminalPreviewAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalPreviewAllowed) ?? false
+        alertPreferences = try values.decodeIfPresent(CompanionAlertPreferences.self, forKey: .alertPreferences)
+        terminalWatchScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .terminalWatchScope)
+    }
+
 }
 
 public struct LocalAPIConnectionGrant: Codable, Equatable, Identifiable, Sendable {
@@ -197,7 +243,12 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 globalRevision: connection.revision,
                 connectionRevision: connection.revision,
                 statusScope: connection.statusScope,
-                contextGrant: nil
+                contextGrant: nil,
+                paneRenameScope: metadata.paneRenameScope,
+                terminalPreviewAllowed: metadata.terminalPreviewAllowed,
+                companionAlertPreferences: metadata.alertPreferences ?? CompanionAlertPreferences(),
+                decideWorkspaceIDs: metadata.decideWorkspaceIDs,
+                terminalWatchScope: metadata.terminalWatchScope
             )
             guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
             return .success(lease)
@@ -218,9 +269,58 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 connection.statusScope == lease.statusScope,
                 connection.contextGrant == nil,
                 let metadata = connection.companion,
+                metadata.decideWorkspaceIDs == lease.decideWorkspaceIDs,
+                metadata.paneRenameScope == lease.paneRenameScope,
+                metadata.terminalPreviewAllowed == lease.terminalPreviewAllowed,
+                metadata.terminalWatchScope == lease.terminalWatchScope,
+                (metadata.alertPreferences ?? CompanionAlertPreferences()) == lease.companionAlertPreferences,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
             return try body()
+        }
+    }
+
+    /// Hold the authority lock across the synchronous native mutation so a
+    /// concurrent policy replacement cannot race the final lease check.
+    public func performCompanionPaneRename(
+        certificateFingerprint: Data,
+        lease: LocalAPIAuthorizationLease,
+        body: () throws -> Void
+    ) throws {
+        try lock.withLock {
+            guard let connection = state.connections.first(where: { $0.id == lease.connectionID }),
+                connection.kind == .companion,
+                connection.revision == lease.connectionRevision,
+                lease.globalRevision == connection.revision,
+                connection.statusScope == lease.statusScope,
+                connection.contextGrant == nil, lease.contextGrant == nil,
+                let metadata = connection.companion,
+                let scope = metadata.paneRenameScope, scope.isValid,
+                scope == lease.paneRenameScope,
+                constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
+            else { throw LocalAPIError.permissionDenied }
+            try body()
+        }
+    }
+
+    /// Hold the revisioned device authority across the core commit and each
+    /// actual hook write. Phone requests cannot change this Mac-owned grant.
+    public func performCompanionDecision(
+        certificateFingerprint: Data, lease: LocalAPIAuthorizationLease,
+        body: () throws -> Void
+    ) throws {
+        try lock.withLock {
+            guard let connection = state.connections.first(where: { $0.id == lease.connectionID }),
+                connection.kind == .companion, connection.revision == lease.connectionRevision,
+                lease.globalRevision == connection.revision,
+                connection.statusScope == lease.statusScope, connection.contextGrant == nil, lease.contextGrant == nil,
+                let metadata = connection.companion,
+                let workspaces = metadata.decideWorkspaceIDs, !workspaces.isEmpty,
+                Set(workspaces).count == workspaces.count,
+                workspaces == lease.decideWorkspaceIDs,
+                constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
+            else { throw LocalAPIError.permissionDenied }
+            try body()
         }
     }
 
@@ -416,11 +516,18 @@ public final class LocalAPIAccessStore {
         certificateFingerprint: Data,
         transport: LocalAPICompanionTransport,
         port: UInt16,
-        pairedAt: Date = Date()
+        pairingVersion: Int? = nil,
+        pairedAt: Date = Date(),
+        terminalPreviewAllowed: Bool = false,
+        terminalWatchScope: LocalAPITargetScope? = nil
     ) throws -> LocalAPIConnectionGrant {
         try requireWritableAuthority()
         let phoneName = UnicodeHygiene.sanitize(rawPhoneName, maxLength: 80, stripInvisibleRoutingScalars: true)
         guard !phoneName.isEmpty else { throw LocalAPIAccessFailure.invalidLabel }
+        guard port != 0, pairingVersion == nil || pairingVersion == 2 else { throw LocalAPIAccessFailure.persistenceFailed }
+        guard state.connections.filter({ $0.kind == .companion }).allSatisfy({ $0.companion?.port == port }) else {
+            throw LocalAPIAccessFailure.persistenceFailed
+        }
         guard certificateFingerprint.count == SHA256.byteCount else { throw LocalAPIAccessFailure.persistenceFailed }
         let connection = LocalAPIConnectionGrant(
             id: UUID(),
@@ -434,7 +541,10 @@ public final class LocalAPIAccessStore {
                 certificateFingerprint: certificateFingerprint,
                 transport: transport,
                 pairedAt: pairedAt,
-                port: port
+                port: port,
+                pairingVersion: pairingVersion,
+                terminalPreviewAllowed: terminalPreviewAllowed,
+                terminalWatchScope: terminalWatchScope
             )
         )
         var candidate = state
@@ -475,6 +585,87 @@ public final class LocalAPIAccessStore {
         }
     }
 
+    public func updateCompanionDecideWorkspaces(connectionID: UUID, workspaceIDs: [UUID]?) throws {
+        guard workspaceIDs.map({ !$0.isEmpty && Set($0).count == $0.count }) ?? true else {
+            throw LocalAPIAccessFailure.invalidScope
+        }
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.decideWorkspaceIDs != workspaceIDs || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.decideWorkspaceIDs = workspaceIDs
+        }
+    }
+
+    public func updateCompanionPaneRenameScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
+        guard scope?.isValid != false else { throw LocalAPIAccessFailure.invalidScope }
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.paneRenameScope != scope || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.paneRenameScope = scope
+        }
+    }
+
+    public func updateCompanionTerminalPreviewAllowed(connectionID: UUID, allowed: Bool) throws {
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.terminalPreviewAllowed != allowed || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.terminalPreviewAllowed = allowed
+        }
+    }
+
+    public func updateCompanionTerminalWatchScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
+        guard scope?.isValid != false else { throw LocalAPIAccessFailure.invalidScope }
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.terminalWatchScope != scope || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.terminalWatchScope = scope
+        }
+    }
+
+    /// Revalidate on MainActor immediately before mutation, then retain the
+    /// refreshed lease for every acknowledgement write.
+    public func setCompanionTerminalPreviewAllowed(
+        connectionID: UUID, allowed: Bool, certificateFingerprint: Data,
+        expectedLease: LocalAPIAuthorizationLease
+    ) throws -> LocalAPIAuthorizationLease {
+        _ = try runtimeAuthority.authorizeCompanion(
+            connectionID: connectionID, certificateFingerprint: certificateFingerprint,
+            operation: .connectionStatus, matching: expectedLease
+        ).get()
+        try updateCompanionTerminalPreviewAllowed(connectionID: connectionID, allowed: allowed)
+        return try runtimeAuthority.authorizeCompanion(
+            connectionID: connectionID, certificateFingerprint: certificateFingerprint,
+            operation: .connectionStatus
+        ).get()
+    }
+
+    public func updateCompanionAlertPreferences(connectionID: UUID, preferences: CompanionAlertPreferences) throws {
+        try requireWritableAuthority()
+        guard let index = state.connections.firstIndex(where: { $0.id == connectionID }),
+            state.connections[index].kind == .companion,
+            let metadata = state.connections[index].companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard (metadata.alertPreferences ?? CompanionAlertPreferences()) != preferences else { return }
+        var candidate = state
+        candidate.connections[index].companion?.alertPreferences = preferences
+        candidate.connections[index].revision = UUID()
+        let directorySynced = try persist(candidate)
+        publish(candidate, invalidating: .connection(connectionID))
+        recordDurabilityWarningIfNeeded(directorySynced)
+    }
+
     public func updateContextGrant(connectionID: UUID, contextGrant: LocalAPIContextGrant?) throws {
         try updateConnection(connectionID: connectionID) { $0.contextGrant = contextGrant }
     }
@@ -486,13 +677,14 @@ public final class LocalAPIAccessStore {
 
     private func updateConnection(
         connectionID: UUID,
+        kind: LocalAPIConnectionKind = .outsideApp,
         change: (inout LocalAPIConnectionGrant) -> Void
     ) throws {
         try requireWritableAuthority()
         guard let index = state.connections.firstIndex(where: { $0.id == connectionID }) else {
             throw LocalAPIAccessFailure.connectionNotFound
         }
-        guard state.connections[index].kind == .outsideApp else {
+        guard state.connections[index].kind == kind else {
             throw LocalAPIAccessFailure.invalidScope
         }
         var candidate = state
@@ -639,7 +831,10 @@ public final class LocalAPIAccessStore {
                         && connection.statusScope == .allWorkspaces
                         && connection.contextGrant == nil
                         && connection.companion?.certificateFingerprint.count == SHA256.byteCount
-                        && connection.companion?.port != 0))
+                        && connection.companion?.port != 0
+                        && connection.companion?.decideWorkspaceIDs.map({ !$0.isEmpty && Set($0).count == $0.count }) != false
+                        && connection.companion?.paneRenameScope?.isValid != false
+                        && connection.companion?.terminalWatchScope?.isValid != false))
                     && connection.statusScope.isValid
                     && UnicodeHygiene.sanitize(
                         connection.label,
@@ -676,7 +871,33 @@ public final class LocalAPIAccessStore {
     private static func companionShapeIsValid(_ value: Any?) -> Bool {
         guard let value else { return true }
         guard let metadata = value as? [String: Any] else { return false }
-        return Set(metadata.keys) == ["certificateFingerprint", "transport", "pairedAt", "port"]
+        var keys = Set(metadata.keys)
+        if let workspaces = metadata["decideWorkspaceIDs"] {
+            guard let ids = workspaces as? [String], !ids.isEmpty,
+                ids.allSatisfy({ UUID(uuidString: $0) != nil }), Set(ids).count == ids.count
+            else { return false }
+            keys.remove("decideWorkspaceIDs")
+        }
+        for key in ["paneRenameScope", "terminalWatchScope"] {
+            if let scope = metadata[key] {
+                guard scopeShapeIsValid(scope) else { return false }
+                keys.remove(key)
+            }
+        }
+        if let allowed = metadata["terminalPreviewAllowed"] {
+            guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+            keys.remove("terminalPreviewAllowed")
+        }
+        if let preferences = metadata["alertPreferences"] {
+            guard let object = preferences as? [String: Any], Set(object.keys) == ["categories"],
+                let categories = object["categories"] as? [String],
+                categories.allSatisfy({ CompanionAlertCategory(rawValue: $0) != nil })
+            else { return false }
+            keys.remove("alertPreferences")
+        }
+        let legacy: Set<String> = ["certificateFingerprint", "transport", "pairedAt", "port"]
+        if keys == legacy { return true }
+        return keys == legacy.union(["pairingVersion"]) && (metadata["pairingVersion"] as? Int) == 2
     }
 
     private static func scopeShapeIsValid(_ value: Any?) -> Bool {

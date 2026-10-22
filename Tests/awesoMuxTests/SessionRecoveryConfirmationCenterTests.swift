@@ -28,7 +28,7 @@ struct SessionRecoveryConfirmationCenterTests {
             completed = true
             return result
         }
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(25)) { continuation.resume() }
         }
         #expect(!completed)

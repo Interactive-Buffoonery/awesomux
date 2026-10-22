@@ -144,7 +144,9 @@ jobs:
       matrix:
         group: ${{ fromJson(needs.resolve.outputs.groups) }}
     runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
-    timeout-minutes: 120
+    # Green shards finish in about 20 minutes; a wedged run should fail
+    # fast instead of holding a hosted macOS runner for two hours.
+    timeout-minutes: 40
     concurrency:
       group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}-${{ matrix.group }}
       cancel-in-progress: true

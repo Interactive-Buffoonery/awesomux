@@ -62,8 +62,8 @@ struct GhosttyEventLoopWatchdogTests {
         #expect(fireCount == 2)
     }
 
-    @Test("a fresh tick invalidates an in-flight stale result")
-    func freshTickInvalidatesInFlightResult() async {
+    @Test("servicing a wakeup invalidates an in-flight stale result", arguments: [false, true])
+    func freshTickInvalidatesInFlightResult(recordTick: Bool) async {
         let faultSource = SuspendedFaultSource()
         var fired = false
         var pendingAge: TimeInterval? = Self.staleAge
@@ -75,8 +75,9 @@ struct GhosttyEventLoopWatchdogTests {
 
         let check = Task { @MainActor in await watchdog.checkForWedge() }
         await faultSource.waitForPendingQuery()
-        pendingAge = nil
-        watchdog.recordTick()
+        // Each row clears exactly one staleness signal, so either check alone
+        // must stop the in-flight result from firing.
+        if recordTick { watchdog.recordTick() } else { pendingAge = nil }
         await faultSource.resume(returning: GhosttyEventLoopWatchdog.faultCountThreshold)
 
         #expect(await check.value == false)
@@ -87,30 +88,6 @@ struct GhosttyEventLoopWatchdogTests {
         await faultSource.waitForPendingQuery()
         await faultSource.resume(returning: 0)
         #expect(await nextCheck.value == false)
-    }
-
-    @Test("a wakeup serviced without a tick does not fire an in-flight result")
-    func servicedWakeupWithoutTickDoesNotFire() async {
-        // tick() clears the coalescer latch before its `guard let app`
-        // check, so a wakeup can be serviced without recordTick ever
-        // running (app nil mid-reload). The generation proxy alone would
-        // miss this; finishCheck must re-read the live staleness signal.
-        let faultSource = SuspendedFaultSource()
-        var fired = false
-        var pendingAge: TimeInterval? = Self.staleAge
-        let watchdog = GhosttyEventLoopWatchdog(
-            faultSource: faultSource,
-            pendingWakeupAge: { pendingAge },
-            onWedgeDetected: { fired = true }
-        )
-
-        let check = Task { @MainActor in await watchdog.checkForWedge() }
-        await faultSource.waitForPendingQuery()
-        pendingAge = nil
-        await faultSource.resume(returning: GhosttyEventLoopWatchdog.faultCountThreshold)
-
-        #expect(await check.value == false)
-        #expect(fired == false)
     }
 
     @Test("a second check is skipped while a fault query is in flight")
@@ -133,8 +110,8 @@ struct GhosttyEventLoopWatchdogTests {
 }
 
 private actor SuspendedFaultSource: GhosttyFaultLogSource {
-    private var continuation: CheckedContinuation<Int, Never>?
-    private var pendingQueryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var continuation: ValueResumer<Int>?
+    private var pendingQueryWaiters: [SignalResumer] = []
     private(set) var queryCount = 0
 
     func recentFaultCount(subsystem: String, category: String, since: Date) async -> Int {
@@ -142,12 +119,12 @@ private actor SuspendedFaultSource: GhosttyFaultLogSource {
         let waiters = pendingQueryWaiters
         pendingQueryWaiters.removeAll()
         waiters.forEach { $0.resume() }
-        return await withCheckedContinuation { continuation = $0 }
+        return await awaitValue(fallback: 0) { continuation = $0 }
     }
 
     func waitForPendingQuery() async {
         guard continuation == nil else { return }
-        await withCheckedContinuation { pendingQueryWaiters.append($0) }
+        await awaitSignal { pendingQueryWaiters.append($0) }
     }
 
     func resume(returning count: Int) {

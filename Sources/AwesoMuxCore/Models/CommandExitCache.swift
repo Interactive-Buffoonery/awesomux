@@ -20,6 +20,11 @@ public struct CommandExitCache: Equatable, Sendable {
     }
 
     public mutating func record(exitCode: Int16, at time: TimeInterval) {
+        // Unknown status supersedes prior evidence without becoming a failure.
+        guard (0...255).contains(exitCode) else {
+            clear()
+            return
+        }
         self.exitCode = exitCode
         recordedAt = time
     }
@@ -33,7 +38,7 @@ public struct CommandExitCache: Equatable, Sendable {
         now: TimeInterval,
         freshnessWindow: TimeInterval = Self.defaultFreshnessWindow
     ) -> Bool {
-        guard let exitCode, exitCode != 0 else { return false }
+        guard let exitCode, (1...255).contains(exitCode) else { return false }
         guard let recordedAt else { return false }
 
         let age = now - recordedAt

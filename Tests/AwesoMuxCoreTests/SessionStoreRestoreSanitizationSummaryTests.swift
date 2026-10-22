@@ -6,21 +6,6 @@ import Testing
 @MainActor
 @Suite("SessionStore restore sanitization summary")
 struct SessionStoreRestoreSanitizationSummaryTests {
-    @Test("clean snapshot restores without a sanitization summary")
-    func cleanSnapshotHasEmptySummary() {
-        let session = Self.makeSession()
-        let snapshot = SessionSnapshot(
-            groups: [SessionGroup(name: "awesoMux", sessions: [session])],
-            selectedSessionID: session.id
-        )
-
-        let restored = SessionStore.restore(from: snapshot)
-
-        #expect(restored.store.selectedSessionID == session.id)
-
-        #expect(restored.sanitizationSummary.isEmpty)
-        #expect(!restored.sanitizationSummary.hasUserVisibleAdjustments)
-    }
 
     @Test("invalid pane working directory restores to home and records pane adjustment")
     func invalidPaneWorkingDirectoryRecordsAdjustment() throws {
@@ -173,16 +158,17 @@ struct SessionStoreRestoreSanitizationSummaryTests {
         #expect(!restored.sanitizationSummary.hasUserVisibleAdjustments)
     }
 
-    @Test("benign path normalization is not counted as a cleanup")
-    func benignNormalizationNotCounted() throws {
+    @Test("clean and normalized snapshots need no cleanup", arguments: [false, true])
+    func benignNormalizationNotCounted(normalize: Bool) throws {
         // A valid home path that only changes via standardization (a dropped
         // trailing slash) must not be reported to the user as "cleaned up."
-        let pane = TerminalPane(title: "ok", workingDirectory: "~/Documents/", executionPlan: .local)
+        let pane = TerminalPane(title: "ok", workingDirectory: normalize ? "~/Documents/" : "~", executionPlan: .local)
         let session = Self.makeSession(layout: .pane(pane), activePaneID: pane.id)
 
         let restored = SessionStore.restore(from: Self.snapshot(with: session))
 
-        #expect(restored.store.selectedSession?.activePane?.workingDirectory == "~/Documents")
+        #expect(restored.store.selectedSessionID == session.id)
+        #expect(restored.store.selectedSession?.activePane?.workingDirectory == (normalize ? "~/Documents" : "~"))
 
         #expect(restored.sanitizationSummary.isEmpty)
         #expect(!restored.sanitizationSummary.hasUserVisibleAdjustments)

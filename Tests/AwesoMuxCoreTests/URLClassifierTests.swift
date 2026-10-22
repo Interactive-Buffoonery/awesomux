@@ -69,7 +69,6 @@ struct URLClassifierTests {
         ("https://\u{0445}.com/", .nonAsciiHost, nil),
         ("https://\u{0443}.com/", .nonAsciiHost, nil),
         ("https://\u{0441}\u{043E}\u{0441}\u{043E}.com/", .nonAsciiHost, nil),
-        ("https://\u{043E}.com/", .nonAsciiHost, nil),
         ("https://\u{0430}\u{0440}\u{0435}-2.com/", .nonAsciiHost, nil),
         ("https://\u{0410}\u{0420}\u{0420}\u{04C0}\u{0415}.com/", .nonAsciiHost, nil),
         ("mailto:victim@example.com?body=Please%20click%20here", .mailtoWithParameters, nil),

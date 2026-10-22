@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import Darwin
 import Foundation
 import os
 
@@ -25,6 +26,7 @@ public enum AgentHookCommand {
         environment: [String: String],
         stdin: Data,
         output: ((String) -> Void)? = nil,
+        permissionOutput: ((String) -> Bool)? = nil,
         errorOutput: ((String) -> Void)? = nil
     ) -> Int {
         if arguments == ["--health-check"] {
@@ -140,6 +142,21 @@ public enum AgentHookCommand {
             log(provider: provider, eventName: eventName, category: "append-failed")
         }
 
+        if provider == .claudeCode,
+            case .hookPayload = invocation,
+            let payload = try? decoder.decode(AgentHookPayload.self, from: stdin),
+            payload.hookEventName(for: provider) == "PermissionRequest"
+        {
+            AgentHookPermission.run(
+                payload: payload, environment: environment,
+                output: permissionOutput ?? { message in
+                    if let output {
+                        output(message)
+                        return false  // A void callback is not a successful-write receipt.
+                    }
+                    return writePermissionOutput(message)
+                })
+        }
         return 0
     }
 
@@ -184,6 +201,20 @@ public enum AgentHookCommand {
         logger.debug(
             "agent hook ignored provider=\(provider?.rawValue ?? "unknown", privacy: .public) event=\(eventName ?? "unknown", privacy: .public) category=\(category, privacy: .public)"
         )
+    }
+
+    private static func writePermissionOutput(_ message: String) -> Bool {
+        let bytes = Array((message + "\n").utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let count = bytes.withUnsafeBytes {
+                Darwin.write(STDOUT_FILENO, $0.baseAddress!.advanced(by: offset), bytes.count - offset)
+            }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { return false }
+            offset += count
+        }
+        return true
     }
 
     private static func writeStandardOutput(_ message: String) {

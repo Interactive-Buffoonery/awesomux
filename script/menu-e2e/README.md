@@ -41,19 +41,15 @@ python3 script/menu-e2e/run.py --baseline /path/to/reviewed-baseline.json \
   --output /tmp/awesomux-menu-check-001
 ```
 
-The direct-runner lease recipe below requires the native lifetime replay under
-**Pending native acceptance** first. Use a coordinator-owned evidence workflow
-for that first replay so an unresolved survivor cannot release the lease.
-During coordinated issue work, run the **entire command** under the shared lease:
+Run the **entire command** under the machine-wide heavy-work lease:
 
 ```sh
-python3 /tmp/awesomux-serabi-20261017-d7a33e/build_slot.py \
-  --owner issue-375 --cwd "$PWD" -- \
-  python3 script/menu-e2e/run.py --capture --output /tmp/awesomux-menu-capture-001
+heavy-gate python3 script/menu-e2e/run.py --capture \
+  --output /tmp/awesomux-menu-capture-001
 ```
 
-Do not wrap the harness's internal staging command again. Lease exit 75 means
-validation-queued: nothing started. Report contention without retries. The harness
+Do not wrap the harness's internal staging command again. Exit 75 means
+nothing started; wait for the gate rather than running outside it. The harness
 uses existing repository toolchains and staging scripts; arrange prerequisites
 before running it. Do not install dependencies or change TCC settings as a side
 effect of verification.
@@ -105,8 +101,8 @@ validate signing/resources, or establish native child cleanup. The prior actual
 baseline. Native capture needs an already usable, unlocked foreground session;
 this recipe does not authorize unlocking or changing TCC settings.
 
-The next native-lane owner must run these steps sequentially under the shared
-lease after the coordinator assigns the lane (no contention retry):
+The next native-lane owner must run these steps sequentially under the machine-wide
+lease:
 
 1. Verify HEAD and the source overlay manifest. Run changed-file Swift formatting
    and full `./script/preflight.sh` directly, preserving its exit status. If source

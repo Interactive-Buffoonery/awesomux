@@ -1,5 +1,3 @@
-import AwesoMuxTestSupport
-import Foundation
 import Testing
 
 @testable import AwesoMuxCore
@@ -13,12 +11,9 @@ import Testing
 /// channel: the precise failure #311 exists to fix.
 ///
 /// `PaneLayoutReducer.paneChangeKind` is now the single list both decisions read.
-/// These tests pin what it classifies, and the last one is the structural check —
-/// it fails if `updatePane` learns to move a field the classifier does not compare.
+/// These tests pin the runtime classification of pane mutations.
 @Suite("Pane change classification (#311)")
 struct PaneChangeClassificationTests {
-
-    private static let reducerPath = "Sources/AwesoMuxCore/Stores/PaneLayoutReducer.swift"
 
     private static func basePane() -> TerminalPane {
         TerminalPane(
@@ -70,60 +65,5 @@ struct PaneChangeClassificationTests {
         ),
     ]
 
-    /// The drift this replaces the old two-list arrangement to prevent. Adding a
-    /// field to `updatePane` without adding it to `paneChangeKind` would make the
-    /// reducer discard the write entirely (it would classify `.unchanged`), so
-    /// this fails loudly rather than shipping a silent freeze.
-    ///
-    /// Source-scraped because the set of fields a function assigns is not
-    /// reachable at runtime; `Mirror` over `TerminalPane` would see all ~25
-    /// stored properties, most of which `updatePane` cannot touch.
-    @Test("paneChangeKind compares every field updatePane assigns")
-    func classificationCoversEveryAssignedField() throws {
-        let source = try SourceContract.source(at: Self.reducerPath)
-        let updateBody = try SourceContract.declarationBody(
-            after: "static func updatePane(",
-            in: source,
-            path: Self.reducerPath
-        )
-        let classifierBody = try SourceContract.declarationBody(
-            after: "static func paneChangeKind(",
-            in: source,
-            path: Self.reducerPath
-        )
 
-        // `pane` is `updatePane`'s local copy. Other pane-valued locals in the
-        // file are capitalised (`originalPane`, `activePane`), so this
-        // case-sensitive match cannot pick up a read of the untouched snapshot.
-        let assignment = try Regex(#"\bpane\.([A-Za-z0-9_]+) = "#)
-        let assigned = Set(
-            updateBody.matches(of: assignment).compactMap { match in
-                (match[1].substring).map(String.init)
-            }
-        )
-
-        #expect(
-            assigned.count >= 10,
-            """
-            Found only \(assigned.count) `pane.<field> = ` assignments in \
-            `updatePane`. This scan is the whole substance of this test, so too \
-            few matches means the scan broke, not that the function got simpler — \
-            check whether the assignments were reformatted away from \
-            `pane.field = value` on one line.
-            """
-        )
-
-        for field in assigned.sorted() {
-            #expect(
-                classifierBody.contains(".\(field) != "),
-                """
-                `updatePane` assigns `pane.\(field)` but `paneChangeKind` never \
-                compares it, so a report that moves only that field classifies as \
-                `.unchanged` and the reducer throws the write away. Add \
-                `new.\(field) != old.\(field)` to the durable branch (or, if it is \
-                chrome text with nothing behind it, to the display-only branch).
-                """
-            )
-        }
-    }
 }

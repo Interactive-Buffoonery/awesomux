@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -205,7 +206,7 @@ struct BridgeAttachTeardownWiringTests {
 /// polling.
 actor AsyncFlag {
     private var flagged = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [SignalResumer] = []
 
     var isSet: Bool { flagged }
 
@@ -218,18 +219,18 @@ actor AsyncFlag {
 
     func wait() async {
         if flagged { return }
-        await withCheckedContinuation { waiters.append($0) }
+        await awaitSignal { waiters.append($0) }
     }
 }
 
 private actor BridgeTeardownGate {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var continuation: SignalResumer?
+    private var suspensionWaiters: [SignalResumer] = []
     private var completed = false
-    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completionWaiters: [SignalResumer] = []
 
     func wait() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             self.continuation = continuation
             suspensionWaiters.forEach { $0.resume() }
             suspensionWaiters.removeAll()
@@ -241,7 +242,7 @@ private actor BridgeTeardownGate {
 
     func waitUntilSuspended() async {
         guard continuation == nil else { return }
-        await withCheckedContinuation { suspensionWaiters.append($0) }
+        await awaitSignal { suspensionWaiters.append($0) }
     }
 
     func release() {
@@ -251,6 +252,6 @@ private actor BridgeTeardownGate {
 
     func waitUntilCompleted() async {
         guard !completed else { return }
-        await withCheckedContinuation { completionWaiters.append($0) }
+        await awaitSignal { completionWaiters.append($0) }
     }
 }

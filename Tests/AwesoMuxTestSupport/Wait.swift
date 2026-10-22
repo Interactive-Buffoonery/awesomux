@@ -41,8 +41,9 @@ public func waitUntilEventually(
 @MainActor
 public func drainMainQueue(rounds: Int = 20) async {
     for _ in 0..<rounds {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+        let drained = await awaitSignal { resumer in
+            DispatchQueue.main.async { resumer.resume() }
         }
+        guard drained else { return }
     }
 }
