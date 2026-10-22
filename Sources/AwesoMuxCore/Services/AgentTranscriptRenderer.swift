@@ -671,6 +671,13 @@ public enum AgentTranscriptRenderer {
 
     // MARK: Codex
 
+    /// Positive evidence from a bounded, already-decoded prefix record. Reuse
+    /// rendering's exclusions, including harness-only user content, so setup
+    /// sidecars cannot outrank history. No evidence is not proof of an empty file.
+    static func isCodexConversationRecord(_ record: [String: Any]) -> Bool {
+        renderCodexRecord(record, type: record["type"] as? String ?? "") != nil
+    }
+
     /// Codex records every turn twice: once as `response_item` and again as
     /// `event_msg`. Reading both double-renders the entire conversation, so
     /// `response_item` is the only top-level type read here.

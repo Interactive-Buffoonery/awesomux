@@ -78,6 +78,35 @@ enum AgentTranscriptOpener {
         .map { OpenedAgentTranscript(fileURL: $0, identity: identity) }
     }
 
+    static func openProjectTranscript(
+        _ entry: AgentProjectTranscriptEntry,
+        projectDirectory: URL,
+        store: AgentTranscriptStore = AgentTranscriptStore(),
+        shouldCommit: @Sendable () -> Bool = { !Task.isCancelled }
+    ) -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
+        let project = projectDirectory.resolvingSymlinksInPath().standardizedFileURL
+        guard
+            let identity = AgentTranscriptIdentity(
+                agentKind: entry.identity.agentKind, sessionID: entry.identity.sessionID,
+                projectDirectory: project.path
+            )
+        else { return .failure(.unavailable(.notFound)) }
+        switch AgentProjectTranscripts.open(
+            entry, projectDirectory: project
+        ) {
+        case .failure(let reason):
+            return .failure(.unavailable(reason))
+        case .success(let transcript):
+            return renderAndStore(
+                transcript,
+                store: store,
+                skippingUnchanged: false,
+                projectDirectory: identity.projectDirectory,
+                shouldCommit: shouldCommit
+            ).map { OpenedAgentTranscript(fileURL: $0, identity: identity) }
+        }
+    }
+
     /// Re-reads an already-resolved transcript and re-renders it into the same
     /// cache slot, so an open tab follows a session that is still being written.
     ///
@@ -98,14 +127,20 @@ enum AgentTranscriptOpener {
     static func refresh(
         _ prior: AgentTranscript,
         store: AgentTranscriptStore = AgentTranscriptStore(),
+        projectDirectory: String? = nil,
         shouldCommit: () -> Bool = { true }
     ) -> Result<URL, AgentTranscriptOpenFailure> {
-        switch AgentTranscriptImporter.reopen(prior) {
+        let reopened =
+            projectDirectory.map {
+                AgentProjectTranscripts.reopen(prior, projectDirectory: $0)
+            } ?? AgentTranscriptImporter.reopen(prior)
+        switch reopened {
         case .success(let transcript):
             let result = renderAndStore(
                 transcript,
                 store: store,
                 skippingUnchanged: true,
+                projectDirectory: projectDirectory,
                 shouldCommit: shouldCommit
             )
             if case .success(let fileURL) = result {
@@ -126,6 +161,7 @@ enum AgentTranscriptOpener {
         _ transcript: AgentTranscript,
         store: AgentTranscriptStore,
         skippingUnchanged: Bool,
+        projectDirectory: String? = nil,
         shouldCommit: () -> Bool
     ) -> Result<URL, AgentTranscriptOpenFailure> {
         let markdown: String
@@ -142,7 +178,10 @@ enum AgentTranscriptOpener {
         // time the lock is taken, which is the whole failure it guards against.
         guard shouldCommit() else {
             return .success(
-                store.fileURL(agentKind: transcript.agentKind, sessionID: transcript.sessionID)
+                store.fileURL(
+                    agentKind: transcript.agentKind, sessionID: transcript.sessionID,
+                    projectDirectory: projectDirectory
+                )
             )
         }
 
@@ -151,6 +190,7 @@ enum AgentTranscriptOpener {
                 markdown,
                 agentKind: transcript.agentKind,
                 sessionID: transcript.sessionID,
+                projectDirectory: projectDirectory,
                 skippingUnchanged: skippingUnchanged,
                 shouldCommit: shouldCommit
             )
