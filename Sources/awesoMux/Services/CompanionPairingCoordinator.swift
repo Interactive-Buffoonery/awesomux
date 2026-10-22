@@ -1375,7 +1375,8 @@ private final class CompanionNetworkServer {
         let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
         do {
             try await CompanionTerminalWatchRelay.writeChunks(
-                frame, validate: {
+                frame,
+                validate: {
                     try validate()
                     try revalidate?()
                 },

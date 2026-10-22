@@ -308,9 +308,9 @@ final class LocalAPIService {
                 appInstanceID: server.instanceID, capturedAt: Date(),
                 connectionStatus: request.operation == CompanionOperation.connectionStatus.rawValue ? "connected" : nil, routes: routes,
                 terminalPreviewAllowed: lease.terminalPreviewAllowed,
+                remoteDecisionsEnabled: LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "claudeCode", version: nil),
                 terminalStream: request.operation == CompanionOperation.capabilities.rawValue || lease.terminalWatchScope != nil
-                    ? CompanionTerminalStream.Capabilities() : nil,
-                remoteDecisionsEnabled: LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "claudeCode", version: nil)
+                    ? CompanionTerminalStream.Capabilities() : nil
             )
         }
         if request.operation == CompanionOperation.listPanes.rawValue {
