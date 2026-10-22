@@ -953,8 +953,8 @@ extension GhosttySurfaceNSView {
             delivered.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
         else { return false }
         guard let current = documentNudgeForegroundGeneration() else {
-            // An unavailable sample does not prove the hooked process changed.
-            return true
+            // An unavailable sample cannot prove the hooked process is still in front.
+            return false
         }
         return delivered.incarnation == current
     }
@@ -1101,12 +1101,13 @@ extension GhosttySurfaceNSView {
         let liveAgentKind = livePane?.agentKind ?? .shell
         let liveDisplayState = livePane?.agentState ?? .idle
         let liveExecutionState = livePane?.agentExecutionState ?? .idle
+        let hooksDelivered = liveAgentHooksDelivered(for: liveAgentKind)
         let decision = terminalEventState.visibleTextAgentStateReducer.visibleTextDecision(
             detectedState: detection.state,
             detectedAgentKind: detection.agentKind,
             detectedKindIsAuthoritative: detection.agentKindIsAuthoritative,
             liveAgentKind: liveAgentKind,
-            liveAgentHooksDelivered: liveAgentHooksDelivered(for: liveAgentKind),
+            liveAgentHooksDelivered: hooksDelivered,
             liveExecutionState: liveExecutionState,
             liveDisplayState: liveDisplayState,
             terminalIsActiveForAttention: sessionIsSelectedInKeyWindow || terminalIsFocused
@@ -1115,12 +1116,12 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // Grok/Hermes can clear sticky thinking via identity-only waiting, but
-        // only when the shell is quiet — mid-turn pure inference may drop live
-        // cues while tools are still about to run; busy shell keeps thinking.
+        // Identity-only waiting can clear sticky thinking only when the shell
+        // is quiet. Mid-turn inference may drop live cues while tools are still
+        // about to run; this includes Codex panes without delivered hooks.
         var applyState = decision.shouldApplyState ? detection.state : nil
         if applyState == .waiting,
-            liveAgentKind.usesIdentityWaitingToClearThinking,
+            (liveAgentKind.usesIdentityWaitingToClearThinking || !hooksDelivered),
             (liveExecutionState == .thinking || liveDisplayState == .thinking),
             livePane?.shellActivity == .busy
         {
@@ -1236,7 +1237,7 @@ extension GhosttySurfaceNSView {
         if event.phase == .sessionEnd {
             terminalEventState.hasObservedAgentActivity = false
             terminalEventState.codexHooksDelivered = nil
-        } else if event.source == .codex,
+        } else if event.source == .codex, event.phase != .rename,
             let incarnation = documentNudgeForegroundGeneration()
         {
             terminalEventState.codexHooksDelivered = (
