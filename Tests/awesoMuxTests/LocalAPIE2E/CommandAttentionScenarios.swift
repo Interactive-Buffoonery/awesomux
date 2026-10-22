@@ -205,3 +205,97 @@ extension LocalAPIE2E {
         return checks
     }
 }
+
+extension LocalAPIE2E {
+    // Failure model: foreground-only activity, duplicate returns, late request
+    // completions, and preference suppression must not change away membership.
+    @MainActor static func runWhileAwayScenarios(artifact: URL) throws {
+        var checks: [String] = []
+        func check(_ condition: Bool, _ name: String) throws {
+            guard condition else { throw E2EFailure(message: name) }
+            print("PASS: \(name)")
+            checks.append(name)
+        }
+        let pane = TerminalPane(title: "Away shell", workingDirectory: "/tmp", executionPlan: .local)
+        let workspace = TerminalSession(title: "Away workspace", workingDirectory: "/tmp", layout: .pane(pane))
+        let store = SessionStore(groups: [SessionGroup(name: "Away", sessions: [workspace])])
+        store.bindLocalAPIInstance(UUID())
+        store.companionAlertIsSuppressed = { _ in true }
+        func finish() {
+            store.recordCommandCompletion(
+                sessionID: workspace.id, paneID: pane.id, terminalSessionID: pane.terminalSessionID,
+                executionPlan: pane.executionPlan,
+                completion: ShellCommandCompletion(exitCode: 1, durationNanoseconds: 40_000_000_000)!)
+        }
+        store.recordAuthenticatedCompanionActivity()
+        store.beginCompanionAwayPeriod()
+        finish()
+        store.endCompanionAwayPeriod()
+        store.presentWhileAwaySummaryIfReady()
+        try check(store.whileAwaySummary == nil, "activity before departure does not qualify")
+        store.beginCompanionAwayPeriod()
+        store.beginCompanionAwayPeriod()
+        finish()
+        store.recordAuthenticatedCompanionActivity()
+        store.endCompanionAwayPeriod()
+        finish()
+        try check(store.whileAwaySummary == nil, "return waits for app activation")
+        store.presentWhileAwaySummaryIfReady()
+        try check(
+            store.whileAwaySummary?.events.count == 1, "all-events summary ignores device suppression and excludes post-return events")
+        let identity = store.whileAwaySummary?.events.first?.id
+        store.endCompanionAwayPeriod()
+        store.presentWhileAwaySummaryIfReady()
+        try check(store.whileAwaySummary?.events.first?.id == identity, "duplicate return preserves identity")
+        store.beginCompanionAwayPeriod()
+        finish()
+        store.recordAuthenticatedCompanionActivity()
+        store.endCompanionAwayPeriod()
+        store.presentWhileAwaySummaryIfReady()
+        try check(store.whileAwaySummary?.events.count == 2, "multiple eligible intervals accumulate without local events")
+        store.dismissWhileAwaySummary()
+        store.beginCompanionAwayPeriod()
+        store.recordAuthenticatedCompanionActivity()
+        store.endCompanionAwayPeriod()
+        store.presentWhileAwaySummaryIfReady()
+        try check(store.whileAwaySummary == nil, "empty eligible interval has no banner")
+        store.beginCompanionAwayPeriod()
+        store.recordAuthenticatedCompanionActivity()
+        for _ in 0..<513 { finish() }
+        store.endCompanionAwayPeriod()
+        store.presentWhileAwaySummaryIfReady()
+        try check(
+            store.whileAwaySummary?.events.count == 512 && store.whileAwaySummary?.olderActivityUnavailable == true,
+            "overflow retains bounded history with explicit gap")
+        store.dismissWhileAwaySummary()
+        store.beginCompanionAwayPeriod()
+        finish()
+        store.endCompanionAwayPeriod()
+        store.recordAuthenticatedCompanionActivity()
+        store.presentWhileAwaySummaryIfReady()
+        try check(store.whileAwaySummary == nil, "authentication after return cannot qualify past interval")
+        let agent = TerminalPane(title: "Away agent", workingDirectory: "/tmp", agentKind: .codex, executionPlan: .local)
+        let agentWorkspace = TerminalSession(title: "Agent workspace", workingDirectory: "/tmp", layout: .pane(agent))
+        let agentStore = SessionStore(groups: [SessionGroup(name: "Agent", sessions: [agentWorkspace])])
+        agentStore.bindLocalAPIInstance(UUID())
+        agentStore.beginCompanionAwayPeriod()
+        agentStore.recordAuthenticatedCompanionActivity()
+        agentStore.updatePermissionPromptAttention(sessionID: agentWorkspace.id, paneID: agent.id, countDelta: 1, hasPending: true)
+        agentStore.updatePermissionPromptAttention(sessionID: agentWorkspace.id, paneID: agent.id, countDelta: -1, hasPending: false)
+        agentStore.endCompanionAwayPeriod()
+        agentStore.presentWhileAwaySummaryIfReady()
+        let changes = agentStore.whileAwaySummary?.events ?? []
+        try check(
+            changes.count == 2 && changes.first?.attentionID == changes.last?.attentionID && changes.last?.change == .resolved,
+            "resolved attention retains stable identity and resolution")
+        agentStore.closeSession(id: agentWorkspace.id, captureRecentlyClosed: false)
+        try check(
+            agentStore.whileAwaySummary?.events.count == 2 && agentStore.session(id: agentWorkspace.id) == nil,
+            "deleted workspace and pane activity remain available by identity")
+        agentStore.bindLocalAPIInstance(UUID())
+        try check(agentStore.whileAwaySummary == nil, "journal replacement clears presentation")
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["checks": checks], options: [.prettyPrinted, .sortedKeys])
+            .write(to: artifact.appending(path: "while-away.json"))
+    }
+}

@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxCore
 import AwesoMuxLocalAPIAccess
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -7,6 +8,7 @@ import SwiftUI
 
 struct CompanionSettingsPane: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
+    @Environment(SessionStore.self) private var sessionStore
     @State private var showsPairing = false
     @State private var pendingUnpair: LocalAPIConnectionGrant?
     @State private var errorMessage: String?
@@ -17,7 +19,7 @@ struct CompanionSettingsPane: View {
             title: String(localized: "awesoMux Companion", comment: "Companion settings title."),
             subtitle: String(
                 localized:
-                    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. Pane renaming is available with your permission.",
+                    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. Pane renaming is available with your permission.",
                 comment: "Companion settings description."
             ),
             badge: String(localized: "Alpha", comment: "Companion prerelease badge.")
@@ -144,6 +146,29 @@ struct CompanionSettingsPane: View {
                     String.localizedStringWithFormat(String(localized: "Unpair %@"), phone.label)
                 )
             }
+            Toggle(
+                String.localizedStringWithFormat(
+                    String(localized: "Terminal previews for %@", comment: "Per-phone Companion terminal preview switch."), phone.label
+                ),
+                isOn: Binding(
+                    get: { coordinator.pairedPhones.first(where: { $0.id == phone.id })?.companion?.terminalPreviewAllowed ?? false },
+                    set: { allowed in
+                        do {
+                            try coordinator.updateTerminalPreviewAllowed(allowed, for: phone.id)
+                            errorMessage = nil
+                        } catch {
+                            errorMessage = String(
+                                localized: "Could not save terminal preview access. Retry Save before restarting awesoMux.",
+                                comment: "Companion preview permission save error.")
+                        }
+                    }
+                )
+            )
+            .toggleStyle(.switch)
+            .help(
+                String(
+                    localized: "Shares the last output line from every terminal. This iPhone can also change its own preview setting.",
+                    comment: "Companion terminal preview switch help."))
             if let pairedAt = phone.companion?.pairedAt {
                 Text(
                     String.localizedStringWithFormat(
@@ -173,6 +198,74 @@ struct CompanionSettingsPane: View {
             Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
+            Menu(
+                String(
+                    localized: "Decision workspaces",
+                    comment: "Menu for selecting which workspaces this paired phone may answer permission requests for.")
+            ) {
+                ForEach(coordinator.decisionWorkspaces, id: \.id) { workspace in
+                    Toggle(
+                        workspace.name,
+                        isOn: Binding(
+                            get: {
+                                coordinator.pairedPhones.first { $0.id == phone.id }?.companion?.decideWorkspaceIDs?.contains(workspace.id)
+                                    == true
+                            },
+                            set: { allowed in
+                                do {
+                                    try coordinator.setDecisionWorkspace(workspace.id, allowed: allowed, for: phone.id)
+                                    errorMessage = nil
+                                } catch {
+                                    errorMessage = String(
+                                        localized: "Could not save decision access.",
+                                        comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
+                                }
+                            }))
+                }
+            }
+            .accessibilityLabel(
+                String.localizedStringWithFormat(
+                    String(
+                        localized: "Decision workspaces for %@",
+                        comment: "Accessibility label for a paired phone’s decision workspace menu. Argument is the phone’s name."),
+                    phone.label))
+            Text(
+                String(
+                    localized: "Remote decisions are not available yet. Workspace access starts off.",
+                    comment: "Explains that remote permission decisions are not released and workspace access is disabled by default.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text3)
+            Text(String(localized: "Allow watching terminals in selected workspaces"))
+                .awFont(AwFont.UI.meta)
+            ForEach(watchWorkspaces, id: \.id) { workspace in
+                Toggle(
+                    workspace.title,
+                    isOn: Binding(
+                        get: { watchWorkspaceIDs(for: phone.id).contains(workspace.id) },
+                        set: { allowed in
+                            var selected = watchWorkspaceIDs(for: phone.id)
+                            if allowed { selected.insert(workspace.id) } else { selected.remove(workspace.id) }
+                            do {
+                                try coordinator.setTerminalWatchWorkspaces(selected, for: phone)
+                                errorMessage = nil
+                            } catch {
+                                errorMessage = String(localized: "awesoMux couldn't save the terminal watch permission.")
+                            }
+                        }
+                    )
+                )
+                .accessibilityLabel(
+                    String.localizedStringWithFormat(
+                        String(localized: "Allow watching terminals in %@ for %@"), workspace.title, phone.label))
+            }
+            Text(
+                String(
+                    localized:
+                        "Streams live terminal output, which can include secrets, from selected workspaces to this phone. It cannot type.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
@@ -181,6 +274,34 @@ struct CompanionSettingsPane: View {
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
         .overlay { RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5) }
         .accessibilityElement(children: .contain)
+    }
+
+    private var watchWorkspaces: [(id: UUID, title: String)] {
+        let titles = sessionStore.sidebarResolvedTitles()
+        let workspaces = sessionStore.groups.flatMap { group in
+            group.sessions.map { workspace in
+                (
+                    id: workspace.id,
+                    title: String.localizedStringWithFormat(
+                        String(localized: "%@ — %@"), group.name, titles[workspace.id] ?? workspace.title)
+                )
+            }
+        }
+        let counts = Dictionary(grouping: workspaces, by: \.title).mapValues(\.count)
+        return workspaces.map { workspace in
+            (
+                id: workspace.id,
+                title: counts[workspace.title, default: 0] > 1
+                    ? "\(workspace.title) (\(workspace.id.uuidString))" : workspace.title
+            )
+        }
+    }
+
+    private func watchWorkspaceIDs(for phoneID: UUID) -> Set<UUID> {
+        guard
+            case .persistentWorkspaces(let ids) = coordinator.pairedPhones.first(where: { $0.id == phoneID })?.companion?.terminalWatchScope
+        else { return [] }
+        return Set(ids)
     }
 
     private func lastSeenText(_ id: UUID) -> String {
@@ -207,6 +328,7 @@ struct CompanionSettingsPane: View {
 
 private struct CompanionPairingSheet: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
+    @Environment(SessionStore.self) private var sessionStore
     @Environment(\.dismiss) private var dismiss
     @State private var now = Date()
     @State private var errorMessage: String?
@@ -327,7 +449,13 @@ private struct CompanionPairingSheet: View {
                 coordinator.allowPendingPhone()
             }
         } message: { prompt in
-            Text(prompt.words.joined(separator: "   "))
+            Text(
+                String(
+                    localized:
+                        "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:",
+                    comment: "Companion approval content disclosure.")
+                    + "\n\n" + prompt.words.joined(separator: "   ")
+            )
         }
     }
 
@@ -336,7 +464,7 @@ private struct CompanionPairingSheet: View {
             return String(localized: "Allow this iPhone?", comment: "Fallback Companion approval title.")
         }
         return String.localizedStringWithFormat(
-            String(localized: "Allow “%@” to see your agents?", comment: "Companion approval title."),
+            String(localized: "Allow “%@” to see panes and terminal previews?", comment: "Companion approval title."),
             prompt.phoneName
         )
     }

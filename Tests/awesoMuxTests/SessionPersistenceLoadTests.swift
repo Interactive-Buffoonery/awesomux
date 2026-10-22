@@ -1467,7 +1467,10 @@ extension SessionPersistenceSerializationDomainTests {
                             warning: warning,
                             snapshotWriter: { snapshot in
                                 writerStarted.signal()
-                                permitWriterToFinish.wait()
+                                guard permitWriterToFinish.wait(timeout: .now() + 30) == .success else {
+                                    Issue.record("Writer release did not arrive within 30 seconds")
+                                    return .failure(.writeFailed)
+                                }
                                 do {
                                     try JSONEncoder().encode(snapshot).write(
                                         to: snapshotURL,
@@ -1480,11 +1483,17 @@ extension SessionPersistenceSerializationDomainTests {
                             }
                         )
                     }
-                    await withCheckedContinuation { continuation in
+                    let writerDidStart = await awaitValue(fallback: false) { continuation in
                         DispatchQueue.global().async {
-                            writerStarted.wait()
-                            continuation.resume()
+                            let started = writerStarted.wait(timeout: .now() + 30) == .success
+                            #expect(started)
+                            continuation.resume(returning: started)
                         }
+                    }
+                    guard writerDidStart else {
+                        permitWriterToFinish.signal()
+                        _ = await replacementTask.value
+                        return
                     }
 
                     _ = SessionPersistence.flush(
@@ -1525,11 +1534,17 @@ extension SessionPersistenceSerializationDomainTests {
                             }
                         )
                     }
-                    await withCheckedContinuation { continuation in
+                    let writerDidStart = await awaitValue(fallback: false) { continuation in
                         DispatchQueue.global().async {
-                            writerStarted.wait()
-                            continuation.resume()
+                            let started = writerStarted.wait(timeout: .now() + 30) == .success
+                            #expect(started)
+                            continuation.resume(returning: started)
                         }
+                    }
+                    guard writerDidStart else {
+                        permitWriterToFinish.signal()
+                        _ = await replacementTask.value
+                        return
                     }
 
                     let flushResult = SessionPersistence.flush(
@@ -1572,7 +1587,10 @@ extension SessionPersistenceSerializationDomainTests {
                             warning: warning,
                             snapshotWriter: { snapshot in
                                 writerStarted.signal()
-                                permitWriterToFinish.wait()
+                                guard permitWriterToFinish.wait(timeout: .now() + 30) == .success else {
+                                    Issue.record("Writer release did not arrive within 30 seconds")
+                                    return .failure(.writeFailed)
+                                }
                                 do {
                                     try JSONEncoder().encode(snapshot).write(
                                         to: snapshotURL,
@@ -1585,11 +1603,17 @@ extension SessionPersistenceSerializationDomainTests {
                             }
                         )
                     }
-                    await withCheckedContinuation { continuation in
+                    let writerDidStart = await awaitValue(fallback: false) { continuation in
                         DispatchQueue.global().async {
-                            writerStarted.wait()
-                            continuation.resume()
+                            let started = writerStarted.wait(timeout: .now() + 30) == .success
+                            #expect(started)
+                            continuation.resume(returning: started)
                         }
+                    }
+                    guard writerDidStart else {
+                        permitWriterToFinish.signal()
+                        _ = await replacementTask.value
+                        return
                     }
 
                     // The write is in flight, so the terminate path must know to flush

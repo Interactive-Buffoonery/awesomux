@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Observation
 import Synchronization
@@ -58,7 +59,7 @@ struct CommandBridgeEnactorTests {
         candidate.runtime.discardSurface(for: pane.id, preservingRestartNotice: true)
         #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
         candidate.runtime.discardSurface(for: pane.id)
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
         #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
@@ -1047,8 +1048,8 @@ struct CommandBridgeEnactorTests {
         enactor.sessionExistsProvider = { sessionID in
             #expect(sessionID == fixture.sessionID)
             probeCount += 1
-            await withCheckedContinuation { continuation in
-                let resume = { continuation.resume(returning: ()) }
+            await awaitSignal { continuation in
+                let resume = { continuation.resume() }
                 if probeCount == 1 {
                     resumeOldProbe = resume
                 } else {
@@ -1097,7 +1098,7 @@ struct CommandBridgeEnactorTests {
     /// layout pass). Suspending the MainActor via `Task.sleep` hands control
     /// back to the main run loop so those blocks execute before we assert.
     private func pumpMainQueue() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
     }

@@ -1,3 +1,4 @@
+import AwesoMuxCompanionProtocol
 import CryptoKit
 import Foundation
 
@@ -77,6 +78,7 @@ public struct LocalAPIAttentionJournal {
     private struct Entry {
         let position: UInt64
         let event: LocalAPIAttentionEvent
+        let companionSuppressed: Bool
     }
 
     private struct Cursor: Codable {
@@ -85,6 +87,32 @@ public struct LocalAPIAttentionJournal {
         let connectionRevision: UUID
         let position: String
         let includeCommandEvents: Bool
+    }
+
+    private struct AwayCheckpoint {
+        let position: UInt64
+        var hasAuthenticatedActivity = false
+    }
+
+    private var awayCheckpoint: AwayCheckpoint?
+
+    public mutating func beginAwayPeriod() {
+        guard awayCheckpoint == nil else { return }
+        awayCheckpoint = AwayCheckpoint(position: position)
+    }
+
+    public mutating func recordAuthenticatedCompanionActivity() {
+        awayCheckpoint?.hasAuthenticatedActivity = true
+    }
+
+    public mutating func endAwayPeriod() -> LocalAPIWhileAwaySummary? {
+        guard let checkpoint = awayCheckpoint else { return nil }
+        awayCheckpoint = nil
+        guard checkpoint.hasAuthenticatedActivity else { return nil }
+        let events = entries.filter { $0.position > checkpoint.position }.map(\.event)
+        let gap = checkpoint.position < (entries.first.map { $0.position - 1 } ?? position)
+        guard !events.isEmpty || gap else { return nil }
+        return LocalAPIWhileAwaySummary(events: events, olderActivityUnavailable: gap)
     }
 
     private let instanceID: UUID
@@ -96,9 +124,9 @@ public struct LocalAPIAttentionJournal {
         self.instanceID = instanceID
     }
 
-    public mutating func append(_ event: LocalAPIAttentionEvent) {
+    public mutating func append(_ event: LocalAPIAttentionEvent, companionSuppressed: Bool = false) {
         position += 1
-        entries.append(Entry(position: position, event: event))
+        entries.append(Entry(position: position, event: event, companionSuppressed: companionSuppressed))
         if entries.count > LocalAPIContract.maximumAttentionEvents {
             entries.removeFirst(entries.count - LocalAPIContract.maximumAttentionEvents)
         }
@@ -155,6 +183,10 @@ public struct LocalAPIAttentionJournal {
                     paneID: event.paneID, workspaceID: event.workspaceID, targetVersion: event.targetVersion
                 )
             else { return false }
+            if let preferences = lease.companionAlertPreferences, event.change == .raised {
+                guard !entry.companionSuppressed else { return false }
+                if let category = Self.category(for: event.reason), !preferences.categories.contains(category) { return false }
+            }
             if case .exactTarget = lease.statusScope {
                 return liveTargetVersions[event.paneID] == event.targetVersion
             }
@@ -170,6 +202,17 @@ public struct LocalAPIAttentionJournal {
         )
     }
 
+    private static func category(for reason: String) -> CompanionAlertCategory? {
+        switch reason {
+        case "permissionPrompt": .permission
+        case "userInputRequired", "waitingForInput": .waiting
+        case "processError", "agentError": .error
+        case "commandFailed": .commandFailed
+        case "commandFinished": .commandCompleted
+        default: nil
+        }
+    }
+
     private func encodeCursor(
         position: UInt64, lease: LocalAPIAuthorizationLease, includeCommandEvents: Bool
     ) throws -> String {
@@ -181,5 +224,22 @@ public struct LocalAPIAttentionJournal {
             ))
         guard let sealed = try AES.GCM.seal(data, using: cursorKey).combined else { throw LocalAPIError.transportFailure }
         return instanceID.uuidString.lowercased() + "." + sealed.base64EncodedString()
+    }
+}
+
+/// A bounded presentation derived from the shared journal, never a second log.
+public struct LocalAPIWhileAwaySummary: Sendable {
+    public let events: [LocalAPIAttentionEvent]
+    public let olderActivityUnavailable: Bool
+
+    public init(events: [LocalAPIAttentionEvent], olderActivityUnavailable: Bool) {
+        self.events = Array(events.suffix(LocalAPIContract.maximumAttentionEvents))
+        self.olderActivityUnavailable = olderActivityUnavailable || events.count > LocalAPIContract.maximumAttentionEvents
+    }
+
+    public func merging(_ other: Self) -> Self {
+        var identities = Set<UUID>()
+        let combined = (events + other.events).filter { identities.insert($0.id).inserted }
+        return Self(events: combined, olderActivityUnavailable: olderActivityUnavailable || other.olderActivityUnavailable)
     }
 }

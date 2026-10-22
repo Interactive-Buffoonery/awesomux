@@ -40,6 +40,7 @@ import PackageDescription
                 // RealSpawnTimeout.swift, ShellWait.swift.
                 sources: [
                     "AsyncGate.swift",
+                    "BoundedSignal.swift",
                     "EventRecorder.swift",
                     "TemporaryDirectory.swift",
                     "TestClock.swift",
@@ -80,7 +81,7 @@ import PackageDescription
         dependencies: [
             .package(
                 url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
-                revision: "cd3d7ac7236848c433bf0e9f34c9dfe911717e23"
+                revision: "6ddd132d1568166b293ad145782527b6bf5a40dc"
             ),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
@@ -117,6 +118,7 @@ import PackageDescription
             .target(
                 name: "AwesoMuxLocalAPIAccess",
                 dependencies: [
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                     "AwesoMuxConfig",
                     "AwesoMuxLocalAPI",
                     "AwesoMuxLocalAPICredentials",
@@ -136,6 +138,7 @@ import PackageDescription
             .executableTarget(
                 name: "companion-pairing-e2e",
                 dependencies: [
+                    "AwesoMuxCore",
                     "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
                     .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                 ],
@@ -159,6 +162,7 @@ import PackageDescription
                 dependencies: [
                     "AwesoMuxBridgeProtocol",
                     "AwesoMuxLocalAPI",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                     "SecureFileIO",
                     "UnicodeHygiene",
                     .product(name: "Markdown", package: "swift-markdown"),
@@ -245,7 +249,10 @@ import PackageDescription
             ),
             .testTarget(
                 name: "AwesoMuxCoreTests",
-                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport"]
+                dependencies: [
+                    "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxLocalAPI", "AwesoMuxTestSupport",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
+                ]
             ),
             .testTarget(
                 name: "AwesoMuxConfigTests",
@@ -275,7 +282,8 @@ import PackageDescription
                 name: "awesoMuxTests",
                 dependencies: [
                     "awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxBridgeHelperSupport", "AwesoMuxCore", "AwesoMuxTestSupport",
-                    "AwesoMuxAppKitTestHost", "DesignSystem",
+                    "AwesoMuxAppKitTestHost", "DesignSystem", "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                 ],
                 exclude: ["LocalAPIE2E"]
             ),

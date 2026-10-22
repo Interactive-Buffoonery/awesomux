@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxTestSupport
 import SwiftUI
 @testable import awesoMux
 
@@ -115,7 +116,7 @@ enum SidebarHostedTestHarness {
     }
 
     static func drainMainQueue() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async {
                 continuation.resume()
             }

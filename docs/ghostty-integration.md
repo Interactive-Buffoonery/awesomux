@@ -200,7 +200,7 @@ that Swift regression through the gate after refreshing native artifacts.
 
 ## Bounded Show Scrollback read
 
-Show Scrollback uses the awesoMux-only `awesomux_surface_read_scrollback`
+Whole-history consumers use the awesoMux-only `awesomux_surface_read_scrollback`
 extension declared in `Sources/GhosttyKit/AwesoMuxGhostty.h`. The ordinary
 Ghostty text APIs remain unchanged for other callers.
 
@@ -234,8 +234,58 @@ reload, and rejects overlapping reads on the same surface. UI completion checks
 the request and surface identity again so dismissed or replaced panes cannot
 receive stale results. Cancellation does not interrupt a native read.
 
-Large-history viewing is separate work. This API succeeds only for a complete
-history within the limits; it does not silently truncate or paginate.
+The whole-history API still succeeds only for complete history within these
+limits; local-agent API budgets and consent are unchanged. Show Scrollback uses
+the separate `awesomux_surface_read_recent_scrollback` entry point. It starts at
+the last page, admits a suffix using the same row/cell/backing limits without
+restoring excluded older pages, and formats directly between page pins under
+the same lock. Even a partially selected page is charged at its full backing
+size. Its caller-owned text buffer is 256 KiB to bound native text layout.
+
+If the fixed writer overflows, the failed prefix is discarded and the read
+retries half as many of the newest physical rows. Retries remain within the
+admitted suffix, at most one plus floor(log2(admitted rows)) attempts. This
+preserves complete terminal cells/graphemes and retains the newest row rather
+than returning an older prefix. An oversized single row or newest page still
+rejects safely. A suffix can begin midway through a soft-wrapped logical line;
+the omission notice covers that missing beginning as well as older lines.
+
+Status 0 means all output fit; status 2 explicitly means older output was
+omitted; status 1 rejects without publishing any bytes. The sheet displays an
+omission notice separately from its immutable text view. Copy uses that exact
+text view payload, excluding the notice, even if the live terminal changes.
+Request/surface identity checks and the existing native ownership coordinator
+also apply to recent reads. Cancellation discards the UI result; a native lock
+wait/read already in progress finishes before surface destruction or reload.
+No terminal contents are persisted, logged, or sent by this viewer.
+
+See [recent scrollback verification](verification/recent-scrollback.md) for the
+64 MB, Unicode, compressed-history, cancellation, copy and native UI recipe.
+
+## Kitty images when clearing scrollback
+
+The generated source removes image placements anchored in erased history before
+Ghostty moves their tracked pins. Without this cleanup, `clear` at a prompt can
+move an image into history and then relocate it onto the active screen when
+scrollback is erased (ED3), overlapping the next image. Active-screen placements
+and placements in retained history are preserved; relative children of removed
+placements are cleaned up through upstream orphan handling. Image data remains
+available for later placements under the existing storage limit.
+
+`native/ghostty/kitty-clear.zig.inc` is inserted into image storage and called
+before `Screen.eraseHistory` mutates page coordinates. The vendor pin and source
+remain unchanged. All three insertion anchors fail closed on missing or duplicate
+matches, and the fragments participate in artifact fingerprinting. Native builds
+run `awesomux-kitty-clear` renderer and storage regressions, including partial
+history erasure and histories spanning multiple pages. No-scrollback resize
+uses the same cleanup before discarding history, including on the alternate
+screen; its regression covers both primary and alternate screens.
+
+Source-only verification:
+
+```sh
+python3 script/verify_kitty_clear_injection.py --vendor vendor/ghostty
+```
 
 ## Runtime Resources
 

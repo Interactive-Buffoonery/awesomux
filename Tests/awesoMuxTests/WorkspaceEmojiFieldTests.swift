@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxTestSupport
 import Testing
 @testable import awesoMux
 
@@ -93,7 +94,7 @@ struct WorkspaceEmojiFieldTests {
     }
 
     private func drainMainQueue() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
     }

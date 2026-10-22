@@ -28,6 +28,8 @@ INPUTS = (
     ROOT / "native/ghostty/remote-pwd-capi.zig.inc",
     ROOT / "native/ghostty/command-status.zig",
     ROOT / "native/ghostty/command-status-tests.zig.inc",
+    ROOT / "native/ghostty/kitty-clear.zig.inc",
+    ROOT / "native/ghostty/kitty-clear-tests.zig.inc",
 )
 
 
@@ -88,6 +90,34 @@ def inject_command_status(staging):
         file.write((ROOT / "native/ghostty/command-status-tests.zig.inc").read_text())
 
 
+KITTY_CLEAR_ANCHOR = "    self.pages.eraseHistory(bl);\n"
+KITTY_RESIZE_ANCHOR = "    if (self.no_scrollback) self.pages.eraseHistory(null);\n"
+KITTY_RESIZE_REPLACEMENT = "    if (self.no_scrollback) self.eraseHistory(null);\n"
+KITTY_CLEAR_REPLACEMENT = """    if (comptime build_options.kitty_graphics) {
+        self.kitty_images.eraseHistory(self.io, self, bl);
+    }
+    self.pages.eraseHistory(bl);
+"""
+
+
+def inject_kitty_clear(staging):
+    """Install history-image cleanup in generated source after checking all anchors."""
+    screen = staging / "src/terminal/Screen.zig"
+    storage = staging / "src/terminal/kitty/graphics_storage.zig"
+    source = screen.read_text()
+    storage_source = storage.read_text()
+    marker = "    /// Clear placements intersecting the active screen, then reclaim every\n"
+    if (source.count(KITTY_CLEAR_ANCHOR) != 1
+            or source.count(KITTY_RESIZE_ANCHOR) != 1
+            or storage_source.count(marker) != 1):
+        raise RuntimeError("Ghostty history image cleanup changed; review before building")
+    screen.write_text(source.replace(KITTY_CLEAR_ANCHOR, KITTY_CLEAR_REPLACEMENT, 1)
+                      .replace(KITTY_RESIZE_ANCHOR, KITTY_RESIZE_REPLACEMENT, 1))
+    storage.write_text(storage_source.replace(marker, (ROOT / "native/ghostty/kitty-clear.zig.inc").read_text() + marker, 1))
+    with (staging / "src/renderer/image.zig").open("a") as file:
+        file.write((ROOT / "native/ghostty/kitty-clear-tests.zig.inc").read_text())
+
+
 def fingerprint():
     digest = hashlib.sha256()
     for path in INPUTS:
@@ -108,6 +138,7 @@ def prepare(vendor, destination):
         subprocess.run(["git", "-C", str(staging), "checkout", "--quiet", "--detach", sha], check=True)
         inject_remote_pwd(staging)
         inject_command_status(staging)
+        inject_kitty_clear(staging)
         embedded = staging / "src/apprt/embedded.zig"
         source = embedded.read_text()
         marker = "pub const CAPI = struct {\n"

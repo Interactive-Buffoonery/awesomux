@@ -110,8 +110,8 @@ struct GhosttyEventLoopWatchdogTests {
 }
 
 private actor SuspendedFaultSource: GhosttyFaultLogSource {
-    private var continuation: CheckedContinuation<Int, Never>?
-    private var pendingQueryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var continuation: ValueResumer<Int>?
+    private var pendingQueryWaiters: [SignalResumer] = []
     private(set) var queryCount = 0
 
     func recentFaultCount(subsystem: String, category: String, since: Date) async -> Int {
@@ -119,12 +119,12 @@ private actor SuspendedFaultSource: GhosttyFaultLogSource {
         let waiters = pendingQueryWaiters
         pendingQueryWaiters.removeAll()
         waiters.forEach { $0.resume() }
-        return await withCheckedContinuation { continuation = $0 }
+        return await awaitValue(fallback: 0) { continuation = $0 }
     }
 
     func waitForPendingQuery() async {
         guard continuation == nil else { return }
-        await withCheckedContinuation { pendingQueryWaiters.append($0) }
+        await awaitSignal { pendingQueryWaiters.append($0) }
     }
 
     func resume(returning count: Int) {

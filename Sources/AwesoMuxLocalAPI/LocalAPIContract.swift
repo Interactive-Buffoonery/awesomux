@@ -46,6 +46,7 @@ public struct LocalAPIRequest: Codable, Sendable {
     public let source: LocalAPIContextSource?
     public let cursor: String?
     public let includeCommandEvents: Bool?
+    public let terminalPreviewAllowed: Bool?
 
     public init(
         profile: String,
@@ -68,6 +69,7 @@ public struct LocalAPIRequest: Codable, Sendable {
         self.source = source
         self.cursor = cursor
         self.includeCommandEvents = includeCommandEvents
+        terminalPreviewAllowed = nil
     }
 }
 

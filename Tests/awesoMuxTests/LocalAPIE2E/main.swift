@@ -13,10 +13,15 @@ struct E2EFailure: Error { let message: String }
 struct LocalAPIE2E {
     @MainActor static func main() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.count == 2, args[0] == "--while-away-only" {
+            try runWhileAwayScenarios(artifact: URL(fileURLWithPath: args[1], isDirectory: true))
+            return
+        }
         if args.count == 2, args[0] == "--command-attention-only" {
             let artifact = URL(fileURLWithPath: args[1], isDirectory: true)
             try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
             _ = try await runCommandAttentionScenarios(artifact: artifact)
+            try runWhileAwayScenarios(artifact: artifact)
             return
         }
         if args.count == 3, args[0] == "--attention-socket-only" {

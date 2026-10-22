@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCompanionProtocol
+import AwesoMuxCore
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
@@ -11,6 +12,71 @@ import Security
 import UnicodeHygiene
 
 typealias CompanionDelay = @Sendable (Duration) async throws -> Void
+
+enum CompanionTerminalWatchRequest {
+    static func grid(_ object: [String: Any]) throws -> CompanionTerminalStream.Grid {
+        func integer(_ value: Any?) -> Int? {
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            return value as? Int
+        }
+        guard integer(object["streamVersion"]) == CompanionTerminalStream.version else { throw LocalAPIError.unsupportedVersion }
+        guard let raw = object["grid"] else { return .init(rows: 24, cols: 80) }
+        guard let value = raw as? [String: Any], Set(value.keys) == ["rows", "cols"],
+            let rows = integer(value["rows"]), let cols = integer(value["cols"]),
+            (1...1000).contains(rows), (1...1000).contains(cols)
+        else { throw LocalAPIError.invalidRequest }
+        return .init(rows: rows, cols: cols)
+    }
+}
+
+enum CompanionClientAdmission {
+    enum Kind: Equatable { case handshake, request, watch }
+
+    static func allows(_ clients: [Kind]) -> Bool {
+        clients.filter { $0 != .watch }.count < LocalAPIContract.maximumClients
+    }
+}
+
+/// One registry for every direct listener belonging to this Mac coordinator.
+/// Replacements wait for cleanup, so an old attachment still counts until it exits.
+@MainActor
+final class CompanionTerminalWatchRegistry {
+    private struct Entry {
+        let connectionID: UUID
+        let paneID: UUID
+        let stop: (CompanionTerminalStream.EndReason) -> Void
+    }
+
+    private var entries: [UUID: Entry] = [:]
+    private var waiters: [UUID: [UUID: CompanionNetworkOperation<Void>]] = [:]
+
+    func contains(_ id: UUID) -> Bool { entries[id] != nil }
+
+    func reserve(
+        id: UUID, connectionID: UUID, paneID: UUID,
+        stop: @escaping (CompanionTerminalStream.EndReason) -> Void
+    ) async throws {
+        while let previous = entries.first(where: { $0.value.connectionID == connectionID && $0.value.paneID == paneID }) {
+            let waiterID = UUID()
+            let operation = CompanionNetworkOperation<Void>()
+            waiters[previous.key, default: [:]][waiterID] = operation
+            defer { waiters[previous.key]?.removeValue(forKey: waiterID) }
+            previous.value.stop(.superseded)
+            try await operation.wait {}
+        }
+        try Task.checkCancellation()
+        guard entries.count < CompanionTerminalStream.maximumStreamsPerMac,
+            entries.values.filter({ $0.connectionID == connectionID }).count < CompanionTerminalStream.maximumStreamsPerDevice
+        else { throw LocalAPIError.endpointBusy }
+        entries[id] = Entry(connectionID: connectionID, paneID: paneID, stop: stop)
+    }
+
+    func release(_ id: UUID) {
+        entries.removeValue(forKey: id)
+        let completed = waiters.removeValue(forKey: id) ?? [:]
+        completed.values.forEach { $0.resolve(.success(())) }
+    }
+}
 
 struct CompanionPairingSession: Identifiable, Equatable, Sendable {
     let id: UUID
@@ -60,6 +126,7 @@ final class CompanionPairingCoordinator {
     @ObservationIgnored private var identity: CompanionIdentity?
     @ObservationIgnored private var service: LocalAPIService?
     @ObservationIgnored private var servers: [CompanionNetworkServer] = []
+    @ObservationIgnored private let terminalWatchRegistry = CompanionTerminalWatchRegistry()
     @ObservationIgnored private var stablePort: UInt16?
     @ObservationIgnored private var secret: Data?
     @ObservationIgnored private var expiryTask: Task<Void, Never>?
@@ -102,6 +169,7 @@ final class CompanionPairingCoordinator {
     func configure(service: LocalAPIService) {
         guard self.service == nil else { return }
         self.service = service
+        reconcileDecisionWorkspaces()
         accessStore.setCompanionInvalidationHandler { [weak self] connectionID in
             Task { @MainActor in self?.invalidateConnections(connectionID: connectionID) }
         }
@@ -209,6 +277,45 @@ final class CompanionPairingCoordinator {
     func setPaneRenameAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
         try accessStore.updateCompanionPaneRenameScope(
             connectionID: phone.id, scope: allowed ? phone.statusScope : nil)
+    }
+
+    func reconcileDecisionWorkspaces() {
+        guard let service else { return }
+        let phones = pairedPhones.filter { $0.companion?.decideWorkspaceIDs != nil }
+        guard !phones.isEmpty else { return }
+        let live = Set(service.companionDecisionWorkspaces.map(\.id))
+        for phone in phones {
+            guard let previous = phone.companion?.decideWorkspaceIDs else { continue }
+            let retained = previous.filter { live.contains($0) }
+            guard retained != previous else { continue }
+            do {
+                try accessStore.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: retained.isEmpty ? nil : retained)
+            } catch {
+                listenerErrorMessage = String(
+                    localized: "Could not save decision access.",
+                    comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
+            }
+        }
+    }
+
+    var decisionWorkspaces: [(id: UUID, name: String)] { service?.companionDecisionWorkspaces ?? [] }
+
+    func setDecisionWorkspace(_ workspaceID: UUID, allowed: Bool, for phoneID: UUID) throws {
+        guard decisionWorkspaces.contains(where: { $0.id == workspaceID }) else { throw LocalAPIError.permissionDenied }
+        var ids = pairedPhones.first { $0.id == phoneID }?.companion?.decideWorkspaceIDs ?? []
+        ids.removeAll { $0 == workspaceID }
+        if allowed { ids.append(workspaceID) }
+        try accessStore.updateCompanionDecideWorkspaces(connectionID: phoneID, workspaceIDs: ids.isEmpty ? nil : ids)
+    }
+
+    func updateTerminalPreviewAllowed(_ allowed: Bool, for connectionID: UUID) throws {
+        try accessStore.updateCompanionTerminalPreviewAllowed(connectionID: connectionID, allowed: allowed)
+    }
+
+    func setTerminalWatchWorkspaces(_ workspaceIDs: Set<UUID>, for phone: LocalAPIConnectionGrant) throws {
+        try accessStore.updateCompanionTerminalWatchScope(
+            connectionID: phone.id,
+            scope: workspaceIDs.isEmpty ? nil : .persistentWorkspaces(workspaceIDs.sorted { $0.uuidString < $1.uuidString }))
     }
 
     func unpair(_ connection: LocalAPIConnectionGrant) throws {
@@ -391,8 +498,15 @@ final class CompanionPairingCoordinator {
                     certificateFingerprint: fingerprint,
                     transport: transport,
                     port: port,
-                    pairingVersion: 2
+                    pairingVersion: 2,
+                    terminalPreviewAllowed: true,
+                    terminalWatchScope: self.e2eTerminalWatchScope
                 )
+                #if DEBUG
+                    if let workspaceID = service.decisionFixtureWorkspaceID {
+                        try self.accessStore.updateCompanionDecideWorkspaces(connectionID: grant.id, workspaceIDs: [workspaceID])
+                    }
+                #endif
                 self.servers.forEach { $0.refreshAuthorization() }
                 self.finishPairing(id: pairingID)
                 return grant
@@ -402,16 +516,37 @@ final class CompanionPairingCoordinator {
                 defer { self.lastSeen.removeValue(forKey: connectionID) }
                 try self.accessStore.revoke(connectionID: connectionID)
             },
+            setAlertPreferences: { [weak accessStore] connectionID, preferences in
+                guard let accessStore else { throw LocalAPIError.appUnavailable }
+                try accessStore.updateCompanionAlertPreferences(connectionID: connectionID, preferences: preferences)
+            },
             renamePane: { request, lease, fingerprint, deadline in
                 try service.renameCompanionPane(
                     request: request, lease: lease, certificateFingerprint: fingerprint, deadline: deadline)
             },
-            capture: { request, lease in
-                await service.companionResponse(request: request, lease: lease)
+            setTerminalPreview: { [weak self] connectionID, fingerprint, lease, allowed in
+                guard let self else { throw LocalAPIError.appUnavailable }
+                return try self.accessStore.setCompanionTerminalPreviewAllowed(
+                    connectionID: connectionID, allowed: allowed,
+                    certificateFingerprint: fingerprint, expectedLease: lease
+                )
             },
+            capture: { request, lease, routes in
+                await service.companionResponse(request: request, lease: lease, routes: routes)
+            },
+            terminalWatchTarget: { service.terminalWatchTarget(paneID: $0) },
+            terminalWatchRegistry: terminalWatchRegistry,
             routes: { [weak self] in self?.currentRoutes },
+            markActivity: { [weak self] in self?.service?.recordAuthenticatedCompanionActivity() },
             markSeen: { [weak self] connectionID in self?.lastSeen[connectionID] = Date() },
             connectionFinished: { [weak self] in self?.stopListenerIfIdle() },
+            decisions: { [weak self] answer, lease, fingerprint, requestID in
+                guard let self else { throw LocalAPIError.appUnavailable }
+                let name = self.pairedPhones.first { $0.id == lease.connectionID }?.label ?? "iPhone"
+                return try service.companionDecisions(
+                    answer: answer, lease: lease, fingerprint: fingerprint,
+                    authority: self.accessStore.runtimeAuthority, deviceName: name, requestID: requestID)
+            },
             listenerFailed: { [weak self] in
                 guard let self, self.listenerGeneration == generation else { return }
                 self.servers.filter { $0.address == address }.forEach { $0.stop() }
@@ -477,6 +612,19 @@ final class CompanionPairingCoordinator {
         pairingSession = nil
         pairingGeneration = nil
         servers.forEach { $0.pairingIsOpen = false }
+    }
+
+    /// Watch access is off for every real pairing; only the development E2E
+    /// fixture turns it on so the stream path has a repeatable artifact.
+    private var e2eTerminalWatchScope: LocalAPITargetScope? {
+        #if DEBUG
+            if case .development = profile,
+                ProcessInfo.processInfo.environment["AWESOMUX_COMPANION_E2E_TERMINAL_WATCH"] == "1"
+            {
+                return .allWorkspaces
+            }
+        #endif
+        return nil
     }
 
     private func requestApproval(id: UUID, phoneName: String, words: [String]) async -> Bool {
@@ -572,11 +720,16 @@ private final class CompanionNetworkServer {
     private let cancelApproval: @MainActor (UUID) -> Void
     private let abortPairing: @MainActor (UUID) -> Void
     private let register: @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant
+    private let setAlertPreferences: @MainActor (UUID, CompanionAlertPreferences) throws -> Void
     private let revoke: @MainActor (UUID) throws -> Void
     private let renamePane:
         @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void
-    private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse
+    private let setTerminalPreview: @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease
+    private let decisions: @MainActor (CompanionDecisionAnswer?, LocalAPIAuthorizationLease, Data, UUID) throws -> CompanionDecisionResponse
+    private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse
+    private let terminalWatchTarget: @MainActor (UUID) -> LocalAPITerminalWatchTarget?
     private let routes: @MainActor () -> CompanionRoutes?
+    private let markActivity: @MainActor () -> Void
     private let markSeen: @MainActor (UUID) -> Void
     private let connectionFinished: @MainActor () -> Void
     private let listenerFailed: @MainActor () -> Void
@@ -586,6 +739,9 @@ private final class CompanionNetworkServer {
     private var listener: NWListener?
     private var connections: [UUID: ActiveCompanionConnection] = [:]
     private var pendingRevocationReplies: Set<UUID> = []
+    private var pendingPermissionReplies: Set<UUID> = []
+    private var pendingPreferenceReplies: Set<UUID> = []
+    private let terminalWatchRegistry: CompanionTerminalWatchRegistry
 
     var hasPendingRevocationReplies: Bool { !pendingRevocationReplies.isEmpty }
 
@@ -604,12 +760,19 @@ private final class CompanionNetworkServer {
         abortPairing: @escaping @MainActor (UUID) -> Void,
         register: @escaping @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant,
         revoke: @escaping @MainActor (UUID) throws -> Void,
+        setAlertPreferences: @escaping @MainActor (UUID, CompanionAlertPreferences) throws -> Void,
         renamePane:
             @escaping @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void,
-        capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse,
+        setTerminalPreview: @escaping @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease,
+        capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse,
+        terminalWatchTarget: @escaping @MainActor (UUID) -> LocalAPITerminalWatchTarget?,
+        terminalWatchRegistry: CompanionTerminalWatchRegistry,
         routes: @escaping @MainActor () -> CompanionRoutes?,
+        markActivity: @escaping @MainActor () -> Void,
         markSeen: @escaping @MainActor (UUID) -> Void,
         connectionFinished: @escaping @MainActor () -> Void,
+        decisions:
+            @escaping @MainActor (CompanionDecisionAnswer?, LocalAPIAuthorizationLease, Data, UUID) throws -> CompanionDecisionResponse,
         listenerFailed: @escaping @MainActor () -> Void
     ) {
         self.identity = identity
@@ -626,9 +789,15 @@ private final class CompanionNetworkServer {
         self.abortPairing = abortPairing
         self.register = register
         self.revoke = revoke
+        self.setTerminalPreview = setTerminalPreview
+        self.setAlertPreferences = setAlertPreferences
+        self.decisions = decisions
         self.capture = capture
+        self.terminalWatchTarget = terminalWatchTarget
+        self.terminalWatchRegistry = terminalWatchRegistry
         self.renamePane = renamePane
         self.routes = routes
+        self.markActivity = markActivity
         self.markSeen = markSeen
         self.connectionFinished = connectionFinished
         self.listenerFailed = listenerFailed
@@ -650,7 +819,7 @@ private final class CompanionNetworkServer {
             Self.makeVerifyBlock(verifier: verifier),
             queue
         )
-        let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
+        let parameters = NWParameters(tls: tls, tcp: CompanionTerminalWatchRelay.phoneTCPOptions())
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(
             host: NWEndpoint.Host(address.host),
@@ -708,7 +877,15 @@ private final class CompanionNetworkServer {
 
     func invalidate(connectionID: UUID?) {
         for (id, active) in connections where connectionID == nil || active.connectionID == connectionID {
-            if connectionID != nil, pendingRevocationReplies.contains(id) { continue }
+            if connectionID != nil,
+                pendingRevocationReplies.contains(id) || pendingPermissionReplies.contains(id) || pendingPreferenceReplies.contains(id)
+            {
+                continue
+            }
+            if let watch = active.terminalWatch {
+                watch.stop(connectionID == nil ? .closed : .revoked)
+                continue
+            }
             active.worker?.cancel()
             active.connection.cancel()
             connections.removeValue(forKey: id)
@@ -718,7 +895,11 @@ private final class CompanionNetworkServer {
 
     private func accept(_ connection: NWConnection) {
         let remote = Self.remoteAddress(connection.endpoint)
-        guard connections.count < LocalAPIContract.maximumClients, limiter.allows(remote, kind: .handshake) else {
+        let clients = connections.values.map { active -> CompanionClientAdmission.Kind in
+            if !active.isReady { return .handshake }
+            return active.terminalWatch == nil ? .request : .watch
+        }
+        guard CompanionClientAdmission.allows(clients), limiter.allows(remote, kind: .handshake) else {
             connection.cancel()
             return
         }
@@ -834,7 +1015,9 @@ private final class CompanionNetworkServer {
             guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
-                    "cursor", "includeCommandEvents", "workspaceID", "title",
+                    "cursor", "includeCommandEvents", "workspaceID", "title", "terminalPreviewAllowed", "alertPreferences",
+                    "decisionAnswer",
+                    "streamVersion", "grid",
                 ])
             else { throw LocalAPIError.invalidRequest }
             requestID = (object["requestID"] as? String).flatMap(UUID.init(uuidString:))
@@ -847,11 +1030,98 @@ private final class CompanionNetworkServer {
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == profile else { throw LocalAPIError.profileMismatch }
             guard request.connectionID == connectionID else { throw LocalAPIError.permissionDenied }
+            if request.operation == CompanionOperation.getAlertPreferences.rawValue
+                || request.operation == CompanionOperation.setAlertPreferences.rawValue
+            {
+                let isSet = request.operation == CompanionOperation.setAlertPreferences.rawValue
+                let required: Set<String> = ["schemaVersion", "requestID", "operation", "connectionID", "profile"]
+                guard Set(object.keys) == (isSet ? required.union(["alertPreferences"]) : required) else {
+                    throw LocalAPIError.invalidRequest
+                }
+                var lease = try authority.authorizeCompanion(
+                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                markActivity()
+                defer { pendingPreferenceReplies.remove(id) }
+                if isSet {
+                    guard let payload = object["alertPreferences"] as? [String: Any], Set(payload.keys) == ["categories"],
+                        let data = try? JSONSerialization.data(withJSONObject: payload),
+                        let preferences = try? CompanionProtocol.decoder().decode(CompanionAlertPreferences.self, from: data)
+                    else { throw LocalAPIError.invalidRequest }
+                    guard !Task.isCancelled else { throw LocalAPIError.cancelled }
+                    guard ContinuousClock.now < mutationDeadline else { throw LocalAPIError.timeout }
+                    if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                    // The setter invalidates old requests. This receipt uses the
+                    // replacement lease and still rechecks authority before every chunk.
+                    pendingPreferenceReplies.insert(id)
+                    do {
+                        try setAlertPreferences(connectionID, preferences)
+                    } catch {
+                        pendingPreferenceReplies.remove(id)
+                        throw LocalAPIError.transportFailure
+                    }
+                    lease = try authority.authorizeCompanion(
+                        connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                    ).get()
+                }
+                let response = CompanionAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date(),
+                    alertPreferences: lease.companionAlertPreferences)
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(response), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+                markSeen(connectionID)
+                return
+            }
+            guard object["alertPreferences"] == nil else { throw LocalAPIError.invalidRequest }
+            if request.operation == CompanionOperation.pendingDecisions.rawValue
+                || request.operation == CompanionOperation.answerDecision.rawValue
+            {
+                let base: Set<String> = ["schemaVersion", "requestID", "profile", "operation", "connectionID"]
+                let isAnswer = request.operation == CompanionOperation.answerDecision.rawValue
+                guard Set(object.keys) == (isAnswer ? base.union(["decisionAnswer"]) : base) else { throw LocalAPIError.invalidRequest }
+                let answer: CompanionDecisionAnswer?
+                if isAnswer {
+                    guard let payload = object["decisionAnswer"] as? [String: Any],
+                        Set(payload.keys) == ["identity", "choice", "retryID"],
+                        let identity = payload["identity"] as? [String: Any],
+                        Set(identity.keys) == [
+                            "runtimeID", "workspaceID", "paneID", "targetVersion", "providerSessionID", "invocationID", "revision",
+                        ]
+                    else { throw LocalAPIError.invalidRequest }
+                    guard
+                        let decoded = try? CompanionProtocol.decoder().decode(
+                            CompanionDecisionAnswer.self,
+                            from: JSONSerialization.data(withJSONObject: payload))
+                    else { throw LocalAPIError.invalidRequest }
+                    answer = decoded
+                    guard let answer, answer.identity.revision > 0,
+                        !answer.identity.providerSessionID.isEmpty, answer.identity.providerSessionID.utf8.count <= 256
+                    else { throw LocalAPIError.invalidRequest }
+                } else {
+                    answer = nil
+                }
+                let lease = try authority.authorizeCompanion(
+                    connectionID: connectionID,
+                    certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                let projection = try decisions(answer, lease, fingerprint, request.requestID)
+                let encoded = try CompanionProtocol.encoder().encode(projection.response)
+                guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }
+                try await sendAuthorizedFrame(
+                    encoded, connection: connection, connectionID: connectionID,
+                    fingerprint: fingerprint, lease: lease, responseProgress: responseProgress, validate: projection.validate)
+                markSeen(connectionID)
+                return
+            }
+            guard object["decisionAnswer"] == nil else { throw LocalAPIError.invalidRequest }
             if request.operation == CompanionPaneRename.operation {
                 let mutation = try CompanionPaneRenameRequest.decode(object)
                 let lease = try authority.authorizeCompanion(
                     connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
                 ).get()
+                markActivity()
                 if case .cancelled = connection.state { throw LocalAPIError.cancelled }
                 try renamePane(mutation, lease, fingerprint, mutationDeadline)
                 let response = LocalAPIResponse(
@@ -863,23 +1133,56 @@ private final class CompanionNetworkServer {
                 return
             }
             guard object["workspaceID"] == nil, object["title"] == nil else { throw LocalAPIError.invalidRequest }
-            // Self-unpair uses the same paired-certificate grant as status, but is
-            // deliberately absent from the local bearer API's operation catalog.
+            if object.keys.contains("terminalPreviewAllowed"),
+                request.operation != CompanionOperation.setTerminalPreview.rawValue
+            {
+                throw LocalAPIError.invalidRequest
+            }
+            let isWatch = request.operation == CompanionOperation.watchTerminal.rawValue
+            guard isWatch || (object["streamVersion"] == nil && object["grid"] == nil) else { throw LocalAPIError.invalidRequest }
             let isUnpair = request.operation == CompanionOperation.unpair.rawValue
-            guard let operation = isUnpair ? .connectionStatus : LocalAPIOperation(rawValue: request.operation) else {
-                throw LocalAPIError.unsupportedOperation
+            let operation = try CompanionRequestPolicy.authorizationOperation(for: request)
+            guard operation == .attentionEvents || object["includeCommandEvents"] == nil else {
+                throw LocalAPIError.invalidRequest
             }
-            guard operation == .connectionStatus || operation == .listAgents || operation == .attentionEvents else {
-                throw LocalAPIError.permissionDenied
-            }
-            guard operation == .attentionEvents || object["includeCommandEvents"] == nil,
-                Self.argumentsAreValid(request, operation: operation)
-            else { throw LocalAPIError.invalidRequest }
             let lease = try authority.authorizeCompanion(
                 connectionID: connectionID,
                 certificateFingerprint: fingerprint,
                 operation: operation
             ).get()
+            markActivity()
+            if isWatch {
+                try await serveTerminalWatch(
+                    connection, id: id, object: object, request: request, lease: lease, connectionID: connectionID,
+                    fingerprint: fingerprint, requestDeadline: deadline, responseProgress: responseProgress)
+                return
+            }
+            if request.operation == CompanionOperation.setTerminalPreview.rawValue {
+                guard let allowed = request.terminalPreviewAllowed else { throw LocalAPIError.invalidRequest }
+                // Keep this socket alive through its own invalidation; unlike
+                // self-unpair, the acknowledgement still requires a current lease.
+                pendingPermissionReplies.insert(id)
+                defer { pendingPermissionReplies.remove(id) }
+                let updatedLease: LocalAPIAuthorizationLease
+                do {
+                    updatedLease = try setTerminalPreview(connectionID, fingerprint, lease, allowed)
+                } catch let error as LocalAPIError {
+                    throw error
+                } catch {
+                    throw LocalAPIError.transportFailure
+                }
+                let receipt = CompanionAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID,
+                    capturedAt: Date(), terminalPreviewAllowed: updatedLease.terminalPreviewAllowed
+                )
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(receipt), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: updatedLease,
+                    responseProgress: responseProgress
+                )
+                markSeen(connectionID)
+                return
+            }
             if isUnpair {
                 pendingRevocationReplies.insert(id)
                 defer { pendingRevocationReplies.remove(id) }
@@ -902,11 +1205,10 @@ private final class CompanionNetworkServer {
                 try await Self.sendFrame(try CompanionProtocol.encoder().encode(response.companionResponse), connection: connection)
                 return
             }
-            let response = await capture(request, lease)
             let metadata = pairedConnections().first { $0.id == connectionID }?.companion
-            let companionResponse = response.companionResponse(
-                routes: operation == .connectionStatus && metadata?.pairingVersion == 2 ? routes() : nil)
-            let encoded = try CompanionProtocol.encoder().encode(companionResponse)
+            let response = await capture(
+                request, lease, operation == .connectionStatus && metadata?.pairingVersion == 2 ? routes() : nil)
+            let encoded = try CompanionProtocol.encoder().encode(response)
             guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }
             try await sendAuthorizedFrame(
                 encoded,
@@ -924,6 +1226,62 @@ private final class CompanionNetworkServer {
                 connection: connection
             )
         }
+    }
+
+    /// ADR-0040 `watch_terminal`: validate, reply with the accepted envelope,
+    /// then keep this TLS connection as a watch-only stream until it ends.
+    private func serveTerminalWatch(
+        _ connection: NWConnection, id: UUID, object: [String: Any], request: LocalAPIRequest,
+        lease: LocalAPIAuthorizationLease, connectionID: UUID, fingerprint: Data,
+        requestDeadline: Task<Void, Never>, responseProgress: ResponseProgress
+    ) async throws {
+        typealias Stream = CompanionTerminalStream
+        guard let scope = lease.terminalWatchScope else { throw LocalAPIError.permissionDenied }
+        let grid = try CompanionTerminalWatchRequest.grid(object)
+        guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
+        guard let target = terminalWatchTarget(paneID), target.targetVersion == targetVersion else {
+            throw LocalAPIError.staleTarget
+        }
+        guard scope.allows(paneID: paneID, workspaceID: target.workspaceID, targetVersion: targetVersion)
+        else { throw LocalAPIError.permissionDenied }
+        guard let sessionName = target.localSessionName else { throw LocalAPIError.remoteContext }
+        let buffer = CompanionTerminalWatchRelay.Buffer()
+        try await terminalWatchRegistry.reserve(
+            id: id, connectionID: connectionID, paneID: paneID, stop: { buffer.stop($0) })
+        connections[id]?.terminalWatch = buffer
+        var streamStarted = false
+        defer {
+            if streamStarted { connection.cancel() }
+            connections[id]?.terminalWatch = nil
+            terminalWatchRegistry.release(id)
+        }
+        // A replacement may have waited for another listener's cleanup. Recheck
+        // the target and lease before acknowledging this new attachment.
+        guard terminalWatchTarget(paneID) == target else { throw LocalAPIError.staleTarget }
+        let accepted = CompanionAPIResponse(
+            requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date(),
+            terminalStreamAccepted: .init(role: .watch))
+        try await sendAuthorizedFrame(
+            try CompanionProtocol.encoder().encode(accepted), connection: connection,
+            connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+        requestDeadline.cancel()
+        streamStarted = true
+        markSeen(connectionID)
+        _ = await CompanionTerminalWatchRelay.run(
+            socketPath: AmxBackend.sessionSocketDirectory() + "/" + sessionName,
+            paneID: paneID, targetVersion: targetVersion, grid: grid, buffer: buffer,
+            phoneFrames: { try await Self.readFrame(connection, maximum: Stream.maximumFrameBytes) },
+            send: { [self] data in
+                try await self.sendAuthorizedFrame(
+                    data, connection: connection, connectionID: connectionID, fingerprint: fingerprint,
+                    lease: lease, responseProgress: responseProgress,
+                    revalidate: {
+                        if let reason = buffer.endReason { throw reason }
+                        guard self.terminalWatchTarget(paneID) == target else { throw Stream.EndReason.paneUnavailable }
+                    })
+            },
+            sendEnd: { data in try await Self.sendFrame(data, connection: connection) },
+            delay: delay)
     }
 
     private func servePairing(
@@ -1010,33 +1368,51 @@ private final class CompanionNetworkServer {
         connectionID: UUID,
         fingerprint: Data,
         lease: LocalAPIAuthorizationLease,
-        responseProgress: ResponseProgress
+        responseProgress: ResponseProgress,
+        validate: @escaping @MainActor () throws -> Void = {},
+        revalidate: (@MainActor () throws -> Void)? = nil
     ) async throws {
         let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
-        var offset = 0
-        while offset < frame.count {
-            let end = min(offset + 16 * 1024, frame.count)
-            let chunk = frame[offset..<end]
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                do {
-                    _ = try authority.commitCompanion(
-                        connectionID: connectionID,
-                        certificateFingerprint: fingerprint,
-                        lease: lease
-                    ) {
-                        responseProgress.markStarted()
-                        connection.send(
-                            content: Data(chunk),
-                            completion: .contentProcessed { error in
-                                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-                            })
-                        return chunk.count
+        do {
+            try await CompanionTerminalWatchRelay.writeChunks(
+                frame,
+                validate: {
+                    try validate()
+                    try revalidate?()
+                },
+                submit: { chunk, beforeSubmit in
+                    let operation = CompanionNetworkOperation<Void>()
+                    try await operation.wait(cancel: { connection.cancel() }) {
+                        do {
+                            _ = try authority.commitCompanion(
+                                connectionID: connectionID, certificateFingerprint: fingerprint, lease: lease
+                            ) {
+                                // commitCompanion invokes its body synchronously on this actor.
+                                try MainActor.assumeIsolated { try beforeSubmit() }
+                                responseProgress.markStarted()
+                                connection.send(
+                                    content: chunk,
+                                    completion: .contentProcessed { error in
+                                        if let error { operation.resolve(.failure(error)) } else { operation.resolve(.success(())) }
+                                    })
+                                return chunk.count
+                            }
+                        } catch {
+                            operation.resolve(.failure(error))
+                        }
                     }
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+                }, close: { connection.cancel() })
+        } catch let failure as CompanionTerminalWatchRelay.ChunkWriteFailure {
+            guard revalidate != nil else { throw failure.underlying }
+            let reason: CompanionTerminalStream.EndReason
+            if let end = failure.underlying as? CompanionTerminalStream.EndReason {
+                reason = end
+            } else if let error = failure.underlying as? LocalAPIError, error == .permissionDenied {
+                reason = .revoked
+            } else {
+                reason = .closed
             }
-            offset = end
+            throw CompanionTerminalWatchRelay.WriteFailure(reason: reason, atFrameBoundary: failure.atFrameBoundary)
         }
     }
 
@@ -1055,16 +1431,19 @@ private final class CompanionNetworkServer {
     }
 
     private static func receive(_ connection: NWConnection, minimum: Int, maximum: Int) async throws -> Data {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+        let operation = CompanionNetworkOperation<Data>()
+        // A watch reader can be cancelled while the write half remains usable.
+        // The connection owner closes TLS after the relay's final end attempt.
+        return try await operation.wait {
             connection.receive(minimumIncompleteLength: minimum, maximumLength: maximum) { data, _, complete, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    operation.resolve(.failure(error))
                 } else if complete, data == nil {
-                    continuation.resume(throwing: CompanionPairingError.connectionClosed)
+                    operation.resolve(.failure(CompanionPairingError.connectionClosed))
                 } else if let data {
-                    continuation.resume(returning: data)
+                    operation.resolve(.success(data))
                 } else {
-                    continuation.resume(throwing: CompanionPairingError.connectionClosed)
+                    operation.resolve(.failure(CompanionPairingError.connectionClosed))
                 }
             }
         }
@@ -1072,11 +1451,12 @@ private final class CompanionNetworkServer {
 
     private static func sendFrame(_ payload: Data, connection: NWConnection) async throws {
         let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let operation = CompanionNetworkOperation<Void>()
+        try await operation.wait(cancel: { connection.cancel() }) {
             connection.send(
                 content: frame,
                 completion: .contentProcessed { error in
-                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                    if let error { operation.resolve(.failure(error)) } else { operation.resolve(.success(())) }
                 })
         }
     }
@@ -1100,17 +1480,6 @@ private final class CompanionNetworkServer {
                 }), let certificate = box.certificate
         else { throw CompanionPairingError.invalidRequest }
         return try CompanionCertificate.subjectPublicKeyInfo(for: certificate)
-    }
-
-    private static func argumentsAreValid(_ request: LocalAPIRequest, operation: LocalAPIOperation) -> Bool {
-        if operation == .attentionEvents {
-            return request.paneID == nil && request.targetVersion == nil && request.source == nil
-                && (request.limit ?? 0) > 0
-                && (request.limit ?? 0) <= LocalAPIContract.maximumAttentionPageSize
-                && (request.cursor.map { !$0.isEmpty && $0.utf8.count <= 2048 } ?? true)
-        }
-        return request.paneID == nil && request.targetVersion == nil && request.source == nil
-            && request.limit == nil && request.cursor == nil && request.includeCommandEvents == nil
     }
 
     private static func remoteAddress(_ endpoint: NWEndpoint) -> String {
@@ -1171,6 +1540,7 @@ private struct ActiveCompanionConnection {
     var connectionID: UUID?
     var isReady: Bool
     var worker: Task<Void, Never>?
+    var terminalWatch: CompanionTerminalWatchRelay.Buffer?
 }
 
 private final class CompanionPeerVerifier: @unchecked Sendable {

@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -243,7 +244,7 @@ struct SurfaceRemountOnSplitCollapseTests {
     /// The orphan rescue defers its check one main-queue turn past the detach;
     /// enqueueing behind it and awaiting guarantees the check has run.
     private func drainMainQueue() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async {
                 continuation.resume()
             }

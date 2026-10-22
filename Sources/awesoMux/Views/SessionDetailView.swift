@@ -89,12 +89,27 @@ struct SessionDetailView: View {
                             .id(terminalSessionID)
                         }
 
+                        LocalPermissionPromptView(
+                            coordinator: ghosttyRuntime.localPermissionCoordinator,
+                            paneID: session.activePaneID,
+                            onFocusReturned: { [sessionID = session.id, paneID = session.activePaneID] in
+                                guard sessionStore.selectedSessionID == sessionID,
+                                    sessionStore.session(id: sessionID)?.activePaneID == paneID
+                                else { return }
+                                ghosttyRuntime.focusSurface(toPane: paneID)
+                            }
+                        )
+                        .id(session.activePaneID)
+
                         TerminalPaneView(
                             session: session,
                             sessionStore: sessionStore,
                             ghosttyRuntime: ghosttyRuntime,
                             onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer
                         )
+                        .overlay(alignment: .top) {
+                            whileAwaySummary
+                        }
                         .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
                             SidebarEdgeTab(
                                 style: edgeTabStyle,
@@ -215,9 +230,20 @@ struct SessionDetailView: View {
                     terminalBackground: Color.aw.surface.terminal
                 )
             }
+            .overlay(alignment: .top) {
+                whileAwaySummary
+            }
             .onAppear {
                 onFooterHeightChange(0)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var whileAwaySummary: some View {
+        if let summary = sessionStore.whileAwaySummary {
+            WhileAwaySummaryView(store: sessionStore, summary: summary)
+                .liveTitleChannels(from: sessionStore)
         }
     }
 

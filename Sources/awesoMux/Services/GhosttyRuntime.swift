@@ -238,6 +238,7 @@ final class GhosttyRuntime {
     /// live bridge generation's coordinator through here.
     @ObservationIgnored
     let bridgeCoordinatorStore = BridgeCoordinatorStore()
+    let localPermissionCoordinator = LocalPermissionCoordinator()
 
     private struct BridgeAttachPreflightEntry {
         let preflight: BridgeAttachPreflight
@@ -527,6 +528,10 @@ final class GhosttyRuntime {
         }
     }
 
+    func companionLastOutputLine(paneID: UUID) -> String? {
+        surfaceViews[paneID]?.companionLastOutputLine()
+    }
+
     func localAPIHistory(paneID: UUID, limit: Int) async throws -> String {
         guard let view = surfaceViews[paneID], let surface = view.surface else { throw LocalAPIError.contextUnavailable }
         let address = UInt(bitPattern: surface)
@@ -545,9 +550,22 @@ final class GhosttyRuntime {
         guard surfaceViews[paneID] === view, view.surface == surface else { throw LocalAPIError.staleTarget }
         switch result {
         case .loaded(let text): return text
-        case .tooLarge: throw LocalAPIError.contextTooLarge
+        case .tooLarge, .recent: throw LocalAPIError.contextTooLarge
         case .busy, .failed: throw LocalAPIError.contextUnavailable
         }
+    }
+
+    func companionAlertIsSuppressed(paneID: UUID) -> Bool {
+        guard NSApp.isActive, !NSApp.isHidden,
+            let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+            session[kCGSessionOnConsoleKey as String] as? Bool == true,
+            session["CGSSessionScreenIsLocked"] as? Bool != true,
+            let view = surfaceViews[paneID], view.hasNativeSurface,
+            !view.isHiddenOrHasHiddenAncestor, !view.visibleRect.isEmpty,
+            let window = view.window, window.isVisible, !window.isMiniaturized,
+            view.windowIsVisible, view.terminalIsFocused
+        else { return false }
+        return true
     }
 
     func localAPIProcessSources() -> [UUID: LocalAPIProcessSource] {
@@ -815,6 +833,7 @@ final class GhosttyRuntime {
             ?? surfaceView.pane.terminalSessionID
         let preservesRecoveryRecord = surfaceView.ignoresProcessExitAfterCommandBridgeHeal
 
+        localPermissionCoordinator.retire(paneID: paneID)
         agentRuntimeEventBridge.stopWatching(paneID: paneID)
         surfaceView.disposeNativeSurface()
         surfaceView.removeFromSuperview()
@@ -878,6 +897,7 @@ final class GhosttyRuntime {
         #if DEBUG
             logSurfaceCacheEvent("discard-all-start")
         #endif
+        localPermissionCoordinator.retireAll()
         agentRuntimeEventBridge.stopWatchingAll()
         for task in shellActivityLifecycleRefreshTasks.values {
             task.cancel()
@@ -1491,14 +1511,30 @@ final class GhosttyRuntime {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         enabledFileDropSources: Set<AgentRuntimeSource>,
+        localPermissionsEnabled: Bool = false,
+        localPermissionDescriptorEnabled: Bool = false,
+        localPermissionContext: @escaping (LocalPermissionTarget) -> LocalPermissionPresentation.Context? = { _ in nil },
         applyEvent: @escaping (AgentRuntimeEvent) -> Void
     ) -> AgentRuntimeEnvironment {
-        agentRuntimeEventBridge.environment(
+        var environment = agentRuntimeEventBridge.environment(
             sessionID: sessionID,
             paneID: paneID,
             enabledFileDropSources: enabledFileDropSources,
-            applyEvent: applyEvent
+            applyEvent: { [weak self] event in
+                self?.localPermissionCoordinator.observe(event, paneID: paneID)
+                applyEvent(event)
+            }
         )
+        environment.localPermissionDescriptorEnabled = localPermissionDescriptorEnabled
+        if localPermissionsEnabled && localPermissionDescriptorEnabled {
+            _ = localPermissionCoordinator.install(
+                workspaceID: sessionID, paneID: paneID, eventFile: environment.eventFileURL,
+                presentationContext: localPermissionContext
+            )
+        } else {
+            localPermissionCoordinator.retire(paneID: paneID)
+        }
+        return environment
     }
 
     let scrollbackReadCoordinator = ScrollbackReadCoordinator()

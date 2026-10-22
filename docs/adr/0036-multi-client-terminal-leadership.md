@@ -46,8 +46,11 @@ assumption that the current zmx Init/leader behavior already satisfies it.
   Automation such as `amx send` never claims leadership or changes dimensions.
 - An interactive client's explicit **Take over** claims leadership without
   injecting a dummy keystroke. Otherwise attach, focus, polling, terminal
-  replies and output do not claim leadership. The initial creator supplies the
-  initial grid; attaching to an existing session preserves its current grid.
+  replies and output do not claim leadership. The client that creates a new
+  session is its first leader and supplies the initial grid. It retains that
+  authority until another client claims, it disconnects, or it returns to Watch.
+  Attaching to an existing session never claims leadership and preserves its
+  current grid.
 - Only the leader's resize changes the PTY. Followers retain their requested
   dimensions for their next claim. A watch client cannot send input, claim,
   resize or send terminal-generated replies to the PTY. Enforce this in the
