@@ -536,6 +536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "stage=applicationDidFinishLaunching applicationClass=\(NSStringFromClass(type(of: NSApp!))) customApplication=\(NSApp is AwesoMuxApplication)"
         )
         #if DEBUG
+            MenuTreeDiagnostics.startIfRequested()
         if !(NSApp is AwesoMuxApplication) {
             assertionFailure("Expected NSApp to be AwesoMuxApplication for app-level shortcuts.")
         }
