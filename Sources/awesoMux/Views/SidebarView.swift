@@ -25,6 +25,8 @@ enum SidebarDragPointerPolicy {
 }
 
 struct SidebarView: View {
+    private static let localHostnames = LocalHostnames.resolve()
+
     @Bindable var sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
     let workspacesWithBackgroundedFloatingWork: Set<TerminalSession.ID>
@@ -158,7 +160,8 @@ struct SidebarView: View {
         let duplicateDisambiguationBySessionID =
             SidebarDuplicateDisambiguator.disambiguationBySessionID(
                 for: disambiguationInput,
-                titles: displayedTitles
+                titles: displayedTitles,
+                localHostnames: Self.localHostnames
             )
         let density = SidebarDensity(compact: appSettingsStore.general.value.sidebarCompactMode)
         let visibleGroupIDs = snapshot.entries.map { $0.group.id }
