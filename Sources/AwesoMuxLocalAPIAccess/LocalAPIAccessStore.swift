@@ -34,6 +34,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         pairingVersion == 2 || self.transport == transport
     }
     public var terminalPreviewAllowed: Bool
+    /// Panes this phone may watch live (ADR-0040); nil means no Watch grant.
+    public var terminalWatchScope: LocalAPITargetScope?
 
     public init(
         certificateFingerprint: Data,
@@ -44,7 +46,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         pairingVersion: Int? = nil,
         terminalPreviewAllowed: Bool = false,
         alertPreferences: CompanionAlertPreferences? = nil,
-        decideWorkspaceIDs: [UUID]? = nil
+        decideWorkspaceIDs: [UUID]? = nil,
+        terminalWatchScope: LocalAPITargetScope? = nil
     ) {
         self.certificateFingerprint = certificateFingerprint
         self.transport = transport
@@ -55,11 +58,13 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         self.pairingVersion = pairingVersion
         self.terminalPreviewAllowed = terminalPreviewAllowed
         self.alertPreferences = alertPreferences
+        self.terminalWatchScope = terminalWatchScope
     }
 
     private enum CodingKeys: String, CodingKey {
         case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences,
             decideWorkspaceIDs
+        case terminalWatchScope
     }
 
     public init(from decoder: Decoder) throws {
@@ -73,6 +78,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
         terminalPreviewAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalPreviewAllowed) ?? false
         alertPreferences = try values.decodeIfPresent(CompanionAlertPreferences.self, forKey: .alertPreferences)
+        terminalWatchScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .terminalWatchScope)
     }
 
 }
@@ -241,7 +247,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 paneRenameScope: metadata.paneRenameScope,
                 terminalPreviewAllowed: metadata.terminalPreviewAllowed,
                 companionAlertPreferences: metadata.alertPreferences ?? CompanionAlertPreferences(),
-                decideWorkspaceIDs: metadata.decideWorkspaceIDs
+                decideWorkspaceIDs: metadata.decideWorkspaceIDs,
+                terminalWatchScope: metadata.terminalWatchScope
             )
             guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
             return .success(lease)
@@ -265,6 +272,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 metadata.decideWorkspaceIDs == lease.decideWorkspaceIDs,
                 metadata.paneRenameScope == lease.paneRenameScope,
                 metadata.terminalPreviewAllowed == lease.terminalPreviewAllowed,
+                metadata.terminalWatchScope == lease.terminalWatchScope,
                 (metadata.alertPreferences ?? CompanionAlertPreferences()) == lease.companionAlertPreferences,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
@@ -510,7 +518,8 @@ public final class LocalAPIAccessStore {
         port: UInt16,
         pairingVersion: Int? = nil,
         pairedAt: Date = Date(),
-        terminalPreviewAllowed: Bool = false
+        terminalPreviewAllowed: Bool = false,
+        terminalWatchScope: LocalAPITargetScope? = nil
     ) throws -> LocalAPIConnectionGrant {
         try requireWritableAuthority()
         let phoneName = UnicodeHygiene.sanitize(rawPhoneName, maxLength: 80, stripInvisibleRoutingScalars: true)
@@ -534,7 +543,8 @@ public final class LocalAPIAccessStore {
                 pairedAt: pairedAt,
                 port: port,
                 pairingVersion: pairingVersion,
-                terminalPreviewAllowed: terminalPreviewAllowed
+                terminalPreviewAllowed: terminalPreviewAllowed,
+                terminalWatchScope: terminalWatchScope
             )
         )
         var candidate = state
@@ -609,6 +619,18 @@ public final class LocalAPIAccessStore {
         guard metadata.terminalPreviewAllowed != allowed || persistenceFailureMessage != nil else { return }
         try updateConnection(connectionID: connectionID, kind: .companion) {
             $0.companion?.terminalPreviewAllowed = allowed
+        }
+    }
+
+    public func updateCompanionTerminalWatchScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
+        guard scope?.isValid != false else { throw LocalAPIAccessFailure.invalidScope }
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.terminalWatchScope != scope || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.terminalWatchScope = scope
         }
     }
 
@@ -811,7 +833,8 @@ public final class LocalAPIAccessStore {
                         && connection.companion?.certificateFingerprint.count == SHA256.byteCount
                         && connection.companion?.port != 0
                         && connection.companion?.decideWorkspaceIDs.map({ !$0.isEmpty && Set($0).count == $0.count }) != false
-                        && connection.companion?.paneRenameScope?.isValid != false))
+                        && connection.companion?.paneRenameScope?.isValid != false
+                        && connection.companion?.terminalWatchScope?.isValid != false))
                     && connection.statusScope.isValid
                     && UnicodeHygiene.sanitize(
                         connection.label,
@@ -855,9 +878,11 @@ public final class LocalAPIAccessStore {
             else { return false }
             keys.remove("decideWorkspaceIDs")
         }
-        if let scope = metadata["paneRenameScope"] {
-            guard scopeShapeIsValid(scope) else { return false }
-            keys.remove("paneRenameScope")
+        for key in ["paneRenameScope", "terminalWatchScope"] {
+            if let scope = metadata[key] {
+                guard scopeShapeIsValid(scope) else { return false }
+                keys.remove(key)
+            }
         }
         if let allowed = metadata["terminalPreviewAllowed"] {
             guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }

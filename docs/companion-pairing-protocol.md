@@ -244,13 +244,18 @@ Only these operations are accepted:
 - `set_terminal_preview`, with required `terminalPreviewAllowed` JSON Boolean
   and no other operation arguments. It changes only the authenticated phone's
   permission; it cannot target another connection.
+- `get_capabilities`, without operation arguments; advertises terminal stream
+  support and limits independently of the Watch grant.
+- `watch_terminal`, with required `paneID`, `targetVersion`, and `streamVersion`
+  plus an optional `grid`; requires a separate Mac-approved watch scope. See
+  [`watch_terminal`](#watch_terminal).
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
   `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
   false. Only this operation accepts the field, including when its value is
   false or `null`.
 
-`get_agent_context`, `get_capabilities`, all input operations, context fields,
+`get_agent_context`, all input operations, context fields,
 and bearer credentials are denied. The connection ID must be the value returned
 by `paired`, and the presented certificate fingerprint must still match that
 non-revoked connection. Unpairing revokes it immediately. Companion access is
@@ -394,7 +399,7 @@ for an empty browser. Document tabs are not separate layout panes.
     "panes": [{
       "paneID": "<uuid>", "kind": "terminal", "title": "Shell",
       "availability": "attached", "state": "idle",
-      "lastOutputLine": "Build complete"
+      "lastOutputLine": "Build complete", "targetVersion": "<uuid>"
     }, {
       "paneID": "<uuid>", "kind": "documentGroup", "title": "Notes",
       "availability": "attached"
@@ -407,6 +412,7 @@ for an empty browser. Document tabs are not separate layout panes.
 `unavailable`, or `stale`. Terminal `state` reuses the native agent/shell
 projection. Document groups have no terminal `state` or `lastOutputLine`.
 Consumers should tolerate future kind, availability, and state values.
+Terminal panes carry the `targetVersion` that `watch_terminal` must echo.
 
 `lastOutputLine` is the last nonblank line of the terminal's current active
 screen, independent of the Mac user's scrollback position. It may be a shell
@@ -458,7 +464,8 @@ instance:
 The possible Companion error strings are `invalid_request`,
 `unsupported_version`, `unsupported_operation`, `profile_mismatch`,
 `permission_denied`, `request_too_large`, `response_too_large`, `timeout`,
-`cancelled`, `stale_target`, `invalid_title`, `nonterminal_target`, `invalid_cursor`, and `transport_failure`. A TLS
+`cancelled`, `stale_target`, `invalid_title`, `nonterminal_target`, `invalid_cursor`,
+`remote_context`, `endpoint_busy`, and `transport_failure`. A TLS
 authentication failure closes during the handshake and has no JSON reply. A
 failure after part of a response has been written closes the connection; the
 phone must discard that incomplete frame.
@@ -532,6 +539,70 @@ A v2-capable phone keeps a persisted v1 pairing single-route until the person
 explicitly re-pairs with a supported v2 link. It must not apply `routes` to a
 v1 pairing, guess a second address, or infer a grant upgrade. Older phones
 reject v2 links and continue using their existing v1 pairing.
+
+### `watch_terminal`
+
+Implements the live terminal stream from [ADR-0040](adr/0040-live-terminal-stream.md)
+for #786, watch role only. The Mac attaches to the pane's zmx session as a
+watch-only client ([ADR-0036](adr/0036-multi-client-terminal-leadership.md)) and
+translates that stream into typed frames; raw zmx messages and the socket path
+never reach the phone, and no phone input reaches the pane.
+
+Watch access is a per-phone scope persisted as `terminalWatchScope` in companion
+metadata; absent or `null` means off, and new pairings default off. The
+**Allow watching terminals in selected workspaces** controls in Mac Companion
+settings grant only the selected workspace IDs, including future panes in those
+workspaces. New workspaces need their own approval. A phone with the scope sees
+a `terminalStream` object on
+`get_connection_status` holding the limits below; no object means `watch_terminal`
+returns `permission_denied`. The paired `get_capabilities` operation always
+advertises stream support and limits; discovery does not grant Watch access.
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"watch_terminal","connectionID":"<uuid>",
+ "paneID":"<uuid>","targetVersion":"<uuid>","streamVersion":1,"grid":{"rows":40,"cols":100}}
+```
+
+`streamVersion` must be `1` (`unsupported_version`). `grid` is optional, with
+exactly `rows` and `cols` integers in 1...1000; it is the preferred size only.
+A missing pane, a pane outside the phone's status or watch scope, or a stale
+`targetVersion` returns `stale_target` or `permission_denied`; a remote (SSH)
+pane returns `remote_context`. Each phone may hold one stream per pane and two
+streams total; the Mac serves at most four. A new request for the same pane
+supersedes the earlier stream; other limits return `endpoint_busy`.
+
+The reply is the usual response envelope plus
+`"terminalStreamAccepted":{"role":"watch","streamVersion":1}`. The 5 s request
+timeout ends with that reply. The same TLS connection then carries stream
+frames in both directions using the existing 4-byte length prefix. Each frame
+starts with a type byte and a 4-byte big-endian generation. Control frames
+(`snapshot_begin` 1, `snapshot_end` 3, `grid` 5, `leader` 6, `heartbeat` 7,
+`end` 8) carry a JSON body; data frames (`snapshot` 2, `output` 4) carry an
+8-byte big-endian sequence and at most 64 KiB of raw bytes. Every zmx attach is
+a new generation: `snapshot_begin` (`paneID`, `targetVersion`, `grid`, `leader`,
+`historyIncomplete: true`, `scrollbackBound`), snapshot chunks, then
+`snapshot_end` with the byte total, then `output` with sequences continuing
+from the snapshot. The snapshot is never truncated and is bounded at 8 MiB.
+
+After the initial snapshot completes, the Mac sends `heartbeat` after 15 s
+without progress and ends the stream after 45 s without a completed write.
+Daemon connection readiness and attach submission share a 1 s deadline;
+initial snapshot inactivity ends the stream after 45 s with `pane_unavailable`.
+Snapshot chunks wait for room in the bounded queue; live output never stalls
+the pane. Unsent bytes are bounded at 4 MiB; live-output overflow
+detaches and re-attaches with a new generation, and overflow before
+`snapshot_end` or more than three times per minute ends the stream with
+`overflow`. The phone may send `ack` (19), or current-generation `end` (8) with reason
+`closed` to dismiss the stream. Any other phone frame, including
+`input`, `reply`, `claim`, and `grid`, ends the stream with `protocol_error`.
+At a complete frame boundary the Mac attempts a bounded final `end` with a
+`reason` of `closed`, `superseded`,
+`revoked`, `pane_unavailable`, `session_ended`, `role_changed`,
+`protocol_error`, or `overflow`. A failed or partially written frame closes
+TLS directly. Lease, scope, pane, and target version are
+rechecked before every write; any permission change, including the phone's own
+preview toggle, rotates the lease and ends active streams with `revoked`.
+Reconnecting is a new request and a new snapshot; there is no replay.
 
 ### `unpair`
 

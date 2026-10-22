@@ -21,7 +21,31 @@ public struct LocalAPIRoutingKey: Equatable, Sendable {
     let providerSessionID: String?
 }
 
+/// What a Companion watch stream needs to attach and to notice the pane changing.
+public struct LocalAPITerminalWatchTarget: Equatable, Sendable {
+    public let workspaceID: UUID
+    public let targetVersion: UUID
+    /// The zmx session name under the amx socket directory; nil for remote zmx panes.
+    public let localSessionName: String?
+}
+
 public extension SessionStore {
+    /// Nil when the pane is missing or is not a terminal pane.
+    func localAPITerminalWatchTarget(paneID: UUID) -> LocalAPITerminalWatchTarget? {
+        if !localAPITracking {
+            localAPITracking = true
+            reconcileLocalAPIAssignments()
+        }
+        guard let target = localAPITargets[paneID],
+            let workspace = groups.flatMap(\.sessions).first(where: { $0.id == target.workspaceID }),
+            workspace.layout.leaves.contains(where: { if case .terminal(let pane) = $0 { pane.id == paneID } else { false } })
+        else { return nil }
+        var sessionName: String?
+        if case .local = target.executionPlan { sessionName = target.terminalSessionID }
+        return LocalAPITerminalWatchTarget(
+            workspaceID: target.workspaceID, targetVersion: target.version, localSessionName: sessionName)
+    }
+
     func bindLocalAPIInstance(_ instanceID: UUID) {
         guard localAPIInstanceID != instanceID else { return }
         localAPIInstanceID = instanceID
