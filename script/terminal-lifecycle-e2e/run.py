@@ -728,7 +728,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 if any(excluded in json.dumps(refreshed_listing) for excluded in ids[2:]):
                     raise RuntimeError("Refresh included an unrelated or child transcript")
                 report["refreshVerifiedID"] = refresh_id
-                native("key",window_id,"53")
+                native("press",window_id,"Cancel")
                 poll("cancel dismissed browser",lambda: not any((b["title"]=="Refresh" or b["description"]=="Refresh") for b in snapshot()["buttons"]))
                 menu("Pane", "Browse Project Transcripts")
                 poll("rows after reopen",listed)
