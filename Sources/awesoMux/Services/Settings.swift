@@ -25,7 +25,6 @@ enum SettingsKey {
     /// trustworthy (INT-164: a poisoned/stale string must reject, not
     /// silently propagate to whichever future updater consumer reads it).
     static let updateChannel = "settings.updateChannel"
-    static let lastUpdateCheckEpoch = "settings.lastUpdateCheckEpoch"
     static let appKitStateRestorationEnabled = "settings.appKitStateRestorationEnabled"
     /// Machine-owned "have they been shown the welcome tour" bit. UserDefaults
     /// rather than TOML deliberately: TOML is the hand-editable user surface
@@ -48,7 +47,6 @@ enum SettingsDefault {
     static let defaultWorkspaceGroup = "awesoMux"
     static let outputMarksNeedsAttention = true
     static let updateChannel = UpdateChannel.stable.rawValue
-    static let lastUpdateCheckEpoch: Double = 0
     static let appKitStateRestorationEnabled = false
 
     /// Validated read of `SettingsKey.updateChannel`. `UpdateChannel` is a
@@ -74,7 +72,6 @@ enum SettingsDefault {
             SettingsKey.defaultWorkspaceGroup: defaultWorkspaceGroup,
             SettingsKey.outputMarksNeedsAttention: outputMarksNeedsAttention,
             SettingsKey.updateChannel: updateChannel,
-            SettingsKey.lastUpdateCheckEpoch: lastUpdateCheckEpoch,
             SettingsKey.appKitStateRestorationEnabled: appKitStateRestorationEnabled
         ])
     }
