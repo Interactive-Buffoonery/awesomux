@@ -537,7 +537,9 @@ def main():
             log("prerequisites", "ready")
             code = 0
         else:
-            run_dir = output / "run"
+            run_dir = (fixtures if fixture_root is not None else output) / "run"
+            bundle = run_dir / "awesoMux.app"
+            binary = bundle / "Contents/MacOS/awesoMux"
             run_dir.mkdir(mode=0o700)
             profile_text = run(["/bin/bash", "-c", 'source "$1"; awesomux_resolve_profile "development:$(awesomux_worktree_id "$2")"; awesomux_print_profile',
                                 "lifecycle", ROOT / "script/runtime-profile.sh", run_dir])
