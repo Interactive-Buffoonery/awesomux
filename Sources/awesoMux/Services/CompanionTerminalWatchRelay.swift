@@ -802,7 +802,7 @@ enum CompanionTerminalWatchRelay {
     @MainActor
     private static func send(
         _ data: Data, connection: NWConnection,
-        authorize: (@MainActor @Sendable () -> Void) throws -> Void = { $0() }
+        authorize: @MainActor (@MainActor @Sendable () -> Void) throws -> Void = { $0() }
     ) async throws {
         let operation = CompanionNetworkOperation<Void>()
         try await operation.wait(cancel: { connection.cancel() }) {
