@@ -251,10 +251,28 @@ struct CompanionSettingsPane: View {
                 String.localizedStringWithFormat(String(localized: "Allow watching terminals for %@"), phone.label))
             Text(
                 String(
-                    localized: "Streams live terminal output, which can include secrets, to this phone. It cannot type.")
+                    localized: "Streams live terminal output, which can include secrets, to this phone.")
             )
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text)
+            Toggle(
+                String(localized: "Input"),
+                isOn: Binding(
+                    get: { phone.companion?.terminalInputAllowed == true },
+                    set: { allowed in
+                        do {
+                            try coordinator.setTerminalInputAllowed(allowed, for: phone)
+                            errorMessage = nil
+                        } catch {
+                            errorMessage = String(localized: "awesoMux couldn't save the input permission.")
+                        }
+                    })
+            )
+            .disabled(phone.companion?.terminalWatchScope == nil && phone.companion?.terminalInputAllowed != true)
+            .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Input from %@"), phone.label))
+            Text(String(localized: "Allows typing into every terminal this device may watch. Turn on terminal watching first."))
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)

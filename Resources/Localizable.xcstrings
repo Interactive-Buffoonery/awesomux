@@ -225,6 +225,16 @@
     "%arg integration" : {
 
     },
+    "%arg is driving · %arg×%arg · type a letter, arrow or Return to take it back" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg is driving · %2$arg×%3$arg · type a letter, arrow or Return to take it back"
+          }
+        }
+      }
+    },
     "%arg is empty" : {
 
     },
@@ -874,6 +884,9 @@
     },
     "Allowed clipboard read for %arg" : {
       "comment" : "VoiceOver announcement after the user allows a terminal program to read the clipboard. Argument is the bidi-isolated pane title."
+    },
+    "Allows typing into every terminal this device may watch. Turn on terminal watching first." : {
+
     },
     "Alpha" : {
       "comment" : "Companion prerelease badge."
@@ -2136,6 +2149,12 @@
     "Disabling stops awesoMux from probing this provider" : {
       "comment" : "Accessibility hint for an enabled agent integration toggle."
     },
+    "Disconnect" : {
+
+    },
+    "Disconnect %arg from this terminal" : {
+
+    },
     "Disconnected from %arg in %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled",
       "localizations" : {
@@ -2751,6 +2770,12 @@
     },
     "Inline Review Comments" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Input" : {
+
+    },
+    "Input from %@" : {
+
     },
     "Input requested" : {
       "comment" : "Event requesting user input in the companion away activity summary."
@@ -3385,6 +3410,16 @@
     },
     "No notification banners or sounds, and the Dock icon won’t bounce." : {
 
+    },
+    "No one is driving · %arg×%arg · type a letter, arrow or Return to take back" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "No one is driving · %1$arg×%2$arg · type a letter, arrow or Return to take back"
+          }
+        }
+      }
     },
     "No presets were found under .awesomux/layouts for this project. Use “Save Layout as Preset…” to create one." : {
       "comment" : "Alert text when the project has no layout presets."
@@ -5196,7 +5231,7 @@
     "Stored in config.toml and applied to menus and the command palette." : {
       "comment" : "Keys settings hint."
     },
-    "Streams live terminal output, which can include secrets, to this phone. It cannot type." : {
+    "Streams live terminal output, which can include secrets, to this phone." : {
 
     },
     "Style picker lands once the runtime exposes a setter." : {
@@ -5689,6 +5724,9 @@
       "comment" : "Message of the confirmation dialog before deleting a custom command"
     },
     "This connection is denied for this run, but revocation could not be saved. Retry before restarting awesoMux." : {
+
+    },
+    "This connection is denied for this run, but the input permission could not be saved. Retry before restarting awesoMux." : {
 
     },
     "This connection is denied for this run, but the scope change could not be saved. Retry before restarting awesoMux." : {
@@ -6315,6 +6353,9 @@
     "awesoMux couldn't save the access setting." : {
 
     },
+    "awesoMux couldn't save the input permission." : {
+
+    },
     "awesoMux couldn't save the pane rename permission." : {
 
     },
@@ -6458,6 +6499,9 @@
     },
     "generated document, read-only" : {
       "comment" : "Spoken qualifier on a document tab whose generated provenance is unknown"
+    },
+    "iPhone" : {
+
     },
     "iPhone app" : {
       "comment" : "Companion TestFlight row label."

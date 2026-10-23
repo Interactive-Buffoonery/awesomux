@@ -386,12 +386,12 @@ struct CompanionTerminalWatchLifecycleTests {
     }
 
     @Test(arguments: [UInt32(0), UInt32(1)])
-    func ackRemainsHarmlessBeforeCurrentGenerationClose(ackGeneration: UInt32) async throws {
+    func phoneAckIsRejectedOnlyInCurrentGeneration(ackGeneration: UInt32) async throws {
         let buffer = Relay.Buffer()
         let generation = try #require(buffer.beginGeneration())
         var ack = Data([Stream.FrameType.ack.rawValue])
         ack.append(contentsOf: withUnsafeBytes(of: ackGeneration.bigEndian, Array.init))
-        ack.append(contentsOf: Data("{}".utf8))
+        ack.append(contentsOf: Data("{\"sequence\":1}".utf8))
         let frames = [ack, try Stream.encode(.end(.init(reason: .closed)), generation: generation)]
         let next = OSAllocatedUnfairLock(initialState: 0)
         let reason = await Relay.run(
@@ -407,8 +407,8 @@ struct CompanionTerminalWatchLifecycleTests {
             sendEnd: { _ in },
             delay: { try await ContinuousClock().sleep(for: $0) },
             produce: { _ in _ = try? await CompanionNetworkOperation<Void>().wait {} })
-        #expect(reason == .closed)
-        #expect(next.withLock { $0 } == 2)
+        #expect(reason == (ackGeneration == generation ? .protocolError : .closed))
+        #expect(next.withLock { $0 } == (ackGeneration == generation ? 1 : 2))
     }
 
     // Stale headers must be discarded before unknown types or malformed JSON
@@ -646,7 +646,7 @@ struct CompanionTerminalWatchLifecycleTests {
         #expect(registry.contains(replacement))
     }
 
-    @Test(arguments: [Stream.EndReason.revoked, .superseded])
+    @Test(arguments: [Stream.EndReason.revoked, .superseded, .roleChanged])
     func invalidationCancelsIdleProducerAndReaderBeforeFinalReason(endReason: Stream.EndReason) async throws {
         let buffer = Relay.Buffer()
         let (started, signal) = AsyncStream<Void>.makeStream()
