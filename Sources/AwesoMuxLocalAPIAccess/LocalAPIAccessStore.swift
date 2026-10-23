@@ -63,8 +63,12 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences,
-            decideWorkspaceIDs, decisionsAllowed
+            decisionsAllowed
         case terminalWatchScope
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey {
+        case decideWorkspaceIDs
     }
 
     public init(from decoder: Decoder) throws {
@@ -73,7 +77,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         transport = try values.decode(LocalAPICompanionTransport.self, forKey: .transport)
         pairedAt = try values.decode(Date.self, forKey: .pairedAt)
         port = try values.decode(UInt16.self, forKey: .port)
-        let decideWorkspaceIDs = try values.decodeIfPresent([UUID].self, forKey: .decideWorkspaceIDs)
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        let decideWorkspaceIDs = try legacy.decodeIfPresent([UUID].self, forKey: .decideWorkspaceIDs)
         decisionsAllowed = try values.decodeIfPresent(Bool.self, forKey: .decisionsAllowed) ?? !(decideWorkspaceIDs ?? []).isEmpty
         paneRenameScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .paneRenameScope)
         pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
@@ -81,21 +86,6 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         alertPreferences = try values.decodeIfPresent(CompanionAlertPreferences.self, forKey: .alertPreferences)
         terminalWatchScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .terminalWatchScope)
     }
-
-    public func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(certificateFingerprint, forKey: .certificateFingerprint)
-        try values.encode(transport, forKey: .transport)
-        try values.encode(pairedAt, forKey: .pairedAt)
-        try values.encode(port, forKey: .port)
-        try values.encodeIfPresent(paneRenameScope, forKey: .paneRenameScope)
-        try values.encodeIfPresent(pairingVersion, forKey: .pairingVersion)
-        try values.encode(terminalPreviewAllowed, forKey: .terminalPreviewAllowed)
-        try values.encodeIfPresent(alertPreferences, forKey: .alertPreferences)
-        try values.encode(decisionsAllowed, forKey: .decisionsAllowed)
-        try values.encodeIfPresent(terminalWatchScope, forKey: .terminalWatchScope)
-    }
-
 }
 
 public struct LocalAPIConnectionGrant: Codable, Equatable, Identifiable, Sendable {
