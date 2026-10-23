@@ -246,6 +246,7 @@ def main():
     fixtures = None
     fixture_root = None
     fixture_identity = None
+    fixture_helper = HERE / "fixture.py"
     launched = False
     env = None
     bundle = output / "run/awesoMux.app"
@@ -461,7 +462,7 @@ def main():
         report.setdefault("challenges", []).append({"scenario": scenario, "nonce": nonce,
                                                    "session": session, "siblings": sorted(sessions() - {session})})
         save()
-        type_into(session, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} respond $$ {nonce}")
+        type_into(session, f"{shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} respond $$ {nonce}")
         response = response_for(nonce, session)
         def received():
             audit_challenges()
@@ -512,7 +513,13 @@ def main():
         else:
             fixtures = output / "fixtures"
             fixtures.mkdir(mode=0o700)
-        report["fixtures"] = {"path": str(fixtures), "temporary": fixture_root is not None}
+        if fixture_root is not None:
+            fixture_helper = fixtures / "fixture.py"
+            shutil.copy2(HERE / "fixture.py", fixture_helper)
+            if digest(fixture_helper) != digest(HERE / "fixture.py"):
+                raise Blocked("Copied fixture helper differs from committed source")
+        report["fixtures"] = {"path": str(fixtures), "temporary": fixture_root is not None,
+                              "helper": str(fixture_helper), "helperSHA256": digest(fixture_helper)}
         save()
         fixture_home = fixtures / "home"
         fixture_home.mkdir(mode=0o700)
@@ -590,7 +597,7 @@ def main():
             startup = f'''PS1='TL_PROMPT_{report["runID"]} '
 [[ "$ZMX_SESSION" =~ '^[0-9a-f-]{{36}}$' ]] || exit 91
 mkdir -m 700 -- "$TL_FIXTURES/panes/$ZMX_SESSION" && cd -P -- "$TL_FIXTURES/panes/$ZMX_SESSION" || exit 91
-{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} register $$
+{shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} register $$
 printf '\\033]7;file://%s%s\\007\\033]2;%s\\007' "$HOST" "$PWD" "$PWD"
 '''
             (fixtures / ".zshenv").write_text(f'''if [[ "$CFFIXED_USER_HOME" != {shlex.quote(str(fixture_home))} || "$TL_FIXTURES" != {shlex.quote(str(fixtures))} || "$ZDOTDIR" != {shlex.quote(str(fixtures))} ]]; then
@@ -768,7 +775,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 challenge(second, "TL02-pane2")
                 log("TL02", "pass")
                 report["activeScenario"] = "TL03"
-                type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} job $$")
+                type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} job $$")
                 job = poll("controlled foreground job", lambda: receipt(fixtures / "job.json"))
                 if not same_identity(job, second) or not alive(job["jobPID"]):
                     raise RuntimeError("Controlled job identity mismatch")
