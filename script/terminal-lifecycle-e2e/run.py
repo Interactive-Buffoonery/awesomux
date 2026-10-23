@@ -350,6 +350,20 @@ def main():
         report["screenshots"].append(evidence)
         save()
 
+    def retain_storage_diagnostics():
+        if app_pid is None or not owned_running():
+            return
+        path = output / "runtime-open-files.txt"
+        evidence = diagnostic_command(
+            ["/usr/sbin/lsof", "-a", "-p", app_pid, "-Ffn"], path)
+        evidence["observation"] = report["lastAppProcessObservation"]
+        evidence["externalPaths"] = sorted({
+            line[1:] for line in path.read_text(errors="replace").splitlines()
+            if line.startswith("n/Volumes/")
+        })
+        report["runtimeStorage"] = evidence
+        save()
+
     def retain_startup_diagnostics():
         if app_pid is None or "startupDiagnostics" in report:
             return
@@ -386,6 +400,7 @@ def main():
             save()
 
     def retain_failure():
+        retain_storage_diagnostics()
         retain_startup_diagnostics()
         if app_pid:
             diagnostic_path = output / "failure-diagnostic.json"
@@ -820,6 +835,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 capture("reopened-usable-terminal")
                 log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"])
                 audit_challenges()
+            retain_storage_diagnostics()
             report["status"] = "pass"
             code = 0
     except Blocked as error:
