@@ -252,3 +252,9 @@ lifecycle or transcript-journey pass. A failure retains the diagnostics above.
 The Python driver's `--diagnose-startup` uses an already staged bundle and can
 be combined with `--project-transcripts` to reproduce that scenario's config;
 it cannot be combined with prerequisite-only or freshness checks.
+
+Remote jobs may provide `HEAVY_GATE_UI_FIXTURE_ROOT`, an owned mode-0700
+directory below macOS user temp. Each run allocates a unique fixture directory
+there and removes it after app/backend cleanup. This keeps small interactive
+fixture data off removable volumes while builds, reports and screenshots stay
+in the job's SSD workspace. Local runs retain the existing output fixture path.
