@@ -570,6 +570,12 @@ def main():
             (fixtures / "secret").write_text(secret)
             report["runID"] = secrets.token_hex(6)
             shutil.copytree(args.bundle, bundle, symlinks=True)
+            if fixture_root is not None:
+                for path in bundle.rglob("*"):
+                    if path.is_symlink() and not path.resolve().is_relative_to(bundle.resolve()):
+                        raise Blocked("Copied app symlink escapes its bundle: " + str(path))
+                if not (bundle / "Contents/Resources/awesoMux_DesignSystem.bundle").is_dir():
+                    raise Blocked("Copied app lacks bundled design-system fonts")
             info = bundle / "Contents/Info.plist"
             metadata = plistlib.loads(info.read_bytes())
             metadata["CFBundleIdentifier"] = profile["bundle"]
@@ -910,7 +916,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 for path in owned_paths:
                     if path.exists() or path.is_symlink():
                         run(["trash", path])
-                if bundle.exists():
+                if fixture_root is None and bundle.exists():
                     run(["trash", bundle])
                 report["cleanup"]["status"] = "pass"
             except BaseException as error:
