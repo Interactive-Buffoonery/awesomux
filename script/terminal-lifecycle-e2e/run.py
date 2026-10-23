@@ -15,6 +15,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -64,6 +65,37 @@ def run(argv, **kwargs):
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def open_fixture_root(value, temporary_directory):
+    root = Path(value)
+    if not root.is_absolute() or ".." in root.parts:
+        raise Blocked("Fixture root must be an absolute path without parent traversal")
+    temporary = temporary_directory.resolve(strict=True)
+    # getconf may use the system /var alias; only that trusted prefix is canonicalized.
+    relative = None
+    for base in (temporary_directory, temporary):
+        try:
+            relative = root.relative_to(base)
+            break
+        except ValueError:
+            pass
+    if relative is None or not relative.parts:
+        raise Blocked("Fixture root must be inside DARWIN_USER_TEMP_DIR")
+    descriptor = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in relative.parts:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        metadata = os.fstat(descriptor)
+        if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise Blocked("Fixture root must be owned by the runner UID with mode 0700")
+        return temporary / relative, descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def submodule_source(path):
@@ -211,6 +243,9 @@ def main():
     window_id = None
     profile = None
     owned_paths = []
+    fixtures = None
+    fixture_root = None
+    fixture_identity = None
     launched = False
     env = None
     bundle = output / "run/awesoMux.app"
@@ -465,14 +500,25 @@ def main():
             raise Blocked("Interactive console unavailable: " + "; ".join(prerequisites["consoleState"]["errors"]))
         if not all(prerequisites[key] is True for key in ("accessibility", "screenCapture")):
             raise Blocked("GUI/Accessibility/Screen Recording prerequisite unavailable")
-        fixtures = output / "fixtures"
-        fixtures.mkdir(mode=0o700)
+        socket_base = Path(run(["getconf", "DARWIN_USER_TEMP_DIR"]))
+        fixture_override = os.environ.get("HEAVY_GATE_UI_FIXTURE_ROOT")
+        if fixture_override is not None:
+            fixture_root, descriptor = open_fixture_root(fixture_override, socket_base)
+            try:
+                fixtures = Path(tempfile.mkdtemp(prefix="native-ui-", dir=fixture_root))
+                fixture_identity = os.stat(fixtures.name, dir_fd=descriptor, follow_symlinks=False)
+            finally:
+                os.close(descriptor)
+        else:
+            fixtures = output / "fixtures"
+            fixtures.mkdir(mode=0o700)
+        report["fixtures"] = {"path": str(fixtures), "temporary": fixture_root is not None}
+        save()
         fixture_home = fixtures / "home"
         fixture_home.mkdir(mode=0o700)
         (fixtures / "panes").mkdir(mode=0o700)
         # These overrides belong only to isolated child processes, never this runner.
         env = {key: os.environ[key] for key in ("PATH", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING") if key in os.environ}
-        socket_base = Path(run(["getconf", "DARWIN_USER_TEMP_DIR"]))
         env.update(HOME=str(fixture_home), CFFIXED_USER_HOME=str(fixture_home),
                    SHELL="/bin/zsh", ZDOTDIR=str(fixtures), XDG_CONFIG_HOME=str(fixture_home / ".config"),
                    TL_FIXTURES=str(fixtures), TMPDIR=str(socket_base) + "/", LANG="en_US.UTF-8", TZ="UTC", LC_ALL="C")
@@ -867,6 +913,31 @@ export GHOSTTY_SHELL_FEATURES=""
                 report["cleanup"]["status"] = "pass"
             except BaseException as error:
                 report["cleanup"].update(status="fail", reason=str(error))
+                report["status"] = "fail"
+                code = 1
+        if fixtures is not None:
+            fixture_cleanup = {"status": "pending", "path": str(fixtures)}
+            report["cleanup"]["fixtures"] = fixture_cleanup
+            try:
+                if launch_attempted and report["cleanup"]["status"] != "pass":
+                    raise RuntimeError("Fixture cleanup retained paths: process cleanup incomplete")
+                if fixture_root is not None:
+                    _, descriptor = open_fixture_root(fixture_override, socket_base)
+                    try:
+                        current = os.stat(fixtures.name, dir_fd=descriptor, follow_symlinks=False)
+                        if (current.st_dev, current.st_ino) != (fixture_identity.st_dev, fixture_identity.st_ino):
+                            raise RuntimeError("Owned fixture directory identity changed")
+                        run(["trash", fixtures])
+                    finally:
+                        os.close(descriptor)
+                else:
+                    secret_path = fixtures / "secret"
+                    if secret_path.exists() or secret_path.is_symlink():
+                        run(["trash", secret_path])
+                fixture_cleanup["status"] = "pass"
+            except BaseException as error:
+                fixture_cleanup.update(status="fail", reason=str(error))
+                report["cleanup"]["status"] = "fail"
                 report["status"] = "fail"
                 code = 1
         save()
