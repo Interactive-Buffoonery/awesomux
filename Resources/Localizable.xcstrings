@@ -813,7 +813,7 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
-    "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:" : {
+    "Allow enables this iPhone to see every workspace and pane’s status, each terminal’s last output line, and live terminal output. You can turn previews and watching off in Companion settings; this phone can also change its own preview setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
     },
     "Allow once" : {
@@ -860,7 +860,7 @@
     "Allow watching terminals for %@" : {
 
     },
-    "Allow “%@” to see panes and terminal previews?" : {
+    "Allow “%@” to see panes and watch terminals?" : {
       "comment" : "Companion approval title."
     },
     "Allowed" : {
@@ -3667,7 +3667,7 @@
     "Paired %@" : {
       "comment" : "Companion paired date."
     },
-    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. Pane renaming is available with your permission." : {
+    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. New phones can also watch live terminal output; you can turn this off for each phone. Pane renaming is available with your permission." : {
       "comment" : "Companion settings description."
     },
     "Paired phones" : {

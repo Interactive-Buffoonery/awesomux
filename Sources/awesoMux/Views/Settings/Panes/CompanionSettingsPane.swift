@@ -18,7 +18,7 @@ struct CompanionSettingsPane: View {
             title: String(localized: "awesoMux Companion", comment: "Companion settings title."),
             subtitle: String(
                 localized:
-                    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. Pane renaming is available with your permission.",
+                    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. New phones can also watch live terminal output; you can turn this off for each phone. Pane renaming is available with your permission.",
                 comment: "Companion settings description."
             ),
             badge: String(localized: "Alpha", comment: "Companion prerelease badge.")
@@ -416,7 +416,7 @@ private struct CompanionPairingSheet: View {
             Text(
                 String(
                     localized:
-                        "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:",
+                        "Allow enables this iPhone to see every workspace and pane’s status, each terminal’s last output line, and live terminal output. You can turn previews and watching off in Companion settings; this phone can also change its own preview setting. Confirm these words match your iPhone:",
                     comment: "Companion approval content disclosure.")
                     + "\n\n" + prompt.words.joined(separator: "   ")
             )
@@ -428,7 +428,7 @@ private struct CompanionPairingSheet: View {
             return String(localized: "Allow this iPhone?", comment: "Fallback Companion approval title.")
         }
         return String.localizedStringWithFormat(
-            String(localized: "Allow “%@” to see panes and terminal previews?", comment: "Companion approval title."),
+            String(localized: "Allow “%@” to see panes and watch terminals?", comment: "Companion approval title."),
             prompt.phoneName
         )
     }
