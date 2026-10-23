@@ -151,10 +151,7 @@ import Testing
         let endpoint = try #require(
             coordinator.install(
                 workspaceID: workspace, paneID: pane, eventFile: root.appendingPathComponent("events.jsonl")))
-        let request = LocalPermissionRequest(
-            target: endpoint.target, providerSessionID: "fixture", invocationID: UUID(), toolUseID: nil,
-            helperPID: getpid(), helperStartMicroseconds: try #require(LocalPermissionFiles.processStartMicroseconds(getpid())),
-            expiresAt: Date().addingTimeInterval(120), tool: "Bash", summary: "echo future workspace")
+        let request = try decisionRequest(target: endpoint.target, summary: "echo future workspace")
         #expect(LocalPermissionFiles.write(request, at: endpoint.file("req", id: request.invocationID)))
         try #require(await waitUntilEventually { coordinator.cards[pane]?.outcome.state == .pending })
         let result = try coordinator.remoteResponse(
@@ -167,6 +164,13 @@ import Testing
         #expect(throws: LocalAPIError.permissionDenied) {
             try coordinator.validateRemoteTargets(result.pending.map(\.identity), eligible: { _ in false })
         }
+    }
+
+    private func decisionRequest(target: LocalPermissionTarget, summary: String) throws -> LocalPermissionRequest {
+        LocalPermissionRequest(
+            target: target, providerSessionID: "fixture", invocationID: UUID(), toolUseID: nil,
+            helperPID: getpid(), helperStartMicroseconds: try #require(LocalPermissionFiles.processStartMicroseconds(getpid())),
+            expiresAt: Date().addingTimeInterval(120), tool: "Bash", summary: summary)
     }
 
     enum RevocationStage: CaseIterable { case recorded, claimed, escaped }
@@ -185,11 +189,7 @@ import Testing
             coordinator.install(
                 workspaceID: workspace, paneID: pane,
                 eventFile: root.appendingPathComponent("events.jsonl")))
-        let request = LocalPermissionRequest(
-            target: endpoint.target, providerSessionID: "fixture", invocationID: UUID(),
-            toolUseID: nil, helperPID: getpid(),
-            helperStartMicroseconds: try #require(LocalPermissionFiles.processStartMicroseconds(getpid())),
-            expiresAt: Date().addingTimeInterval(120), tool: "Bash", summary: "echo fixture")
+        let request = try decisionRequest(target: endpoint.target, summary: "echo fixture")
         var fd: Int32 = -1
         defer { if fd >= 0 { close(fd) } }
         func openHook() throws -> Int32 {
