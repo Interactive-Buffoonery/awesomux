@@ -64,10 +64,7 @@ extension CompanionTerminalWatchRelay {
             for value in [attachment.id, attachment.revision] {
                 withUnsafeBytes(of: value.littleEndian) { payload.append(contentsOf: $0) }
             }
-            for value in [UInt16(grid.rows), UInt16(grid.cols)] {
-                withUnsafeBytes(of: value.littleEndian) { payload.append(contentsOf: $0) }
-            }
-            return zmxMessage(tag, payload + bytes)
+            return zmxMessage(tag, payload + gridPayload(grid) + bytes)
         }
 
         private func validate(_ grid: Stream.Grid) throws {

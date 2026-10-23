@@ -110,11 +110,15 @@ enum CompanionTerminalWatchRelay {
     }
 
     static func attachRequest(_ grid: Stream.Grid, role: Stream.Role = .watch) -> Data {
-        var payload = Data([1, role == .interactive ? 2 : 1])
+        zmxMessage(.attachRole, Data([1, role == .interactive ? 2 : 1]) + gridPayload(grid))
+    }
+
+    static func gridPayload(_ grid: Stream.Grid) -> Data {
+        var payload = Data()
         for value in [UInt16(grid.rows).littleEndian, UInt16(grid.cols).littleEndian] {
             withUnsafeBytes(of: value) { payload.append(contentsOf: $0) }
         }
-        return zmxMessage(.attachRole, payload)
+        return payload
     }
 
     struct ZmxParser {
