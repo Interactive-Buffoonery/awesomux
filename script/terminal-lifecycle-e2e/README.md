@@ -168,9 +168,22 @@ focus outcome instead of requiring that unsupported action.
 App stdout/stderr are not redirected: `NSWorkspace.OpenConfiguration` has no
 stdout/stderr handles. `launch-request.json`, `launch-receipt.json`, `steps.jsonl`,
 fixture receipts, and captured backend histories provide inspectable evidence.
-There is no `app.log` claim. For extra diagnostics, a reviewer can collect macOS
-unified logs filtered to the recorded app PID; those logs are separate evidence
-and may not include stdout/stderr. Raw executable launch is never a fallback.
+There is no `app.log` claim. On failure, before AX diagnostics and cleanup,
+`startup-sample.txt` retains a two-second `/usr/bin/sample` of the exact owned
+PID after executable/start identity verification. `startup-unified.log` queries
+only that PID from the recorded launch request time through collection time,
+with a fresh identity observation first. An already exited app cannot be sampled;
+its logs can still be queried. Identity mismatch refuses collection. Each tool
+has an eight-second deadline and a 1 MiB retained-output limit; the harness
+terminates and reaps its diagnostic tool on timeout/truncation. The target app
+is still stopped only by the existing scoped cleanup. `startup-diagnostics.json`
+and `report.startupDiagnostics` retain commands, observations, return codes,
+timeouts, truncation and errors. Lost launch replies collect after exact-PID
+recovery and before termination. Missing tools/log access remain diagnostic
+errors and never turn a failure into a pass. Unified logs may be empty or omit
+stdout/stderr and unpersisted messages. `runnerContext.sshSessionPresent` records
+only whether the runner inherited SSH session markers; it does not establish
+causation or copy their values. Raw executable launch is never a fallback.
 
 The app and helper children receive disposable `HOME` and `CFFIXED_USER_HOME`
 under `output/fixtures/home`, `/bin/zsh`, synthetic ZDOTDIR and XDG config. The
@@ -226,3 +239,16 @@ helper without building or launching the app. Existing Accessibility and Screen
 Recording permission grants and an unlocked runner desktop are required. Reports
 and screenshots return under `.build/minimighty-ui/` in unique run directories.
 The normal lifecycle invocation and its scenarios remain available unchanged.
+
+`heavy-gate ./script/native-ui.sh --diagnose-startup` skips preflight and the two
+transcript journeys, stages through the same `--stage-local-api-e2e` path, and
+runs exactly one real setup at normal scale with the transcript config. It
+retains all permission, console, signing, path isolation, launch identity,
+window/focus, fresh-profile, first-backend and fixture shell identity checks.
+It stops after the first terminal is ready, then performs the same cleanup.
+Evidence is under `.build/minimighty-ui/run.XXXXXXXX/startup/`; a successful
+report has `mode: startup` and proves startup only. It provides no preflight,
+lifecycle or transcript-journey pass. A failure retains the diagnostics above.
+The Python driver's `--diagnose-startup` uses an already staged bundle and can
+be combined with `--project-transcripts` to reproduce that scenario's config;
+it cannot be combined with prerequisite-only or freshness checks.

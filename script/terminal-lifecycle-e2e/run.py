@@ -8,6 +8,7 @@ from pathlib import Path
 import plistlib
 import re
 import secrets
+import selectors
 import shlex
 import shutil
 import signal
@@ -15,11 +16,12 @@ import stat
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PRODUCTION = [
-    "docs/shortcuts.md", "docs/amx-automation.md", "script/runtime-profile.sh",
+    "docs/shortcuts.md", "docs/amx-automation.md", "script/runtime-profile.sh", "script/native-ui.sh",
     "Sources/awesoMux/Views/AgentProjectTranscriptBrowser.swift",
     "Sources/AwesoMuxCore/Services/AgentProjectTranscripts.swift",
     "Sources/awesoMux/Services/AgentTranscriptPaneInputs.swift",
@@ -138,14 +140,59 @@ def alive(pid):
     return observe_process(pid)["running"]
 
 
+def diagnostic_command(argv, path, seconds=8, limit=1024 * 1024):
+    """Bound tool lifetime and retained bytes; always reap our diagnostic child."""
+    evidence = {"command": [str(arg) for arg in argv], "path": str(path),
+                "timeoutSeconds": seconds, "byteLimit": limit}
+    with path.open("wb") as stream, selectors.DefaultSelector() as selector:
+        process = subprocess.Popen(evidence["command"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            deadline = time.monotonic() + seconds
+            retained = 0
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    evidence["timedOut"] = True
+                    break
+                for key, _ in selector.select(min(remaining, 0.1)):
+                    chunk = os.read(key.fd, min(65536, limit - retained + 1))
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    stream.write(chunk[:limit - retained])
+                    retained += len(chunk)
+                    if retained > limit:
+                        evidence["truncated"] = True
+                        break
+                if evidence.get("truncated"):
+                    break
+            evidence["retainedBytes"] = min(retained, limit)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+            process.stdout.close()
+            evidence["returncode"] = process.returncode
+    return evidence
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--bundle", type=Path, default=ROOT / "dist/awesoMux.app")
     parser.add_argument("--check-prerequisites", action="store_true")
     parser.add_argument("--project-transcripts", action="store_true")
+    parser.add_argument("--diagnose-startup", action="store_true",
+                        help="Run one real isolated setup, then stop before the journey")
     parser.add_argument("--check-freshness", type=Path)
     args = parser.parse_args()
+    if args.diagnose_startup and (args.check_prerequisites or args.check_freshness):
+        parser.error("--diagnose-startup requires a real setup")
     if args.check_freshness:
         fresh = json.loads(args.check_freshness.read_text())["source"] == source()
         print("fresh" if fresh else "stale: source/harness identity differs; rerun E2E")
@@ -154,8 +201,9 @@ def main():
         parser.error("--output is required")
     output = args.output.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    report = {"status": "blocked", "mode": "prerequisites" if args.check_prerequisites else ("project-transcripts" if args.project_transcripts else "lifecycle"),
-              "steps": [], "screenshots": [], "cleanup": {"status": "not-needed"}}
+    report = {"status": "blocked", "mode": "prerequisites" if args.check_prerequisites else ("startup" if args.diagnose_startup else ("project-transcripts" if args.project_transcripts else "lifecycle")),
+              "steps": [], "screenshots": [], "cleanup": {"status": "not-needed"},
+              "runnerContext": {"sshSessionPresent": any(key in os.environ for key in ("SSH_CONNECTION", "SSH_TTY"))}}
     helper = output / "native"
     app_pid = None
     launch_attempted = False
@@ -266,7 +314,43 @@ def main():
         report["screenshots"].append(evidence)
         save()
 
+    def retain_startup_diagnostics():
+        if app_pid is None or "startupDiagnostics" in report:
+            return
+        evidence = {"pid": app_pid, "commands": []}
+        report["startupDiagnostics"] = evidence
+        try:
+            # Sample before AX calls or cleanup can obscure the startup stall.
+            if not owned_running():
+                evidence["sampleSkipped"] = "Owned process already exited"
+            else:
+                evidence["sampleObservation"] = report["lastAppProcessObservation"]
+                try:
+                    evidence["commands"].append(diagnostic_command(
+                        ["/usr/bin/sample", app_pid, "2", "10", "-file", "/dev/stdout"],
+                        output / "startup-sample.txt"))
+                except Exception as error:
+                    evidence["sampleError"] = str(error)
+            # Revalidate birth/executable before querying logs for this PID.
+            owned_running()
+            evidence["logObservation"] = report["lastAppProcessObservation"]
+            start = report.get("launch", {}).get("requestedAtUTC")
+            if start:
+                end = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+0000")
+                evidence["commands"].append(diagnostic_command(
+                    ["/usr/bin/log", "show", "--style", "compact", "--info", "--debug",
+                     "--start", start, "--end", end, "--predicate", f"processIdentifier == {app_pid}"],
+                    output / "startup-unified.log"))
+            else:
+                evidence["logSkipped"] = "Launch timestamp unavailable"
+        except Exception as error:
+            evidence["error"] = str(error)
+        finally:
+            (output / "startup-diagnostics.json").write_text(json.dumps(evidence, indent=2) + "\n")
+            save()
+
     def retain_failure():
+        retain_startup_diagnostics()
         if app_pid:
             diagnostic_path = output / "failure-diagnostic.json"
             try:
@@ -471,7 +555,8 @@ export GHOSTTY_SHELL_FEATURES=""
                                                "environment": env,
                                                "arguments": ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]}, indent=2))
             report["launch"] = {"method": "NSWorkspace.OpenConfiguration", "request": str(request_path),
-                                "receipt": str(launch_receipt), "stdoutStderr": "not redirected by LaunchServices"}
+                                "receipt": str(launch_receipt), "stdoutStderr": "not redirected by LaunchServices",
+                                "requestedAtUTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+0000")}
             check_console()
             launch_attempted = True
             save()
@@ -498,6 +583,7 @@ export GHOSTTY_SHELL_FEATURES=""
             try:
                 state = poll("owned content window", initial_window)
             except BaseException as error:
+                retain_startup_diagnostics()
                 diagnostic_path = output / "window-readiness-diagnostic.json"
                 try:
                     diagnostic = native("diagnose")
@@ -529,7 +615,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 return len(sessions()) == 1
             poll("first backend", first_backend)
             first = next(iter(sessions()))
-            if args.project_transcripts:
+            if args.project_transcripts or args.diagnose_startup:
                 data = poll("shell identity", lambda: receipt(fixtures / (first + ".json")))
                 if data["session"] != first or data["profile"] != profile["profile"] \
                         or Path(data["namespace"]).resolve() != socket.resolve() or not alive(data["shellPID"]) \
@@ -539,6 +625,11 @@ export GHOSTTY_SHELL_FEATURES=""
                     raise RuntimeError("Fixture shell/profile identity mismatch")
                 identities = {first: data}
                 report["identities"] = identities
+            if args.diagnose_startup:
+                poll("terminal ready", lambda: any(terminal_matches(t, first) for t in snapshot()["terminals"]))
+                report["reason"] = "Startup ready; lifecycle and transcript journeys not executed"
+                log("startup", "pass")
+            elif args.project_transcripts:
                 project = Path(title(first))
                 slug = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(project))
                 claude = fixture_home / ".claude/projects" / slug
@@ -737,6 +828,8 @@ export GHOSTTY_SHELL_FEATURES=""
                             if recovered["processStart"] != report["appProcessStart"] or (
                                     recovered["executableCanonical"] != str(binary.resolve()) and not exiting_removed):
                                 raise RuntimeError("Recovered launch identity changed: " + json.dumps(recovered))
+                if report["status"] != "pass":
+                    retain_startup_diagnostics()
                 if owned_running():
                     signal_owned(signal.SIGTERM)
                     try:

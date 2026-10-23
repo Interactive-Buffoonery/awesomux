@@ -3,8 +3,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 MODE="${1:-run}"
-if [[ "$#" -gt 1 || ( "$MODE" != run && "$MODE" != --check-prerequisites ) ]]; then
-    echo "Usage: script/native-ui.sh [--check-prerequisites]" >&2
+if [[ "$#" -gt 1 || ( "$MODE" != run && "$MODE" != --check-prerequisites && "$MODE" != --diagnose-startup ) ]]; then
+    echo "Usage: script/native-ui.sh [--check-prerequisites|--diagnose-startup]" >&2
     exit 64
 fi
 mkdir -p .build/minimighty-ui
@@ -23,7 +23,13 @@ PY
 if [[ "$MODE" == --check-prerequisites ]]; then
     exit 0
 fi
-./script/preflight.sh
+if [[ "$MODE" != --diagnose-startup ]]; then
+    ./script/preflight.sh
+fi
 ./script/build_and_run.sh --stage-local-api-e2e
+if [[ "$MODE" == --diagnose-startup ]]; then
+    PR775_SCALE=1.0 python3 script/terminal-lifecycle-e2e/run.py --project-transcripts --diagnose-startup --output "$OUTPUT/startup"
+    exit 0
+fi
 PR775_SCALE=1.0 python3 script/terminal-lifecycle-e2e/run.py --project-transcripts --output "$OUTPUT/normal"
 PR775_SCALE=1.5 python3 script/terminal-lifecycle-e2e/run.py --project-transcripts --output "$OUTPUT/enlarged"
