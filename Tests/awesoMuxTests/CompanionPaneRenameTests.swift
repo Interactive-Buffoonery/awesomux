@@ -107,21 +107,6 @@ struct CompanionPaneRenameTests {
         #expect(store.session(id: session.id)?.activePane?.title == "Shell")
     }
 
-    @Test func scopeCannotExpandVisibility() throws {
-        let (store, session, authority, grant) = fixture(renameScope: .persistentPanes([UUID()]))
-        #expect(throws: LocalAPIError.permissionDenied) { try apply(store, session, authority, grant) }
-        var limited = grant
-        limited.statusScope = .persistentWorkspaces([UUID()])
-        limited.companion?.paneRenameScope = .allWorkspaces
-        var state = LocalAPIAccessState(profile: "development")
-        state.connections = [limited]
-        authority.replace(with: state)
-        let lease = LocalAPIAuthorizationLease(
-            connectionID: limited.id, globalRevision: limited.revision,
-            connectionRevision: limited.revision, statusScope: limited.statusScope, paneRenameScope: .allWorkspaces)
-        #expect(throws: LocalAPIError.permissionDenied) { try apply(store, session, authority, limited, lease: lease) }
-    }
-
     @Test func documentGroupIsNotRenameable() throws {
         let (_, session, authority, grant) = fixture()
         let group = DocumentGroup(browsingFrom: session.activePaneID)

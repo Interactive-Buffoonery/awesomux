@@ -26,7 +26,6 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public let pairedAt: Date
     public let port: UInt16
     public var paneRenameScope: LocalAPITargetScope?
-    public var decideWorkspaceIDs: [UUID]?
     public var decisionsAllowed: Bool
     public let pairingVersion: Int?
     public var alertPreferences: CompanionAlertPreferences?
@@ -47,7 +46,6 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         pairingVersion: Int? = nil,
         terminalPreviewAllowed: Bool = false,
         alertPreferences: CompanionAlertPreferences? = nil,
-        decideWorkspaceIDs: [UUID]? = nil,
         decisionsAllowed: Bool = false,
         terminalWatchScope: LocalAPITargetScope? = nil
     ) {
@@ -56,7 +54,6 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         self.pairedAt = pairedAt
         self.port = port
         self.paneRenameScope = paneRenameScope
-        self.decideWorkspaceIDs = decideWorkspaceIDs
         self.decisionsAllowed = decisionsAllowed
         self.pairingVersion = pairingVersion
         self.terminalPreviewAllowed = terminalPreviewAllowed
@@ -76,7 +73,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         transport = try values.decode(LocalAPICompanionTransport.self, forKey: .transport)
         pairedAt = try values.decode(Date.self, forKey: .pairedAt)
         port = try values.decode(UInt16.self, forKey: .port)
-        decideWorkspaceIDs = try values.decodeIfPresent([UUID].self, forKey: .decideWorkspaceIDs)
+        let decideWorkspaceIDs = try values.decodeIfPresent([UUID].self, forKey: .decideWorkspaceIDs)
         decisionsAllowed = try values.decodeIfPresent(Bool.self, forKey: .decisionsAllowed) ?? !(decideWorkspaceIDs ?? []).isEmpty
         paneRenameScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .paneRenameScope)
         pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
@@ -313,8 +310,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 connection.statusScope == lease.statusScope,
                 connection.contextGrant == nil, lease.contextGrant == nil,
                 let metadata = connection.companion,
-                let scope = metadata.paneRenameScope, scope.isValid,
-                scope == lease.paneRenameScope,
+                metadata.paneRenameScope == .allWorkspaces,
+                metadata.paneRenameScope == lease.paneRenameScope,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
             try body()
@@ -625,22 +622,8 @@ public final class LocalAPIAccessStore {
         }
     }
 
-    public func updateCompanionDecideWorkspaces(connectionID: UUID, workspaceIDs: [UUID]?) throws {
-        guard workspaceIDs.map({ !$0.isEmpty && Set($0).count == $0.count }) ?? true else {
-            throw LocalAPIAccessFailure.invalidScope
-        }
-        try requireWritableAuthority()
-        guard let connection = state.connections.first(where: { $0.id == connectionID }),
-            connection.kind == .companion, let metadata = connection.companion
-        else { throw LocalAPIAccessFailure.connectionNotFound }
-        guard metadata.decideWorkspaceIDs != workspaceIDs || persistenceFailureMessage != nil else { return }
-        try updateConnection(connectionID: connectionID, kind: .companion) {
-            $0.companion?.decideWorkspaceIDs = workspaceIDs
-        }
-    }
-
     public func updateCompanionPaneRenameScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
-        guard scope?.isValid != false else { throw LocalAPIAccessFailure.invalidScope }
+        guard scope == nil || scope == .allWorkspaces else { throw LocalAPIAccessFailure.invalidScope }
         try requireWritableAuthority()
         guard let connection = state.connections.first(where: { $0.id == connectionID }),
             connection.kind == .companion, let metadata = connection.companion
@@ -663,7 +646,7 @@ public final class LocalAPIAccessStore {
     }
 
     public func updateCompanionTerminalWatchScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
-        guard scope?.isValid != false else { throw LocalAPIAccessFailure.invalidScope }
+        guard scope == nil || scope == .allWorkspaces else { throw LocalAPIAccessFailure.invalidScope }
         try requireWritableAuthority()
         guard let connection = state.connections.first(where: { $0.id == connectionID }),
             connection.kind == .companion, let metadata = connection.companion
@@ -873,7 +856,6 @@ public final class LocalAPIAccessStore {
                         && connection.contextGrant == nil
                         && connection.companion?.certificateFingerprint.count == SHA256.byteCount
                         && connection.companion?.port != 0
-                        && connection.companion?.decideWorkspaceIDs.map({ !$0.isEmpty && Set($0).count == $0.count }) != false
                         && connection.companion?.paneRenameScope?.isValid != false
                         && connection.companion?.terminalWatchScope?.isValid != false))
                     && connection.statusScope.isValid
@@ -891,6 +873,11 @@ public final class LocalAPIAccessStore {
             return metadata["decideWorkspaceIDs"] != nil || metadata["decisionsAllowed"] == nil
         }
         for index in decoded.connections.indices where decoded.connections[index].kind == .companion {
+            if let scope = decoded.connections[index].companion?.paneRenameScope, scope != .allWorkspaces {
+                decoded.connections[index].companion?.paneRenameScope = .allWorkspaces
+                decoded.connections[index].revision = UUID()
+                needsMigration = true
+            }
             if let scope = decoded.connections[index].companion?.terminalWatchScope, scope != .allWorkspaces {
                 decoded.connections[index].companion?.terminalWatchScope = .allWorkspaces
                 decoded.connections[index].revision = UUID()
@@ -927,7 +914,7 @@ public final class LocalAPIAccessStore {
         guard let metadata = value as? [String: Any] else { return false }
         var keys = Set(metadata.keys)
         if let workspaces = metadata["decideWorkspaceIDs"] {
-            guard let ids = workspaces as? [String], !ids.isEmpty,
+            guard let ids = workspaces as? [String],
                 ids.allSatisfy({ UUID(uuidString: $0) != nil }), Set(ids).count == ids.count
             else { return false }
             keys.remove("decideWorkspaceIDs")

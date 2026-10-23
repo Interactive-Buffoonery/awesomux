@@ -1788,9 +1788,6 @@
     "Could not reload Ghostty configuration." : {
 
     },
-    "Could not save decision access." : {
-      "comment" : "Error shown when saving a paired phone’s workspace decision permission fails."
-    },
     "Could not save terminal preview access. Retry Save before restarting awesoMux." : {
       "comment" : "Companion preview permission save error."
     },
@@ -2008,12 +2005,6 @@
     },
     "Daemon" : {
       "comment" : "Diagnostics process type"
-    },
-    "Decision workspaces" : {
-      "comment" : "Menu for selecting which workspaces this paired phone may answer permission requests for."
-    },
-    "Decision workspaces for %@" : {
-      "comment" : "Accessibility label for a paired phone’s decision workspace menu. Argument is the phone’s name."
     },
     "Default" : {
       "comment" : "Pane title-bar color submenu item that clears a custom pane color."
@@ -2915,7 +2906,7 @@
     "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off." : {
 
     },
-    "Lets this phone rename terminal panes within its visible workspaces." : {
+    "Lets this phone rename terminal panes in every workspace." : {
 
     },
     "License" : {
@@ -4249,9 +4240,6 @@
     },
     "Remote decisions are not available yet." : {
 
-    },
-    "Remote decisions are not available yet. Workspace access starts off." : {
-      "comment" : "Explains that remote permission decisions are not released and workspace access is disabled by default."
     },
     "Remote file transfer cancelled" : {
       "comment" : "Remote handoff cancellation accessibility status"

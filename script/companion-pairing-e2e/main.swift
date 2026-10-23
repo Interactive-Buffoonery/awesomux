@@ -305,15 +305,27 @@ struct CompanionPairingE2E {
             else { throw E2EFailure("synthetic decision identities are missing") }
             let pending = try await call(request("list_pending_decisions"), link: link, identity: identity)
             guard pending["error"] == nil, pending["remoteDecisionsEnabled"] as? Bool == false,
-                let decisions = pending["pendingDecisions"] as? [[String: Any]], decisions.count == 2,
-                let live = decisions.first?["identity"] as? [String: Any]
-            else { throw E2EFailure("scoped pending decisions fixture did not list both queued live requests") }
+                let decisions = pending["pendingDecisions"] as? [[String: Any]], decisions.count == 3,
+                let live = identities["live"] as? [String: Any]
+            else { throw E2EFailure("pending decisions fixture did not list requests across workspaces") }
             func answer(_ identity: [String: Any], choice: String, retry: String) throws -> sending [String: Any] {
                 var value = request("decide")
                 value["decisionAnswer"] = ["identity": identity, "choice": choice, "retryID": retry]
                 // Detach reused fixture identities before crossing the async client boundary.
                 let data = try JSONSerialization.data(withJSONObject: value)
                 return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            }
+            let outside = try await call(
+                answer(outsideIdentity, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
+            guard (outside["decisionReceipt"] as? [String: Any])?["result"] as? String == "recorded" else {
+                throw E2EFailure("decision in another workspace was not recorded")
+            }
+            var mismatchedIdentity = live
+            mismatchedIdentity["workspaceID"] = UUID().uuidString
+            let mismatched = try await call(
+                answer(mismatchedIdentity, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
+            guard mismatched["error"] as? String == "permission_denied" else {
+                throw E2EFailure("decision with a mismatched workspace identity was not denied")
             }
             var staleDecision = live
             staleDecision["revision"] = 999
@@ -350,15 +362,12 @@ struct CompanionPairingE2E {
             guard (expired["decisionReceipt"] as? [String: Any])?["result"] as? String == "expired" else {
                 throw E2EFailure("remote-expired fixture accepted an answer")
             }
-            let outside = try await call(
-                answer(outsideIdentity, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
-            guard outside["error"] as? String == "permission_denied" else { throw E2EFailure("out-of-scope decision was not denied") }
             let wrongDecisionPhone = try await call(
                 request("list_pending_decisions", id: UUID().uuidString), link: link, identity: identity)
             guard wrongDecisionPhone["error"] as? String == "permission_denied" else {
                 throw E2EFailure("decision authentication failed open")
             }
-            print("decisions=list,answer,scope,auth,expiry,duplicate,retry-conflict,stable-retry fixture-only")
+            print("decisions=list,answer,identity,auth,expiry,duplicate,retry-conflict,stable-retry fixture-only")
             for allowed in [false, true, true] {
                 var mutation = request("set_terminal_preview")
                 mutation["terminalPreviewAllowed"] = allowed

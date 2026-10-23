@@ -283,17 +283,17 @@ The usual 8 KiB request bound applies.
 Each phone's optional persisted `paneRenameScope` is independent of status,
 context, and terminal-preview permissions. Missing means denied for both legacy
 and new grants. Only the Mac's **Allow pane renaming** control can enable or
-disable it; the phone cannot grant itself rename permission. Enabling captures
-that phone's current status scope. At mutation time both the status scope and
-rename scope must allow the exact target. Granting rename never widens status
-visibility. Turning the control off removes the grant. Every change rotates the
+disable it; the phone cannot grant itself rename permission. Enabling stores
+`allWorkspaces`, covering every current and future workspace. Older non-nil
+rename scopes migrate to `allWorkspaces` when loaded; missing grants stay off.
+Turning the control off removes the grant. Every change rotates the
 connection revision and invalidates pending requests before saving; a failed
 save denies this phone for the run until Retry Save succeeds.
 
 The endpoint rechecks the original certificate and lease under the authority
 lock, then checks cancellation and its monotonic deadline before a synchronous
 MainActor `SessionStore` rename. The lock remains held with no suspension.
-A revoked, replaced, disabled, or scope-changed grant cannot perform a pending
+A revoked, replaced, disabled, or changed grant cannot perform a pending
 mutation. Response writes recheck the same lease too. A rename already applied
 before a disconnect/revocation may have no receipt; reconnect and read the pane
 roster to reconcile. Retrying the same target and title has the native idempotent
@@ -303,7 +303,7 @@ The native title sanitizer trims whitespace, removes unsafe display scalars,
 and caps titles at 200 Characters. A title that sanitizes to empty returns
 `invalid_title`; it never resets the native custom-title pin. A missing workspace
 or pane, or a pane no longer in the supplied workspace, returns `stale_target`.
-An existing document-group leaf returns `nonterminal_target`. Scope/grant denial
+An existing document-group leaf returns `nonterminal_target`. Grant denial
 returns `permission_denied` before target lookup. Cancellation and expiry return
 `cancelled` and `timeout` without mutating. Success is the standard envelope with
 `profile`, `appInstanceID`, and `capturedAt`, without roster or content. The native

@@ -18,44 +18,12 @@ import Testing
         #expect(!LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "codex", version: "future"))
     }
 
-    // Unknown workspace inventory must preserve grants; an authoritative inventory
-    // must prune removed workspaces without changing retained grants on replay.
-    @Test func decisionReconciliationRequiresConfiguredInventory() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-inventory-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
-        let profile = AppRuntimeProfile.development(worktreeID: nil)
-        let configured = CompanionPairingCoordinator(profile: profile, accessStore: access)
-        let unknown = CompanionPairingCoordinator(profile: profile, accessStore: access)
-        defer { configured.stop(); unknown.stop() }
-        let session = TerminalSession(title: "Live", workingDirectory: "~")
-        let store = SessionStore(groups: [SessionGroup(name: "Group", sessions: [session])])
-        let runtime = GhosttyRuntime()
-        let service = try LocalAPIService(store: store, runtime: runtime, accessStore: access, profile: profile)
-        defer { service.stop() }
-        // Configure before registering a phone so this inventory test opens no listener.
-        configured.configure(service: service)
-        let phone = try access.registerCompanion(
-            phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
-        let removed = UUID()
-        try access.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: [session.id, removed])
-        let before = try #require(access.state.connections.first { $0.id == phone.id })
-        unknown.reconcileDecisionWorkspaces()
-        #expect(access.state.connections.first { $0.id == phone.id } == before)
-        let persisted = try LocalAPIContract.decoder().decode(
-            LocalAPIAccessState.self, from: Data(contentsOf: root.appendingPathComponent("LocalAPI/access.json")))
-        #expect(persisted.connections.first { $0.id == phone.id }?.companion?.decideWorkspaceIDs == [session.id, removed])
-        configured.reconcileDecisionWorkspaces()
-        let pruned = try #require(access.state.connections.first { $0.id == phone.id })
-        #expect(pruned.companion?.decideWorkspaceIDs == [session.id])
-        #expect(pruned.revision != before.revision)
-        configured.reconcileDecisionWorkspaces()
-        #expect(access.state.connections.first { $0.id == phone.id } == pruned)
-    }
-
     // Persisted workspace grants must migrate without enabling an explicit off switch.
-    @Test(arguments: [false, true])
-    func legacyDecisionGrantMigratesAndPersists(enabled: Bool) throws {
+    enum LegacyDecisionGrant: CaseIterable { case missing, empty, granted, explicitOff, explicitOn }
+
+    @Test(arguments: LegacyDecisionGrant.allCases)
+    func legacyDecisionGrantMigratesAndPersists(grant: LegacyDecisionGrant) throws {
+        let enabled = grant == .granted || grant == .explicitOn
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-migration-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
@@ -66,7 +34,17 @@ import Testing
         var connections = try #require(object["connections"] as? [[String: Any]])
         var metadata = try #require(connections[0]["companion"] as? [String: Any])
         metadata.removeValue(forKey: "decisionsAllowed")
-        if enabled { metadata["decideWorkspaceIDs"] = [UUID().uuidString] }
+        switch grant {
+        case .missing: break
+        case .empty: metadata["decideWorkspaceIDs"] = [String]()
+        case .granted: metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+        case .explicitOff:
+            metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+            metadata["decisionsAllowed"] = false
+        case .explicitOn:
+            metadata["decideWorkspaceIDs"] = [String]()
+            metadata["decisionsAllowed"] = true
+        }
         connections[0]["companion"] = metadata
         object["connections"] = connections
         access = nil

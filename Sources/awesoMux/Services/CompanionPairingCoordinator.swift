@@ -275,40 +275,11 @@ final class CompanionPairingCoordinator {
 
     func setPaneRenameAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
         try accessStore.updateCompanionPaneRenameScope(
-            connectionID: phone.id, scope: allowed ? phone.statusScope : nil)
+            connectionID: phone.id, scope: allowed ? .allWorkspaces : nil)
     }
 
     func setDecisionsAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
         try accessStore.updateCompanionDecisionsAllowed(connectionID: phone.id, allowed: allowed)
-    }
-
-    func reconcileDecisionWorkspaces() {
-        guard let service else { return }
-        let phones = pairedPhones.filter { $0.companion?.decideWorkspaceIDs != nil }
-        guard !phones.isEmpty else { return }
-        let live = Set(service.companionDecisionWorkspaces.map(\.id))
-        for phone in phones {
-            guard let previous = phone.companion?.decideWorkspaceIDs else { continue }
-            let retained = previous.filter { live.contains($0) }
-            guard retained != previous else { continue }
-            do {
-                try accessStore.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: retained.isEmpty ? nil : retained)
-            } catch {
-                listenerErrorMessage = String(
-                    localized: "Could not save decision access.",
-                    comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
-            }
-        }
-    }
-
-    var decisionWorkspaces: [(id: UUID, name: String)] { service?.companionDecisionWorkspaces ?? [] }
-
-    func setDecisionWorkspace(_ workspaceID: UUID, allowed: Bool, for phoneID: UUID) throws {
-        guard decisionWorkspaces.contains(where: { $0.id == workspaceID }) else { throw LocalAPIError.permissionDenied }
-        var ids = pairedPhones.first { $0.id == phoneID }?.companion?.decideWorkspaceIDs ?? []
-        ids.removeAll { $0 == workspaceID }
-        if allowed { ids.append(workspaceID) }
-        try accessStore.updateCompanionDecideWorkspaces(connectionID: phoneID, workspaceIDs: ids.isEmpty ? nil : ids)
     }
 
     func updateTerminalPreviewAllowed(_ allowed: Bool, for connectionID: UUID) throws {
@@ -504,7 +475,7 @@ final class CompanionPairingCoordinator {
                     terminalWatchScope: .allWorkspaces
                 )
                 #if DEBUG
-                    if service.decisionFixtureWorkspaceID != nil {
+                    if service.hasDecisionFixture {
                         try self.accessStore.updateCompanionDecisionsAllowed(connectionID: grant.id, allowed: true)
                     }
                 #endif
@@ -1224,14 +1195,12 @@ private final class CompanionNetworkServer {
         requestDeadline: Task<Void, Never>, responseProgress: ResponseProgress
     ) async throws {
         typealias Stream = CompanionTerminalStream
-        guard let scope = lease.terminalWatchScope else { throw LocalAPIError.permissionDenied }
+        guard lease.terminalWatchScope == .allWorkspaces else { throw LocalAPIError.permissionDenied }
         let grid = try CompanionTerminalWatchRequest.grid(object)
         guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
         guard let target = terminalWatchTarget(paneID), target.targetVersion == targetVersion else {
             throw LocalAPIError.staleTarget
         }
-        guard scope.allows(paneID: paneID, workspaceID: target.workspaceID, targetVersion: targetVersion)
-        else { throw LocalAPIError.permissionDenied }
         guard let sessionName = target.localSessionName else { throw LocalAPIError.remoteContext }
         let buffer = CompanionTerminalWatchRelay.Buffer()
         try await terminalWatchRegistry.reserve(

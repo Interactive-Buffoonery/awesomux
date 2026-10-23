@@ -194,7 +194,7 @@ struct CompanionSettingsPane: View {
             }
             .accessibilityLabel(
                 String.localizedStringWithFormat(String(localized: "Allow pane renaming for %@"), phone.label))
-            Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
+            Text(String(localized: "Lets this phone rename terminal panes in every workspace."))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
             Toggle(
