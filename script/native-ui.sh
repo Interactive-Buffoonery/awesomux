@@ -32,4 +32,4 @@ if [[ "$MODE" == --diagnose-startup ]]; then
     exit 0
 fi
 PR775_SCALE=1.0 python3 script/terminal-lifecycle-e2e/run.py --project-transcripts --output "$OUTPUT/normal"
-PR775_SCALE=1.5 python3 script/terminal-lifecycle-e2e/run.py --project-transcripts --output "$OUTPUT/enlarged"
+PR775_SCALE=1.35 python3 script/terminal-lifecycle-e2e/run.py --project-transcripts --output "$OUTPUT/enlarged"

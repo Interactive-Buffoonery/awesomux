@@ -227,7 +227,8 @@ gate does not imply full preflight, VoiceOver, device, or hosted CI acceptance.
 ## Project transcript browser on minimighty
 
 `heavy-gate ./script/native-ui.sh` runs preflight and staging, then invokes this
-runner with `--project-transcripts` at 1.0 and 1.5 text scales using Georgia.
+runner with `--project-transcripts` at 1.0 and the maximum supported 1.35 text
+scale using Georgia.
 This scenario preserves the synthetic PR #775 journey formerly kept under
 `.build/pr775/harness`: project/child filtering, refresh, cancel/reopen, opening
 a transcript, and document focus. It shares the lifecycle driver's permission,
