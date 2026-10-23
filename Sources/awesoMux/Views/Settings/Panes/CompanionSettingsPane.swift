@@ -194,7 +194,11 @@ struct CompanionSettingsPane: View {
             }
             .accessibilityLabel(
                 String.localizedStringWithFormat(String(localized: "Allow pane renaming for %@"), phone.label))
-            Text(String(localized: "Lets this phone rename terminal panes in every workspace."))
+            Text(
+                String(
+                    localized: "Lets this phone rename terminal panes in every workspace.",
+                    comment: "Explains that pane rename permission covers every workspace for this paired phone.")
+            )
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
             Toggle(
@@ -205,25 +209,39 @@ struct CompanionSettingsPane: View {
                             try coordinator.setDecisionsAllowed(allowed, for: phone)
                             errorMessage = nil
                         } catch {
-                            errorMessage = String(localized: "awesoMux couldn't save the permission request access.")
+                            errorMessage = String(
+                                localized: "awesoMux couldn't save the permission request access.",
+                                comment: "Error shown when saving a paired phone’s permission-answering switch fails.")
                         }
                     }
                 )
             ) {
-                Text(String(localized: "Allow answering permission requests"))
+                Text(
+                    String(
+                        localized: "Allow answering permission requests",
+                        comment: "Per-phone switch for answering agent permission requests in every workspace."))
             }
             .accessibilityLabel(
-                String.localizedStringWithFormat(String(localized: "Allow answering permission requests for %@"), phone.label))
+                String.localizedStringWithFormat(
+                    String(
+                        localized: "Allow answering permission requests for %@",
+                        comment: "Accessibility label for the permission-answering switch. Argument is the paired phone’s name."),
+                    phone.label))
             Text(
                 String(
-                    localized: "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off."
-                )
+                    localized:
+                        "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off.",
+                    comment: "Explains the default-off device-wide grant for answering agent permission requests.")
             )
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text3)
-            Text(String(localized: "Remote decisions are not available yet."))
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text3)
+            Text(
+                String(
+                    localized: "Remote decisions are not available yet.",
+                    comment: "Explains that remote permission answers remain unavailable until the production release gate opens.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text3)
             Toggle(
                 isOn: Binding(
                     get: { phone.companion?.terminalWatchScope != nil },

@@ -463,7 +463,8 @@ public final class LocalAPIAccessStore {
             denied.connections.removeAll { $0.kind == .companion }
             runtimeAuthority.replace(with: denied)
             persistenceFailureMessage = String(
-                localized: "Companion access is paused because updated permissions could not be saved. Retry Save to restore access.")
+                localized: "Companion access is paused because updated permissions could not be saved. Retry Save to restore access.",
+                comment: "Recoverable warning when device-wide companion permission migration could not be saved.")
         }
     }
 

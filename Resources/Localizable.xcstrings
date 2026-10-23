@@ -814,10 +814,10 @@
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
     "Allow answering permission requests" : {
-
+      "comment" : "Per-phone switch for answering agent permission requests in every workspace."
     },
     "Allow answering permission requests for %@" : {
-
+      "comment" : "Accessibility label for the permission-answering switch. Argument is the paired phone’s name."
     },
     "Allow enables this iPhone to see every workspace and pane’s status, each terminal’s last output line, and live terminal output. You can turn previews and watching off in Companion settings; this phone can also change its own preview setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
@@ -1613,7 +1613,7 @@
       "comment" : "Companion settings sidebar title."
     },
     "Companion access is paused because updated permissions could not be saved. Retry Save to restore access." : {
-
+      "comment" : "Recoverable warning when device-wide companion permission migration could not be saved."
     },
     "Companion is not listening. Open Settings and try pairing again." : {
 
@@ -2907,10 +2907,10 @@
 
     },
     "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off." : {
-
+      "comment" : "Explains the default-off device-wide grant for answering agent permission requests."
     },
     "Lets this phone rename terminal panes in every workspace." : {
-
+      "comment" : "Explains that pane rename permission covers every workspace for this paired phone."
     },
     "License" : {
       "comment" : "About window link to the project's own MIT license\nAdvanced settings label.\nButton opening a bundled third-party license file"
@@ -4242,7 +4242,7 @@
       "comment" : "VoiceOver label for the remote connection details panel"
     },
     "Remote decisions are not available yet." : {
-
+      "comment" : "Explains that remote permission answers remain unavailable until the production release gate opens."
     },
     "Remote file transfer cancelled" : {
       "comment" : "Remote handoff cancellation accessibility status"
@@ -6319,7 +6319,7 @@
 
     },
     "awesoMux couldn't save the permission request access." : {
-
+      "comment" : "Error shown when saving a paired phone’s permission-answering switch fails."
     },
     "awesoMux couldn't save the rendered diff to its cache." : {
       "comment" : "Branch diff failure when writing the rendered Markdown to the app cache fails"
