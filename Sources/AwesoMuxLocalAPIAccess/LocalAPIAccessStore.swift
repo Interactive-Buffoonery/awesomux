@@ -918,7 +918,7 @@ public final class LocalAPIAccessStore {
         var keys = Set(metadata.keys)
         if let workspaces = metadata["decideWorkspaceIDs"] {
             guard let ids = workspaces as? [String],
-                ids.allSatisfy({ UUID(uuidString: $0) != nil }), Set(ids).count == ids.count
+                ids.allSatisfy({ UUID(uuidString: $0) != nil }), Set(ids.compactMap(UUID.init(uuidString:))).count == ids.count
             else { return false }
             keys.remove("decideWorkspaceIDs")
         }

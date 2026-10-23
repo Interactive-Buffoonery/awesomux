@@ -60,6 +60,30 @@ import Testing
         #expect(savedMetadata["decideWorkspaceIDs"] == nil)
     }
 
+    @Test func malformedLegacyDecisionGrantRemainsDenied() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-invalid-migration-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        _ = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
+        let file = root.appendingPathComponent("LocalAPI/access.json")
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        var metadata = try #require(connections[0]["companion"] as? [String: Any])
+        metadata.removeValue(forKey: "decisionsAllowed")
+        let workspace = UUID().uuidString
+        metadata["decideWorkspaceIDs"] = [workspace.uppercased(), workspace.lowercased()]
+        connections[0]["companion"] = metadata
+        object["connections"] = connections
+        access = nil
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        try legacy.write(to: file)
+        let denied = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        #expect(denied.loadFailure == .preservedInvalidState)
+        #expect(denied.state.connections.isEmpty)
+        #expect(try Data(contentsOf: file) == legacy)
+    }
+
     @Test func failedMigrationPreservesConnectionsAndAllowsRetry() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-migration-failure-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
