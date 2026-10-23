@@ -168,9 +168,22 @@ focus outcome instead of requiring that unsupported action.
 App stdout/stderr are not redirected: `NSWorkspace.OpenConfiguration` has no
 stdout/stderr handles. `launch-request.json`, `launch-receipt.json`, `steps.jsonl`,
 fixture receipts, and captured backend histories provide inspectable evidence.
-There is no `app.log` claim. For extra diagnostics, a reviewer can collect macOS
-unified logs filtered to the recorded app PID; those logs are separate evidence
-and may not include stdout/stderr. Raw executable launch is never a fallback.
+There is no `app.log` claim. On failure, before AX diagnostics and cleanup,
+`startup-sample.txt` retains a two-second `/usr/bin/sample` of the exact owned
+PID after executable/start identity verification. `startup-unified.log` queries
+only that PID from the recorded launch request time through collection time,
+with a fresh identity observation first. An already exited app cannot be sampled;
+its logs can still be queried. Identity mismatch refuses collection. Each tool
+has an eight-second deadline and a 1 MiB retained-output limit; the harness
+terminates and reaps its diagnostic tool on timeout/truncation. The target app
+is still stopped only by the existing scoped cleanup. `startup-diagnostics.json`
+and `report.startupDiagnostics` retain commands, observations, return codes,
+timeouts, truncation and errors. Lost launch replies collect after exact-PID
+recovery and before termination. Missing tools/log access remain diagnostic
+errors and never turn a failure into a pass. Unified logs may be empty or omit
+stdout/stderr and unpersisted messages. `runnerContext.sshSessionPresent` records
+only whether the runner inherited SSH session markers; it does not establish
+causation or copy their values. Raw executable launch is never a fallback.
 
 The app and helper children receive disposable `HOME` and `CFFIXED_USER_HOME`
 under `output/fixtures/home`, `/bin/zsh`, synthetic ZDOTDIR and XDG config. The
@@ -210,3 +223,40 @@ Screenshots: two panes ready, busy-close modal, reopened usable terminal, and
 last failure when an owned window is available. They are captured by exact owner
 PID + CG window ID, decoded as PNG, and never use a desktop fallback. This manual
 gate does not imply full preflight, VoiceOver, device, or hosted CI acceptance.
+
+## Project transcript browser on minimighty
+
+`heavy-gate ./script/native-ui.sh` runs preflight and staging, then invokes this
+runner with `--project-transcripts` at 1.0 and the maximum supported 1.35 text
+scale using Georgia.
+This scenario preserves the synthetic PR #775 journey formerly kept under
+`.build/pr775/harness`: project/child filtering, refresh, cancel/reopen, opening
+a transcript, and document focus. It shares the lifecycle driver's permission,
+identity, isolation and cleanup rules. It does not claim a TL01–TL05 pass or
+VoiceOver speech verification.
+
+`heavy-gate ./script/native-ui.sh --check-prerequisites` only compiles/probes the
+helper without building or launching the app. Existing Accessibility and Screen
+Recording permission grants and an unlocked runner desktop are required. Reports
+and screenshots return under `.build/minimighty-ui/` in unique run directories.
+The normal lifecycle invocation and its scenarios remain available unchanged.
+
+`heavy-gate ./script/native-ui.sh --diagnose-startup` skips preflight and the two
+transcript journeys, stages through the same `--stage-local-api-e2e` path, and
+runs exactly one real setup at normal scale with the transcript config. It
+retains all permission, console, signing, path isolation, launch identity,
+window/focus, fresh-profile, first-backend and fixture shell identity checks.
+It stops after the first terminal is ready, then performs the same cleanup.
+Evidence is under `.build/minimighty-ui/run.XXXXXXXX/startup/`; a successful
+report has `mode: startup` and proves startup only. It provides no preflight,
+lifecycle or transcript-journey pass. A failure retains the diagnostics above.
+The Python driver's `--diagnose-startup` uses an already staged bundle and can
+be combined with `--project-transcripts` to reproduce that scenario's config;
+it cannot be combined with prerequisite-only or freshness checks.
+
+Remote jobs may provide `HEAVY_GATE_UI_FIXTURE_ROOT`, an owned mode-0700
+directory below macOS user temp. Each run allocates a unique fixture directory
+there, including its disposable app copy, and removes it after app/backend
+cleanup. This keeps interactive fixtures and bundled fonts off removable
+volumes while builds, reports and screenshots stay
+in the job's SSD workspace. Local runs retain the existing output fixture path.

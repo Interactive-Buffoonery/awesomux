@@ -8,18 +8,25 @@ from pathlib import Path
 import plistlib
 import re
 import secrets
+import selectors
 import shlex
 import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PRODUCTION = [
-    "docs/shortcuts.md", "docs/amx-automation.md", "script/runtime-profile.sh",
+    "docs/shortcuts.md", "docs/amx-automation.md", "script/runtime-profile.sh", "script/native-ui.sh",
+    "Sources/awesoMux/Views/AgentProjectTranscriptBrowser.swift",
+    "Sources/AwesoMuxCore/Services/AgentProjectTranscripts.swift",
+    "Sources/awesoMux/Services/AgentTranscriptPaneInputs.swift",
+    "Sources/awesoMux/Services/AgentTranscriptOpener.swift",
     "Sources/awesoMux/App/AwesoMuxApp.swift",
     "Sources/awesoMux/Services/AppRuntimeProfile.swift",
     "Sources/awesoMux/Services/AmxBackend.swift",
@@ -58,6 +65,37 @@ def run(argv, **kwargs):
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def open_fixture_root(value, temporary_directory):
+    root = Path(value)
+    if not root.is_absolute() or ".." in root.parts:
+        raise Blocked("Fixture root must be an absolute path without parent traversal")
+    temporary = temporary_directory.resolve(strict=True)
+    # getconf may use the system /var alias; only that trusted prefix is canonicalized.
+    relative = None
+    for base in (temporary_directory, temporary):
+        try:
+            relative = root.relative_to(base)
+            break
+        except ValueError:
+            pass
+    if relative is None or not relative.parts:
+        raise Blocked("Fixture root must be inside DARWIN_USER_TEMP_DIR")
+    descriptor = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in relative.parts:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        metadata = os.fstat(descriptor)
+        if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise Blocked("Fixture root must be owned by the runner UID with mode 0700")
+        return temporary / relative, descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def submodule_source(path):
@@ -134,13 +172,59 @@ def alive(pid):
     return observe_process(pid)["running"]
 
 
+def diagnostic_command(argv, path, seconds=8, limit=1024 * 1024):
+    """Bound tool lifetime and retained bytes; always reap our diagnostic child."""
+    evidence = {"command": [str(arg) for arg in argv], "path": str(path),
+                "timeoutSeconds": seconds, "byteLimit": limit}
+    with path.open("wb") as stream, selectors.DefaultSelector() as selector:
+        process = subprocess.Popen(evidence["command"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            deadline = time.monotonic() + seconds
+            retained = 0
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    evidence["timedOut"] = True
+                    break
+                for key, _ in selector.select(min(remaining, 0.1)):
+                    chunk = os.read(key.fd, min(65536, limit - retained + 1))
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    stream.write(chunk[:limit - retained])
+                    retained += len(chunk)
+                    if retained > limit:
+                        evidence["truncated"] = True
+                        break
+                if evidence.get("truncated"):
+                    break
+            evidence["retainedBytes"] = min(retained, limit)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+            process.stdout.close()
+            evidence["returncode"] = process.returncode
+    return evidence
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--bundle", type=Path, default=ROOT / "dist/awesoMux.app")
     parser.add_argument("--check-prerequisites", action="store_true")
+    parser.add_argument("--project-transcripts", action="store_true")
+    parser.add_argument("--diagnose-startup", action="store_true",
+                        help="Run one real isolated setup, then stop before the journey")
     parser.add_argument("--check-freshness", type=Path)
     args = parser.parse_args()
+    if args.diagnose_startup and (args.check_prerequisites or args.check_freshness):
+        parser.error("--diagnose-startup requires a real setup")
     if args.check_freshness:
         fresh = json.loads(args.check_freshness.read_text())["source"] == source()
         print("fresh" if fresh else "stale: source/harness identity differs; rerun E2E")
@@ -149,8 +233,9 @@ def main():
         parser.error("--output is required")
     output = args.output.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    report = {"status": "blocked", "mode": "prerequisites" if args.check_prerequisites else "lifecycle",
-              "steps": [], "screenshots": [], "cleanup": {"status": "not-needed"}}
+    report = {"status": "blocked", "mode": "prerequisites" if args.check_prerequisites else ("startup" if args.diagnose_startup else ("project-transcripts" if args.project_transcripts else "lifecycle")),
+              "steps": [], "screenshots": [], "cleanup": {"status": "not-needed"},
+              "runnerContext": {"sshSessionPresent": any(key in os.environ for key in ("SSH_CONNECTION", "SSH_TTY"))}}
     helper = output / "native"
     app_pid = None
     launch_attempted = False
@@ -158,6 +243,10 @@ def main():
     window_id = None
     profile = None
     owned_paths = []
+    fixtures = None
+    fixture_root = None
+    fixture_identity = None
+    fixture_helper = HERE / "fixture.py"
     launched = False
     env = None
     bundle = output / "run/awesoMux.app"
@@ -261,7 +350,43 @@ def main():
         report["screenshots"].append(evidence)
         save()
 
+    def retain_startup_diagnostics():
+        if app_pid is None or "startupDiagnostics" in report:
+            return
+        evidence = {"pid": app_pid, "commands": []}
+        report["startupDiagnostics"] = evidence
+        try:
+            # Sample before AX calls or cleanup can obscure the startup stall.
+            if not owned_running():
+                evidence["sampleSkipped"] = "Owned process already exited"
+            else:
+                evidence["sampleObservation"] = report["lastAppProcessObservation"]
+                try:
+                    evidence["commands"].append(diagnostic_command(
+                        ["/usr/bin/sample", app_pid, "2", "10", "-file", "/dev/stdout"],
+                        output / "startup-sample.txt"))
+                except Exception as error:
+                    evidence["sampleError"] = str(error)
+            # Revalidate birth/executable before querying logs for this PID.
+            owned_running()
+            evidence["logObservation"] = report["lastAppProcessObservation"]
+            start = report.get("launch", {}).get("requestedAtUTC")
+            if start:
+                end = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+0000")
+                evidence["commands"].append(diagnostic_command(
+                    ["/usr/bin/log", "show", "--style", "compact", "--info", "--debug",
+                     "--start", start, "--end", end, "--predicate", f"processIdentifier == {app_pid}"],
+                    output / "startup-unified.log"))
+            else:
+                evidence["logSkipped"] = "Launch timestamp unavailable"
+        except Exception as error:
+            evidence["error"] = str(error)
+        finally:
+            (output / "startup-diagnostics.json").write_text(json.dumps(evidence, indent=2) + "\n")
+            save()
+
     def retain_failure():
+        retain_startup_diagnostics()
         if app_pid:
             diagnostic_path = output / "failure-diagnostic.json"
             try:
@@ -337,7 +462,7 @@ def main():
         report.setdefault("challenges", []).append({"scenario": scenario, "nonce": nonce,
                                                    "session": session, "siblings": sorted(sessions() - {session})})
         save()
-        type_into(session, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} respond $$ {nonce}")
+        type_into(session, f"{shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} respond $$ {nonce}")
         response = response_for(nonce, session)
         def received():
             audit_challenges()
@@ -376,14 +501,31 @@ def main():
             raise Blocked("Interactive console unavailable: " + "; ".join(prerequisites["consoleState"]["errors"]))
         if not all(prerequisites[key] is True for key in ("accessibility", "screenCapture")):
             raise Blocked("GUI/Accessibility/Screen Recording prerequisite unavailable")
-        fixtures = output / "fixtures"
-        fixtures.mkdir(mode=0o700)
+        socket_base = Path(run(["getconf", "DARWIN_USER_TEMP_DIR"]))
+        fixture_override = os.environ.get("HEAVY_GATE_UI_FIXTURE_ROOT")
+        if fixture_override is not None:
+            fixture_root, descriptor = open_fixture_root(fixture_override, socket_base)
+            try:
+                fixtures = Path(tempfile.mkdtemp(prefix="native-ui-", dir=fixture_root))
+                fixture_identity = os.stat(fixtures.name, dir_fd=descriptor, follow_symlinks=False)
+            finally:
+                os.close(descriptor)
+        else:
+            fixtures = output / "fixtures"
+            fixtures.mkdir(mode=0o700)
+        if fixture_root is not None:
+            fixture_helper = fixtures / "fixture.py"
+            shutil.copy2(HERE / "fixture.py", fixture_helper)
+            if digest(fixture_helper) != digest(HERE / "fixture.py"):
+                raise Blocked("Copied fixture helper differs from committed source")
+        report["fixtures"] = {"path": str(fixtures), "temporary": fixture_root is not None,
+                              "helper": str(fixture_helper), "helperSHA256": digest(fixture_helper)}
+        save()
         fixture_home = fixtures / "home"
         fixture_home.mkdir(mode=0o700)
         (fixtures / "panes").mkdir(mode=0o700)
         # These overrides belong only to isolated child processes, never this runner.
         env = {key: os.environ[key] for key in ("PATH", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING") if key in os.environ}
-        socket_base = Path(run(["getconf", "DARWIN_USER_TEMP_DIR"]))
         env.update(HOME=str(fixture_home), CFFIXED_USER_HOME=str(fixture_home),
                    SHELL="/bin/zsh", ZDOTDIR=str(fixtures), XDG_CONFIG_HOME=str(fixture_home / ".config"),
                    TL_FIXTURES=str(fixtures), TMPDIR=str(socket_base) + "/", LANG="en_US.UTF-8", TZ="UTC", LC_ALL="C")
@@ -402,7 +544,9 @@ def main():
             log("prerequisites", "ready")
             code = 0
         else:
-            run_dir = output / "run"
+            run_dir = (fixtures if fixture_root is not None else output) / "run"
+            bundle = run_dir / "awesoMux.app"
+            binary = bundle / "Contents/MacOS/awesoMux"
             run_dir.mkdir(mode=0o700)
             profile_text = run(["/bin/bash", "-c", 'source "$1"; awesomux_resolve_profile "development:$(awesomux_worktree_id "$2")"; awesomux_print_profile',
                                 "lifecycle", ROOT / "script/runtime-profile.sh", run_dir])
@@ -427,11 +571,18 @@ def main():
             (config / "config.toml").write_text(
                 "[terminal]\ncommand_bridge_enabled = true\n"
                 "[workspaces]\nconfirm_close_with_running_agent = true\n"
-                "[notifications]\nmuted = true\n")
+                "[notifications]\nmuted = true\n"
+                + (("[appearance]\nui_text_scale = " + os.environ.get("PR775_SCALE", "1.0") + "\nui_font = \"Georgia\"\n") if args.project_transcripts else ""))
             secret = secrets.token_hex(32)
             (fixtures / "secret").write_text(secret)
             report["runID"] = secrets.token_hex(6)
             shutil.copytree(args.bundle, bundle, symlinks=True)
+            if fixture_root is not None:
+                for path in bundle.rglob("*"):
+                    if path.is_symlink() and not path.resolve().is_relative_to(bundle.resolve()):
+                        raise Blocked("Copied app symlink escapes its bundle: " + str(path))
+                if not (bundle / "Contents/Resources/awesoMux_DesignSystem.bundle").is_dir():
+                    raise Blocked("Copied app lacks bundled design-system fonts")
             info = bundle / "Contents/Info.plist"
             metadata = plistlib.loads(info.read_bytes())
             metadata["CFBundleIdentifier"] = profile["bundle"]
@@ -446,7 +597,7 @@ def main():
             startup = f'''PS1='TL_PROMPT_{report["runID"]} '
 [[ "$ZMX_SESSION" =~ '^[0-9a-f-]{{36}}$' ]] || exit 91
 mkdir -m 700 -- "$TL_FIXTURES/panes/$ZMX_SESSION" && cd -P -- "$TL_FIXTURES/panes/$ZMX_SESSION" || exit 91
-{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} register $$
+{shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} register $$
 printf '\\033]7;file://%s%s\\007\\033]2;%s\\007' "$HOST" "$PWD" "$PWD"
 '''
             (fixtures / ".zshenv").write_text(f'''if [[ "$CFFIXED_USER_HOME" != {shlex.quote(str(fixture_home))} || "$TL_FIXTURES" != {shlex.quote(str(fixtures))} || "$ZDOTDIR" != {shlex.quote(str(fixtures))} ]]; then
@@ -465,7 +616,8 @@ export GHOSTTY_SHELL_FEATURES=""
                                                "environment": env,
                                                "arguments": ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]}, indent=2))
             report["launch"] = {"method": "NSWorkspace.OpenConfiguration", "request": str(request_path),
-                                "receipt": str(launch_receipt), "stdoutStderr": "not redirected by LaunchServices"}
+                                "receipt": str(launch_receipt), "stdoutStderr": "not redirected by LaunchServices",
+                                "requestedAtUTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+0000")}
             check_console()
             launch_attempted = True
             save()
@@ -492,6 +644,7 @@ export GHOSTTY_SHELL_FEATURES=""
             try:
                 state = poll("owned content window", initial_window)
             except BaseException as error:
+                retain_startup_diagnostics()
                 diagnostic_path = output / "window-readiness-diagnostic.json"
                 try:
                     diagnostic = native("diagnose")
@@ -523,79 +676,150 @@ export GHOSTTY_SHELL_FEATURES=""
                 return len(sessions()) == 1
             poll("first backend", first_backend)
             first = next(iter(sessions()))
-            menu("Pane", "Split Right")
-            poll("two backend sessions", lambda: len(sessions()) == 2)
-            current = sessions()
-            identities = {}
-            for session in current:
-                data = poll("shell identity", lambda s=session: receipt(fixtures / (s + ".json")))
-                if data["session"] != session or data["profile"] != profile["profile"] \
+            if args.project_transcripts or args.diagnose_startup:
+                data = poll("shell identity", lambda: receipt(fixtures / (first + ".json")))
+                if data["session"] != first or data["profile"] != profile["profile"] \
                         or Path(data["namespace"]).resolve() != socket.resolve() or not alive(data["shellPID"]) \
                         or data["home"] != str(fixture_home) or data["fixedHome"] != str(fixture_home) \
                         or data["startupZDOTDIR"] != str(fixtures) or data["zdotdir"] != str(fixtures) \
-                        or str(Path(data["cwd"]).resolve()) != title(session):
+                        or str(Path(data["cwd"]).resolve()) != title(first):
                     raise RuntimeError("Fixture shell/profile identity mismatch")
-                identities[session] = data
-            second = next(iter(current - {first}))
-            if identities[first]["workspace"] != identities[second]["workspace"]:
-                raise RuntimeError("Split created another workspace")
-            report["identities"] = identities
-            poll("two native terminals", lambda: len(snapshot()["terminals"]) == 2)
-            capture("two-panes-ready")
-            log("TL01", "pass", sessions=sorted(current))
-            report["activeScenario"] = "TL02"
-            menu("Pane", "Focus Pane 1")
-            challenge(first, "TL02-pane1")
-            menu("Pane", "Focus Pane 2")
-            challenge(second, "TL02-pane2")
-            log("TL02", "pass")
-            report["activeScenario"] = "TL03"
-            type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} job $$")
-            job = poll("controlled foreground job", lambda: receipt(fixtures / "job.json"))
-            if not same_identity(job, second) or not alive(job["jobPID"]):
-                raise RuntimeError("Controlled job identity mismatch")
-            report["job"] = job
-            menu("Pane", "Focus Pane 1")
-            type_into(first, "exit")
-            poll("exited pane removed", lambda: first not in sessions() and len(snapshot()["terminals"]) == 1)
-            poll("exited root shell gone", lambda: not alive(identities[first]["shellPID"]))
-            before = receipt(fixtures / "job.json")["heartbeat"]
-            poll("sibling job survived", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
-            if not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Sibling shell died")
-            log("TL03", "pass", shellPID=identities[second]["shellPID"], jobPID=job["jobPID"])
-            report["activeScenario"] = "TL04"
-            menu("Pane", "Close Workspace")
-            poll("busy-close modal", lambda: {"Cancel", "Close Workspace"}.issubset(
-                {b["title"] for b in snapshot()["modalButtons"]}))
-            capture("busy-close-modal")
-            before = receipt(fixtures / "job.json")["heartbeat"]
-            native("cancel", window_id)
-            poll("modal dismissed", lambda: not any(b["title"] == "Cancel" for b in snapshot()["buttons"]))
-            poll("cancel preserves running job", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
-            if sessions() != {second} or not alive(job["jobPID"]) or not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Cancel changed shell/job/backend identity")
-            log("TL04", "pass", jobPID=job["jobPID"])
-            report["activeScenario"] = "TL05"
-            (fixtures / "release").touch()
-            poll("job completed normally", lambda: receipt(fixtures / "job-finished.json") and not alive(job["jobPID"]))
-            challenge(second, "TL05-before-close")
-            menu("Workspace", "Close Workspace")
-            poll("workspace soft closed", lambda: len(snapshot()["terminals"]) == 0)
-            if sessions() != {second} or not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Soft close destroyed persistent shell")
-            menu("Workspace", "Reopen Closed Workspace")
-            def reopened():
-                terminals = snapshot()["terminals"]
-                return len(terminals) == 1 and terminal_matches(terminals[0], second)
-            poll("reopened same terminal", reopened)
-            menu("Pane", "Focus Pane 1")
-            challenge(second, "TL05-reopened")
-            if sessions() != {second} or not alive(identities[second]["shellPID"]):
-                raise RuntimeError("Reopen replaced persistent shell")
-            capture("reopened-usable-terminal")
-            log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"])
-            audit_challenges()
+                identities = {first: data}
+                report["identities"] = identities
+            if args.diagnose_startup:
+                poll("terminal ready", lambda: any(terminal_matches(t, first) for t in snapshot()["terminals"]))
+                report["reason"] = "Startup ready; lifecycle and transcript journeys not executed"
+                log("startup", "pass")
+            elif args.project_transcripts:
+                project = Path(run([helper, "canonical-path", title(first)]))
+                slug = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(project))
+                claude = fixture_home / ".claude/projects" / slug
+                codex = fixture_home / ".codex/sessions/2026/10/22"
+                claude.mkdir(parents=True); codex.mkdir(parents=True)
+                ids = [f"10000000-0000-4000-8000-{n:012d}" for n in range(1,5)]
+                def write(path, rows):
+                    path.write_text("".join(json.dumps(row)+"\n" for row in rows))
+                    path.chmod(0o600)
+                write(claude/(ids[0]+".jsonl"), [{"type":"user", "sessionId":ids[0], "cwd":str(project), "message":{"content":"PR775_CLAUDE_SYNTHETIC"}}])
+                for i, cwd, extra in [(1,project,{}),(2,project.parent,{}),(3,project,{"source":{"subagent":{}}})]:
+                    write(codex/("rollout-"+ids[i]+".jsonl"), [
+                        {"type":"session_meta","payload":{"id":ids[i],"cwd":str(cwd),"source":"cli",**extra}},
+                        {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"PR775_CODEX_SYNTHETIC"}]}}])
+                poll("terminal ready", lambda: any(terminal_matches(t,first) for t in snapshot()["terminals"]))
+                menu("Pane", "Browse Project Transcripts")
+                def listed():
+                    nodes=native("dump",window_id)
+                    text=json.dumps(nodes)
+                    return nodes if ids[0] in text and ids[1] in text else None
+                listing=poll("project transcript rows",listed)
+                listing_text=json.dumps(listing)
+                assert ids[2] not in listing_text and ids[3] not in listing_text
+                (output/"browser-ax.json").write_text(json.dumps(listing,indent=2))
+                capture("browser-scale-"+os.environ.get("PR775_SCALE","1.0"))
+                refresh_id = "10000000-0000-4000-8000-000000000005"
+                if refresh_id in listing_text:
+                    raise RuntimeError("Refresh fixture unexpectedly existed before creation")
+                write(claude/(refresh_id+".jsonl"), [{"type":"user", "sessionId":refresh_id, "cwd":str(project), "message":{"content":"PR775_REFRESH_SYNTHETIC"}}])
+                native("press",window_id,"Refresh")
+                def refreshed():
+                    nodes = listed()
+                    return nodes if nodes and refresh_id in json.dumps(nodes) else None
+                refreshed_listing = poll("new transcript appears after refresh", refreshed)
+                if any(excluded in json.dumps(refreshed_listing) for excluded in ids[2:]):
+                    raise RuntimeError("Refresh included an unrelated or child transcript")
+                report["refreshVerifiedID"] = refresh_id
+                native("press",window_id,"Cancel")
+                poll("cancel dismissed browser",lambda: not any((b["title"]=="Refresh" or b["description"]=="Refresh") for b in snapshot()["buttons"]))
+                menu("Pane", "Browse Project Transcripts")
+                poll("rows after reopen",listed)
+                native("press",window_id,"Open")
+                def opened():
+                    nodes=native("dump",window_id)
+                    text=json.dumps(nodes)
+                    return nodes if "PR775_" in text and "SYNTHETIC" in text else None
+                document=poll("opened synthetic transcript",opened)
+                (output/"document-ax.json").write_text(json.dumps(document,indent=2))
+                focus=snapshot()
+                report["documentFocus"]=focus
+                assert not focus["focusedTerminal"]
+                assert "PR775_" in focus["focusedValue"]
+                capture("opened-document")
+                report["browserVerification"]={"expectedIDs":ids[:2]+[refresh_id],"excludedIDs":ids[2:],"scale":os.environ.get("PR775_SCALE","1.0"),"font":"Georgia","voiceOverSpeech":"not tested"}
+                log("PR775", "pass", checks=["project and child filtering", "refresh", "cancel and reopen", "open", "document focus"])
+            else:
+                menu("Pane", "Split Right")
+                poll("two backend sessions", lambda: len(sessions()) == 2)
+                current = sessions()
+                identities = {}
+                for session in current:
+                    data = poll("shell identity", lambda s=session: receipt(fixtures / (s + ".json")))
+                    if data["session"] != session or data["profile"] != profile["profile"] \
+                            or Path(data["namespace"]).resolve() != socket.resolve() or not alive(data["shellPID"]) \
+                            or data["home"] != str(fixture_home) or data["fixedHome"] != str(fixture_home) \
+                            or data["startupZDOTDIR"] != str(fixtures) or data["zdotdir"] != str(fixtures) \
+                            or str(Path(data["cwd"]).resolve()) != title(session):
+                        raise RuntimeError("Fixture shell/profile identity mismatch")
+                    identities[session] = data
+                second = next(iter(current - {first}))
+                if identities[first]["workspace"] != identities[second]["workspace"]:
+                    raise RuntimeError("Split created another workspace")
+                report["identities"] = identities
+                poll("two native terminals", lambda: len(snapshot()["terminals"]) == 2)
+                capture("two-panes-ready")
+                log("TL01", "pass", sessions=sorted(current))
+                report["activeScenario"] = "TL02"
+                menu("Pane", "Focus Pane 1")
+                challenge(first, "TL02-pane1")
+                menu("Pane", "Focus Pane 2")
+                challenge(second, "TL02-pane2")
+                log("TL02", "pass")
+                report["activeScenario"] = "TL03"
+                type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} job $$")
+                job = poll("controlled foreground job", lambda: receipt(fixtures / "job.json"))
+                if not same_identity(job, second) or not alive(job["jobPID"]):
+                    raise RuntimeError("Controlled job identity mismatch")
+                report["job"] = job
+                menu("Pane", "Focus Pane 1")
+                type_into(first, "exit")
+                poll("exited pane removed", lambda: first not in sessions() and len(snapshot()["terminals"]) == 1)
+                poll("exited root shell gone", lambda: not alive(identities[first]["shellPID"]))
+                before = receipt(fixtures / "job.json")["heartbeat"]
+                poll("sibling job survived", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
+                if not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Sibling shell died")
+                log("TL03", "pass", shellPID=identities[second]["shellPID"], jobPID=job["jobPID"])
+                report["activeScenario"] = "TL04"
+                menu("Pane", "Close Workspace")
+                poll("busy-close modal", lambda: {"Cancel", "Close Workspace"}.issubset(
+                    {b["title"] for b in snapshot()["modalButtons"]}))
+                capture("busy-close-modal")
+                before = receipt(fixtures / "job.json")["heartbeat"]
+                native("cancel", window_id)
+                poll("modal dismissed", lambda: not any(b["title"] == "Cancel" for b in snapshot()["buttons"]))
+                poll("cancel preserves running job", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
+                if sessions() != {second} or not alive(job["jobPID"]) or not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Cancel changed shell/job/backend identity")
+                log("TL04", "pass", jobPID=job["jobPID"])
+                report["activeScenario"] = "TL05"
+                (fixtures / "release").touch()
+                poll("job completed normally", lambda: receipt(fixtures / "job-finished.json") and not alive(job["jobPID"]))
+                challenge(second, "TL05-before-close")
+                menu("Workspace", "Close Workspace")
+                poll("workspace soft closed", lambda: len(snapshot()["terminals"]) == 0)
+                if sessions() != {second} or not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Soft close destroyed persistent shell")
+                menu("Workspace", "Reopen Closed Workspace")
+                def reopened():
+                    terminals = snapshot()["terminals"]
+                    return len(terminals) == 1 and terminal_matches(terminals[0], second)
+                poll("reopened same terminal", reopened)
+                menu("Pane", "Focus Pane 1")
+                challenge(second, "TL05-reopened")
+                if sessions() != {second} or not alive(identities[second]["shellPID"]):
+                    raise RuntimeError("Reopen replaced persistent shell")
+                capture("reopened-usable-terminal")
+                log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"])
+                audit_challenges()
             report["status"] = "pass"
             code = 0
     except Blocked as error:
@@ -664,6 +888,8 @@ export GHOSTTY_SHELL_FEATURES=""
                             if recovered["processStart"] != report["appProcessStart"] or (
                                     recovered["executableCanonical"] != str(binary.resolve()) and not exiting_removed):
                                 raise RuntimeError("Recovered launch identity changed: " + json.dumps(recovered))
+                if report["status"] != "pass":
+                    retain_startup_diagnostics()
                 if owned_running():
                     signal_owned(signal.SIGTERM)
                     try:
@@ -696,11 +922,36 @@ export GHOSTTY_SHELL_FEATURES=""
                 for path in owned_paths:
                     if path.exists() or path.is_symlink():
                         run(["trash", path])
-                if bundle.exists():
+                if fixture_root is None and bundle.exists():
                     run(["trash", bundle])
                 report["cleanup"]["status"] = "pass"
             except BaseException as error:
                 report["cleanup"].update(status="fail", reason=str(error))
+                report["status"] = "fail"
+                code = 1
+        if fixtures is not None:
+            fixture_cleanup = {"status": "pending", "path": str(fixtures)}
+            report["cleanup"]["fixtures"] = fixture_cleanup
+            try:
+                if launch_attempted and report["cleanup"]["status"] != "pass":
+                    raise RuntimeError("Fixture cleanup retained paths: process cleanup incomplete")
+                if fixture_root is not None:
+                    _, descriptor = open_fixture_root(fixture_override, socket_base)
+                    try:
+                        current = os.stat(fixtures.name, dir_fd=descriptor, follow_symlinks=False)
+                        if (current.st_dev, current.st_ino) != (fixture_identity.st_dev, fixture_identity.st_ino):
+                            raise RuntimeError("Owned fixture directory identity changed")
+                        run(["trash", fixtures])
+                    finally:
+                        os.close(descriptor)
+                else:
+                    secret_path = fixtures / "secret"
+                    if secret_path.exists() or secret_path.is_symlink():
+                        run(["trash", secret_path])
+                fixture_cleanup["status"] = "pass"
+            except BaseException as error:
+                fixture_cleanup.update(status="fail", reason=str(error))
+                report["cleanup"]["status"] = "fail"
                 report["status"] = "fail"
                 code = 1
         save()

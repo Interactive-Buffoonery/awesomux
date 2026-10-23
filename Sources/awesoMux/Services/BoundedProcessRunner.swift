@@ -240,7 +240,7 @@ enum BoundedProcessRunner {
             defer { posix_spawnattr_destroy(&attributes) }
             guard
                 posix_spawnattr_setflags(
-                    &attributes, Int16(POSIX_SPAWN_SETPGROUP)
+                    &attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
                 ) == 0,
                 posix_spawnattr_setpgroup(&attributes, 0) == 0
             else {

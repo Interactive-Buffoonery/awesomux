@@ -406,8 +406,8 @@ struct CompanionTerminalWatchLifecycleTests {
     // Writes can each complete within their own timeout while a single
     // snapshot retains the daemon socket indefinitely. Progress must not reset it.
     @Test func snapshotDeliveryHasOneDeadlineAcrossSuccessfulWrites() async throws {
-        let buffer = Relay.Buffer()
         let clock = OSAllocatedUnfairLock(initialState: ContinuousClock.now)
+        let buffer = Relay.Buffer(now: { clock.withLock { $0 } })
         var writes = 0
         let reason = await Relay.run(
             socketPath: "unused", paneID: UUID(), targetVersion: UUID(), grid: .init(rows: 24, cols: 80), buffer: buffer,
@@ -429,8 +429,8 @@ struct CompanionTerminalWatchLifecycleTests {
     }
 
     @Test func snapshotDeadlineCancelsStalledWriterAndCapacityWaiter() async {
-        let buffer = Relay.Buffer(maximumPendingBytes: 64)
         let clock = OSAllocatedUnfairLock(initialState: ContinuousClock.now)
+        let buffer = Relay.Buffer(maximumPendingBytes: 64, now: { clock.withLock { $0 } })
         let blockedWriter = CompanionNetworkOperation<Void>()
         let producerFinished = CompanionNetworkOperation<Void>()
         let (started, signal) = AsyncStream<Void>.makeStream()
