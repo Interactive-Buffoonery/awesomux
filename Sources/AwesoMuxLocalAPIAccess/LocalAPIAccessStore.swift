@@ -411,6 +411,7 @@ public final class LocalAPIAccessStore {
     public private(set) var ownsAuthority = false
     public let runtimeAuthority: LocalAPIRuntimeAuthority
 
+    @ObservationIgnored private var migrationPending = false
     @ObservationIgnored private let directoryURL: URL
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let fileManager: FileManager
@@ -459,9 +460,8 @@ public final class LocalAPIAccessStore {
             }
             runtimeAuthority.replace(with: loadedState)
         } catch {
-            var denied = loadedState
-            denied.connections.removeAll { $0.kind == .companion }
-            runtimeAuthority.replace(with: denied)
+            migrationPending = true
+            replaceRuntime(with: loadedState, invalidating: .none)
             persistenceFailureMessage = String(
                 localized: "Companion access is paused because updated permissions could not be saved. Retry Save to restore access.",
                 comment: "Recoverable warning when device-wide companion permission migration could not be saved.")
@@ -781,7 +781,9 @@ public final class LocalAPIAccessStore {
     }
 
     private func replaceRuntime(with candidate: LocalAPIAccessState, invalidating: Invalidation) {
-        runtimeAuthority.replace(with: candidate)
+        var authorized = candidate
+        if migrationPending { authorized.connections.removeAll { $0.kind == .companion } }
+        runtimeAuthority.replace(with: authorized)
         switch invalidating {
         case .none:
             break
@@ -818,6 +820,10 @@ public final class LocalAPIAccessStore {
             guard directoryFD >= 0 else { throw LocalAPIAccessFailure.persistenceFailed }
             defer { close(directoryFD) }
             try fileManager.writeOwnerOnlyFile(at: fileURL, contents: data)
+            if migrationPending {
+                migrationPending = false
+                runtimeAuthority.replace(with: candidate)
+            }
             return fsync(directoryFD) == 0
         } catch let error as LocalAPIAccessFailure {
             throw error

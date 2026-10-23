@@ -121,6 +121,12 @@ import Testing
             profile: "development", operation: .connectionStatus, connectionID: outside.connection.id,
             credential: LocalAPICredential.encode(outside.credential))
         #expect(try migrated.runtimeAuthority.provider.authorize(outsideRequest).get().connectionID == outside.connection.id)
+        #expect(throws: LocalAPIAccessFailure.persistenceFailed) { try migrated.revoke(connectionID: outside.connection.id) }
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try migrated.runtimeAuthority.authorizeCompanion(
+                connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+            ).get()
+        }
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         try migrated.retryPersistence()
         #expect(migrated.persistenceFailureMessage == nil)
