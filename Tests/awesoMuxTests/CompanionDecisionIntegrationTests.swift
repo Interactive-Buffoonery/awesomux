@@ -30,25 +30,20 @@ import Testing
         let phone = try #require(access).registerCompanion(
             phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
         let file = root.appendingPathComponent("LocalAPI/access.json")
-        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
-        var connections = try #require(object["connections"] as? [[String: Any]])
-        var metadata = try #require(connections[0]["companion"] as? [String: Any])
-        metadata.removeValue(forKey: "decisionsAllowed")
-        switch grant {
-        case .missing: break
-        case .empty: metadata["decideWorkspaceIDs"] = [String]()
-        case .granted: metadata["decideWorkspaceIDs"] = [UUID().uuidString]
-        case .explicitOff:
-            metadata["decideWorkspaceIDs"] = [UUID().uuidString]
-            metadata["decisionsAllowed"] = false
-        case .explicitOn:
-            metadata["decideWorkspaceIDs"] = [String]()
-            metadata["decisionsAllowed"] = true
-        }
-        connections[0]["companion"] = metadata
-        object["connections"] = connections
         access = nil
-        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        _ = try rewriteLegacyDecisionMetadata(at: file) { metadata in
+            switch grant {
+            case .missing: break
+            case .empty: metadata["decideWorkspaceIDs"] = [String]()
+            case .granted: metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+            case .explicitOff:
+                metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+                metadata["decisionsAllowed"] = false
+            case .explicitOn:
+                metadata["decideWorkspaceIDs"] = [String]()
+                metadata["decisionsAllowed"] = true
+            }
+        }
         let migrated = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
         #expect(migrated.loadFailure == nil)
         #expect(migrated.state.connections.first { $0.id == phone.id }?.companion?.decisionsAllowed == enabled)
@@ -67,17 +62,11 @@ import Testing
         _ = try #require(access).registerCompanion(
             phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
         let file = root.appendingPathComponent("LocalAPI/access.json")
-        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
-        var connections = try #require(object["connections"] as? [[String: Any]])
-        var metadata = try #require(connections[0]["companion"] as? [String: Any])
-        metadata.removeValue(forKey: "decisionsAllowed")
-        let workspace = UUID().uuidString
-        metadata["decideWorkspaceIDs"] = [workspace.uppercased(), workspace.lowercased()]
-        connections[0]["companion"] = metadata
-        object["connections"] = connections
         access = nil
-        let legacy = try JSONSerialization.data(withJSONObject: object)
-        try legacy.write(to: file)
+        let legacy = try rewriteLegacyDecisionMetadata(at: file) { metadata in
+            let workspace = UUID().uuidString
+            metadata["decideWorkspaceIDs"] = [workspace.uppercased(), workspace.lowercased()]
+        }
         let denied = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
         #expect(denied.loadFailure == .preservedInvalidState)
         #expect(denied.state.connections.isEmpty)
@@ -96,16 +85,10 @@ import Testing
         try #require(access).setGloballyEnabled(true)
         let directory = root.appendingPathComponent("LocalAPI")
         let file = directory.appendingPathComponent("access.json")
-        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
-        var connections = try #require(object["connections"] as? [[String: Any]])
-        let index = try #require(connections.firstIndex { $0["kind"] as? String == "companion" })
-        var metadata = try #require(connections[index]["companion"] as? [String: Any])
-        metadata.removeValue(forKey: "decisionsAllowed")
-        metadata["decideWorkspaceIDs"] = [UUID().uuidString]
-        connections[index]["companion"] = metadata
-        object["connections"] = connections
         access = nil
-        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        _ = try rewriteLegacyDecisionMetadata(at: file) { metadata in
+            metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+        }
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
         let migrated = LocalAPIAccessStore(
             profile: "development", supportDirectoryURL: root, fileManager: MigrationReadOnlyFileManager())
@@ -134,6 +117,20 @@ import Testing
             connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
         ).get()
         #expect(lease.decisionsAllowed)
+    }
+
+    private func rewriteLegacyDecisionMetadata(at file: URL, change: (inout [String: Any]) -> Void) throws -> Data {
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        let index = try #require(connections.firstIndex { $0["kind"] as? String == "companion" })
+        var metadata = try #require(connections[index]["companion"] as? [String: Any])
+        metadata.removeValue(forKey: "decisionsAllowed")
+        change(&metadata)
+        connections[index]["companion"] = metadata
+        object["connections"] = connections
+        let data = try JSONSerialization.data(withJSONObject: object)
+        try data.write(to: file)
+        return data
     }
 
     @Test func workspaceCreatedAfterGrantHasVisibleDecisions() async throws {

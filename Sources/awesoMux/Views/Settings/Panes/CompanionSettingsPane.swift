@@ -202,18 +202,12 @@ struct CompanionSettingsPane: View {
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
             Toggle(
-                isOn: Binding(
-                    get: { phone.companion?.decisionsAllowed == true },
-                    set: { allowed in
-                        do {
-                            try coordinator.setDecisionsAllowed(allowed, for: phone)
-                            errorMessage = nil
-                        } catch {
-                            errorMessage = String(
-                                localized: "awesoMux couldn't save the permission request access.",
-                                comment: "Error shown when saving a paired phone’s permission-answering switch fails.")
-                        }
-                    }
+                isOn: permissionBinding(
+                    isAllowed: phone.companion?.decisionsAllowed == true,
+                    save: { try coordinator.setDecisionsAllowed($0, for: phone) },
+                    failureMessage: String(
+                        localized: "awesoMux couldn't save the permission request access.",
+                        comment: "Error shown when saving a paired phone’s permission-answering switch fails.")
                 )
             ) {
                 Text(
@@ -243,16 +237,10 @@ struct CompanionSettingsPane: View {
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text3)
             Toggle(
-                isOn: Binding(
-                    get: { phone.companion?.terminalWatchScope != nil },
-                    set: { allowed in
-                        do {
-                            try coordinator.setTerminalWatchAllowed(allowed, for: phone)
-                            errorMessage = nil
-                        } catch {
-                            errorMessage = String(localized: "awesoMux couldn't save the terminal watch permission.")
-                        }
-                    }
+                isOn: permissionBinding(
+                    isAllowed: phone.companion?.terminalWatchScope != nil,
+                    save: { try coordinator.setTerminalWatchAllowed($0, for: phone) },
+                    failureMessage: String(localized: "awesoMux couldn't save the terminal watch permission.")
                 )
             ) {
                 Text(String(localized: "Allow watching terminals"))
@@ -273,6 +261,19 @@ struct CompanionSettingsPane: View {
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
         .overlay { RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5) }
         .accessibilityElement(children: .contain)
+    }
+
+    private func permissionBinding(isAllowed: Bool, save: @escaping (Bool) throws -> Void, failureMessage: String) -> Binding<Bool> {
+        Binding(
+            get: { isAllowed },
+            set: { allowed in
+                do {
+                    try save(allowed)
+                    errorMessage = nil
+                } catch {
+                    errorMessage = failureMessage
+                }
+            })
     }
 
     private func lastSeenText(_ id: UUID) -> String {

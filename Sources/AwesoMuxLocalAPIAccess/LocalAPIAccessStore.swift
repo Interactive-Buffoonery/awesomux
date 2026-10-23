@@ -616,48 +616,33 @@ public final class LocalAPIAccessStore {
     }
 
     public func updateCompanionDecisionsAllowed(connectionID: UUID, allowed: Bool) throws {
-        try requireWritableAuthority()
-        guard let connection = state.connections.first(where: { $0.id == connectionID }),
-            connection.kind == .companion, let metadata = connection.companion
-        else { throw LocalAPIAccessFailure.connectionNotFound }
-        guard metadata.decisionsAllowed != allowed || persistenceFailureMessage != nil else { return }
-        try updateConnection(connectionID: connectionID, kind: .companion) {
-            $0.companion?.decisionsAllowed = allowed
-        }
+        try updateCompanionPermission(connectionID: connectionID, keyPath: \.decisionsAllowed, value: allowed)
     }
 
     public func updateCompanionPaneRenameScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
         guard scope == nil || scope == .allWorkspaces else { throw LocalAPIAccessFailure.invalidScope }
-        try requireWritableAuthority()
-        guard let connection = state.connections.first(where: { $0.id == connectionID }),
-            connection.kind == .companion, let metadata = connection.companion
-        else { throw LocalAPIAccessFailure.connectionNotFound }
-        guard metadata.paneRenameScope != scope || persistenceFailureMessage != nil else { return }
-        try updateConnection(connectionID: connectionID, kind: .companion) {
-            $0.companion?.paneRenameScope = scope
-        }
+        try updateCompanionPermission(connectionID: connectionID, keyPath: \.paneRenameScope, value: scope)
     }
 
     public func updateCompanionTerminalPreviewAllowed(connectionID: UUID, allowed: Bool) throws {
-        try requireWritableAuthority()
-        guard let connection = state.connections.first(where: { $0.id == connectionID }),
-            connection.kind == .companion, let metadata = connection.companion
-        else { throw LocalAPIAccessFailure.connectionNotFound }
-        guard metadata.terminalPreviewAllowed != allowed || persistenceFailureMessage != nil else { return }
-        try updateConnection(connectionID: connectionID, kind: .companion) {
-            $0.companion?.terminalPreviewAllowed = allowed
-        }
+        try updateCompanionPermission(connectionID: connectionID, keyPath: \.terminalPreviewAllowed, value: allowed)
     }
 
     public func updateCompanionTerminalWatchScope(connectionID: UUID, scope: LocalAPITargetScope?) throws {
         guard scope == nil || scope == .allWorkspaces else { throw LocalAPIAccessFailure.invalidScope }
+        try updateCompanionPermission(connectionID: connectionID, keyPath: \.terminalWatchScope, value: scope)
+    }
+
+    private func updateCompanionPermission<Value: Equatable>(
+        connectionID: UUID, keyPath: WritableKeyPath<LocalAPICompanionMetadata, Value>, value: Value
+    ) throws {
         try requireWritableAuthority()
         guard let connection = state.connections.first(where: { $0.id == connectionID }),
             connection.kind == .companion, let metadata = connection.companion
         else { throw LocalAPIAccessFailure.connectionNotFound }
-        guard metadata.terminalWatchScope != scope || persistenceFailureMessage != nil else { return }
+        guard metadata[keyPath: keyPath] != value || persistenceFailureMessage != nil else { return }
         try updateConnection(connectionID: connectionID, kind: .companion) {
-            $0.companion?.terminalWatchScope = scope
+            $0.companion?[keyPath: keyPath] = value
         }
     }
 
@@ -883,15 +868,15 @@ public final class LocalAPIAccessStore {
             return metadata["decideWorkspaceIDs"] != nil || metadata["decisionsAllowed"] == nil
         }
         for index in decoded.connections.indices where decoded.connections[index].kind == .companion {
-            if let scope = decoded.connections[index].companion?.paneRenameScope, scope != .allWorkspaces {
-                decoded.connections[index].companion?.paneRenameScope = .allWorkspaces
-                decoded.connections[index].revision = UUID()
-                needsMigration = true
-            }
-            if let scope = decoded.connections[index].companion?.terminalWatchScope, scope != .allWorkspaces {
-                decoded.connections[index].companion?.terminalWatchScope = .allWorkspaces
-                decoded.connections[index].revision = UUID()
-                needsMigration = true
+            let scopes: [WritableKeyPath<LocalAPICompanionMetadata, LocalAPITargetScope?>] = [
+                \.paneRenameScope, \.terminalWatchScope,
+            ]
+            for keyPath in scopes {
+                if let scope = decoded.connections[index].companion?[keyPath: keyPath], scope != .allWorkspaces {
+                    decoded.connections[index].companion?[keyPath: keyPath] = .allWorkspaces
+                    decoded.connections[index].revision = UUID()
+                    needsMigration = true
+                }
             }
         }
         return decoded
