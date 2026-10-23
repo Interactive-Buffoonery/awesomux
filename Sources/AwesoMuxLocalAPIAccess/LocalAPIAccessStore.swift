@@ -459,8 +459,11 @@ public final class LocalAPIAccessStore {
             }
             runtimeAuthority.replace(with: loadedState)
         } catch {
-            state = empty
-            loadFailure = .preservedInvalidState
+            var denied = loadedState
+            denied.connections.removeAll { $0.kind == .companion }
+            runtimeAuthority.replace(with: denied)
+            persistenceFailureMessage = String(
+                localized: "Companion access is paused because updated permissions could not be saved. Retry Save to restore access.")
         }
     }
 

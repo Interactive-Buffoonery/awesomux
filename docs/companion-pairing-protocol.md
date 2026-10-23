@@ -1107,6 +1107,10 @@ Boolean covers every workspace, including workspaces created later. A non-empty
 legacy `decideWorkspaceIDs` list migrates to on and is replaced on disk; absent
 or empty legacy grants stay off. Pairing, previews, status and pane renaming
 never grant decision access. Grant changes rotate the connection revision.
+If saving a migration fails, connections remain visible and companion access
+pauses until Retry Save succeeds; Outside-app grants stay active. Older Mac
+builds reject the new metadata field, so downgrading pauses access until a
+compatible build reads the preserved file.
 
 The shared protocol's `CompanionDecisionIdentity` binds runtime instance,
 workspace, pane, target version, provider session, hook invocation and request

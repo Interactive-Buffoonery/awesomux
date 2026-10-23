@@ -60,6 +60,52 @@ import Testing
         #expect(savedMetadata["decideWorkspaceIDs"] == nil)
     }
 
+    @Test func failedMigrationPreservesConnectionsAndAllowsRetry() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-migration-failure-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let fingerprint = Data(repeating: 7, count: 32)
+        let phone = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1234)
+        let outside = try #require(access).prepareRegistration(label: "Outside", statusScope: .allWorkspaces)
+        try #require(access).activateRegistration(outside)
+        try #require(access).setGloballyEnabled(true)
+        let directory = root.appendingPathComponent("LocalAPI")
+        let file = directory.appendingPathComponent("access.json")
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        let index = try #require(connections.firstIndex { $0["kind"] as? String == "companion" })
+        var metadata = try #require(connections[index]["companion"] as? [String: Any])
+        metadata.removeValue(forKey: "decisionsAllowed")
+        metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+        connections[index]["companion"] = metadata
+        object["connections"] = connections
+        access = nil
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        let migrated = LocalAPIAccessStore(
+            profile: "development", supportDirectoryURL: root, fileManager: MigrationReadOnlyFileManager())
+        #expect(migrated.loadFailure == nil)
+        #expect(migrated.state.connections.count == 2)
+        #expect(migrated.persistenceFailureMessage != nil)
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try migrated.runtimeAuthority.authorizeCompanion(
+                connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+            ).get()
+        }
+        let outsideRequest = LocalAPIRequest(
+            profile: "development", operation: .connectionStatus, connectionID: outside.connection.id,
+            credential: LocalAPICredential.encode(outside.credential))
+        #expect(try migrated.runtimeAuthority.provider.authorize(outsideRequest).get().connectionID == outside.connection.id)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try migrated.retryPersistence()
+        #expect(migrated.persistenceFailureMessage == nil)
+        let lease = try migrated.runtimeAuthority.authorizeCompanion(
+            connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        #expect(lease.decisionsAllowed)
+    }
+
     @Test func workspaceCreatedAfterGrantHasVisibleDecisions() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-future-workspace-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -242,5 +288,17 @@ import Testing
                 Issue.record("Revoked grant permitted work")
             }
         }
+    }
+}
+
+// Make the directory unwritable after validation and reading, before migration saves.
+private final class MigrationReadOnlyFileManager: FileManager, @unchecked Sendable {
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        let attributes = try super.attributesOfItem(atPath: path)
+        if URL(fileURLWithPath: path).lastPathComponent == "access.json" {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o500], ofItemAtPath: URL(fileURLWithPath: path).deletingLastPathComponent().path)
+        }
+        return attributes
     }
 }
