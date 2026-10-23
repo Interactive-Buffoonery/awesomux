@@ -948,15 +948,11 @@ public final class LocalAPIAccessStore {
                 keys.remove(key)
             }
         }
-        for key in ["terminalPreviewAllowed", "decisionsAllowed"] {
+        for key in ["terminalPreviewAllowed", "decisionsAllowed", "terminalInputAllowed"] {
             if let allowed = metadata[key] {
                 guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
                 keys.remove(key)
             }
-        }
-        if let allowed = metadata["terminalInputAllowed"] {
-            guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
-            keys.remove("terminalInputAllowed")
         }
         if let preferences = metadata["alertPreferences"] {
             guard let object = preferences as? [String: Any], Set(object.keys) == ["categories"],
