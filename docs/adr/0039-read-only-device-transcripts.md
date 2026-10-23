@@ -6,6 +6,12 @@
 - **Deciders:** Sarah
 - **Issue:** [#829](https://github.com/Interactive-Buffoonery/awesomux/issues/829)
 
+## Amendment (2026-10-23)
+
+2026-10-23: Sarah decided device grants are device-wide, not per workspace.
+This supersedes workspace-selection requirements below. Separate default-off
+powers and all request identity, eligibility, expiry and release checks remain.
+
 ## Context
 
 Phones are denied `get_agent_context` today. Its local-caller contract returns

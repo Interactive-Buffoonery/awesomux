@@ -27,6 +27,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public let port: UInt16
     public var paneRenameScope: LocalAPITargetScope?
     public var decideWorkspaceIDs: [UUID]?
+    public var decisionsAllowed: Bool
     public let pairingVersion: Int?
     public var alertPreferences: CompanionAlertPreferences?
 
@@ -47,6 +48,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         terminalPreviewAllowed: Bool = false,
         alertPreferences: CompanionAlertPreferences? = nil,
         decideWorkspaceIDs: [UUID]? = nil,
+        decisionsAllowed: Bool = false,
         terminalWatchScope: LocalAPITargetScope? = nil
     ) {
         self.certificateFingerprint = certificateFingerprint
@@ -55,6 +57,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         self.port = port
         self.paneRenameScope = paneRenameScope
         self.decideWorkspaceIDs = decideWorkspaceIDs
+        self.decisionsAllowed = decisionsAllowed
         self.pairingVersion = pairingVersion
         self.terminalPreviewAllowed = terminalPreviewAllowed
         self.alertPreferences = alertPreferences
@@ -63,7 +66,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences,
-            decideWorkspaceIDs
+            decideWorkspaceIDs, decisionsAllowed
         case terminalWatchScope
     }
 
@@ -74,11 +77,26 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         pairedAt = try values.decode(Date.self, forKey: .pairedAt)
         port = try values.decode(UInt16.self, forKey: .port)
         decideWorkspaceIDs = try values.decodeIfPresent([UUID].self, forKey: .decideWorkspaceIDs)
+        decisionsAllowed = try values.decodeIfPresent(Bool.self, forKey: .decisionsAllowed) ?? !(decideWorkspaceIDs ?? []).isEmpty
         paneRenameScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .paneRenameScope)
         pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
         terminalPreviewAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalPreviewAllowed) ?? false
         alertPreferences = try values.decodeIfPresent(CompanionAlertPreferences.self, forKey: .alertPreferences)
         terminalWatchScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .terminalWatchScope)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(certificateFingerprint, forKey: .certificateFingerprint)
+        try values.encode(transport, forKey: .transport)
+        try values.encode(pairedAt, forKey: .pairedAt)
+        try values.encode(port, forKey: .port)
+        try values.encodeIfPresent(paneRenameScope, forKey: .paneRenameScope)
+        try values.encodeIfPresent(pairingVersion, forKey: .pairingVersion)
+        try values.encode(terminalPreviewAllowed, forKey: .terminalPreviewAllowed)
+        try values.encodeIfPresent(alertPreferences, forKey: .alertPreferences)
+        try values.encode(decisionsAllowed, forKey: .decisionsAllowed)
+        try values.encodeIfPresent(terminalWatchScope, forKey: .terminalWatchScope)
     }
 
 }
@@ -247,7 +265,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 paneRenameScope: metadata.paneRenameScope,
                 terminalPreviewAllowed: metadata.terminalPreviewAllowed,
                 companionAlertPreferences: metadata.alertPreferences ?? CompanionAlertPreferences(),
-                decideWorkspaceIDs: metadata.decideWorkspaceIDs,
+                decisionsAllowed: metadata.decisionsAllowed,
                 terminalWatchScope: metadata.terminalWatchScope
             )
             guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
@@ -269,7 +287,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 connection.statusScope == lease.statusScope,
                 connection.contextGrant == nil,
                 let metadata = connection.companion,
-                metadata.decideWorkspaceIDs == lease.decideWorkspaceIDs,
+                metadata.decisionsAllowed == lease.decisionsAllowed,
                 metadata.paneRenameScope == lease.paneRenameScope,
                 metadata.terminalPreviewAllowed == lease.terminalPreviewAllowed,
                 metadata.terminalWatchScope == lease.terminalWatchScope,
@@ -315,9 +333,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 lease.globalRevision == connection.revision,
                 connection.statusScope == lease.statusScope, connection.contextGrant == nil, lease.contextGrant == nil,
                 let metadata = connection.companion,
-                let workspaces = metadata.decideWorkspaceIDs, !workspaces.isEmpty,
-                Set(workspaces).count == workspaces.count,
-                workspaces == lease.decideWorkspaceIDs,
+                metadata.decisionsAllowed, lease.decisionsAllowed,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
             try body()
@@ -428,14 +444,27 @@ public final class LocalAPIAccessStore {
         authorityLockFD = lockFD
         ownsAuthority = true
         let loadedState: LocalAPIAccessState
+        var needsMigration = false
         do {
-            loadedState = try Self.loadState(at: fileURL, expectedProfile: profile, fileManager: fileManager) ?? empty
+            loadedState =
+                try Self.loadState(at: fileURL, expectedProfile: profile, fileManager: fileManager, needsMigration: &needsMigration)
+                ?? empty
         } catch {
             loadedState = empty
             loadFailure = .preservedInvalidState
         }
         state = loadedState
-        runtimeAuthority = LocalAPIRuntimeAuthority(state: loadedState)
+        runtimeAuthority = LocalAPIRuntimeAuthority(state: empty)
+        do {
+            if needsMigration {
+                let directorySynced = try persist(loadedState)
+                recordDurabilityWarningIfNeeded(directorySynced)
+            }
+            runtimeAuthority.replace(with: loadedState)
+        } catch {
+            state = empty
+            loadFailure = .preservedInvalidState
+        }
     }
 
     deinit {
@@ -582,6 +611,17 @@ public final class LocalAPIAccessStore {
                     )
                 throw error
             }
+        }
+    }
+
+    public func updateCompanionDecisionsAllowed(connectionID: UUID, allowed: Bool) throws {
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.decisionsAllowed != allowed || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.decisionsAllowed = allowed
         }
     }
 
@@ -804,7 +844,8 @@ public final class LocalAPIAccessStore {
     private static func loadState(
         at url: URL,
         expectedProfile: String,
-        fileManager: FileManager
+        fileManager: FileManager,
+        needsMigration: inout Bool
     ) throws -> LocalAPIAccessState? {
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         let contents = try SecureFileReader.read(
@@ -818,7 +859,7 @@ public final class LocalAPIAccessStore {
         else { throw LocalAPIAccessFailure.preservedInvalidState }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(LocalAPIAccessState.self, from: contents.data)
+        var decoded = try decoder.decode(LocalAPIAccessState.self, from: contents.data)
         guard decoded.schemaVersion == LocalAPIAccessState.schemaVersion,
             decoded.profile == expectedProfile,
             Set(decoded.connections.map(\.id)).count == decoded.connections.count,
@@ -843,6 +884,19 @@ public final class LocalAPIAccessStore {
                     ) == connection.label
             })
         else { throw LocalAPIAccessFailure.preservedInvalidState }
+        let object = try JSONSerialization.jsonObject(with: contents.data) as? [String: Any]
+        let connections = object?["connections"] as? [[String: Any]] ?? []
+        needsMigration = connections.contains {
+            guard let metadata = $0["companion"] as? [String: Any] else { return false }
+            return metadata["decideWorkspaceIDs"] != nil || metadata["decisionsAllowed"] == nil
+        }
+        for index in decoded.connections.indices where decoded.connections[index].kind == .companion {
+            if let scope = decoded.connections[index].companion?.terminalWatchScope, scope != .allWorkspaces {
+                decoded.connections[index].companion?.terminalWatchScope = .allWorkspaces
+                decoded.connections[index].revision = UUID()
+                needsMigration = true
+            }
+        }
         return decoded
     }
 
@@ -884,9 +938,11 @@ public final class LocalAPIAccessStore {
                 keys.remove(key)
             }
         }
-        if let allowed = metadata["terminalPreviewAllowed"] {
-            guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
-            keys.remove("terminalPreviewAllowed")
+        for key in ["terminalPreviewAllowed", "decisionsAllowed"] {
+            if let allowed = metadata[key] {
+                guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+                keys.remove(key)
+            }
         }
         if let preferences = metadata["alertPreferences"] {
             guard let object = preferences as? [String: Any], Set(object.keys) == ["categories"],

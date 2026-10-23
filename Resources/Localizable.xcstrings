@@ -813,6 +813,12 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
+    "Allow answering permission requests" : {
+
+    },
+    "Allow answering permission requests for %@" : {
+
+    },
     "Allow enables this iPhone to see every workspace and pane’s status, each terminal’s last output line, and live terminal output. You can turn previews and watching off in Companion settings; this phone can also change its own preview setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
     },
@@ -2906,6 +2912,9 @@
     "Let awesoMux get my attention" : {
 
     },
+    "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off." : {
+
+    },
     "Lets this phone rename terminal panes within its visible workspaces." : {
 
     },
@@ -4237,6 +4246,9 @@
     },
     "Remote connection details" : {
       "comment" : "VoiceOver label for the remote connection details panel"
+    },
+    "Remote decisions are not available yet." : {
+
     },
     "Remote decisions are not available yet. Workspace access starts off." : {
       "comment" : "Explains that remote permission decisions are not released and workspace access is disabled by default."
@@ -6313,6 +6325,9 @@
 
     },
     "awesoMux couldn't save the pane rename permission." : {
+
+    },
+    "awesoMux couldn't save the permission request access." : {
 
     },
     "awesoMux couldn't save the rendered diff to its cache." : {

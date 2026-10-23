@@ -169,7 +169,6 @@ final class CompanionPairingCoordinator {
     func configure(service: LocalAPIService) {
         guard self.service == nil else { return }
         self.service = service
-        reconcileDecisionWorkspaces()
         accessStore.setCompanionInvalidationHandler { [weak self] connectionID in
             Task { @MainActor in self?.invalidateConnections(connectionID: connectionID) }
         }
@@ -277,6 +276,10 @@ final class CompanionPairingCoordinator {
     func setPaneRenameAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
         try accessStore.updateCompanionPaneRenameScope(
             connectionID: phone.id, scope: allowed ? phone.statusScope : nil)
+    }
+
+    func setDecisionsAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
+        try accessStore.updateCompanionDecisionsAllowed(connectionID: phone.id, allowed: allowed)
     }
 
     func reconcileDecisionWorkspaces() {
@@ -501,8 +504,8 @@ final class CompanionPairingCoordinator {
                     terminalWatchScope: .allWorkspaces
                 )
                 #if DEBUG
-                    if let workspaceID = service.decisionFixtureWorkspaceID {
-                        try self.accessStore.updateCompanionDecideWorkspaces(connectionID: grant.id, workspaceIDs: [workspaceID])
+                    if service.decisionFixtureWorkspaceID != nil {
+                        try self.accessStore.updateCompanionDecisionsAllowed(connectionID: grant.id, allowed: true)
                     }
                 #endif
                 self.servers.forEach { $0.refreshAuthorization() }

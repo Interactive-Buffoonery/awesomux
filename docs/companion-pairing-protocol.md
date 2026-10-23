@@ -552,8 +552,8 @@ Watch access is a per-phone scope persisted as `terminalWatchScope` in companion
 metadata; absent or `null` means off. New pairings get `allWorkspaces`, so a
 paired phone can watch any terminal, including future workspaces. The
 **Allow watching terminals** switch in Mac Companion settings turns this off and
-on per phone. Pairings that predate this default keep their selected workspaces
-until the switch is turned off and on again. A phone with the scope sees
+on per phone. When older pairing metadata loads, any existing Watch scope
+migrates to `allWorkspaces` and is saved; an absent scope stays off. A phone with the scope sees
 a `terminalStream` object on
 `get_connection_status` holding the limits below; no object means `watch_terminal`
 returns `permission_denied`. The paired `get_capabilities` operation always
@@ -1098,13 +1098,15 @@ preference arguments and self-only access over pinned mutual TLS. Its isolated
 store fixture retains its diagnostic directory and prints the path. These host
 cases do not prove native focus, visibility or lock transitions; exercise those
 with the worktree app separately.
-## Scoped permission decisions
+## Permission decisions
 
 `list_pending_decisions` and `decide` are Companion-only operations, separate
 from the bearer local API. They require a default-off Decide grant on the Mac
-for explicitly selected workspace IDs. Pairing, previews, status and pane
-renaming never grant decision access. Grant changes rotate the connection
-revision; deleting a workspace removes its grant.
+controlled by **Allow answering permission requests**. The `decisionsAllowed`
+Boolean covers every workspace, including workspaces created later. A non-empty
+legacy `decideWorkspaceIDs` list migrates to on and is replaced on disk; absent
+or empty legacy grants stay off. Pairing, previews, status and pane renaming
+never grant decision access. Grant changes rotate the connection revision.
 
 The shared protocol's `CompanionDecisionIdentity` binds runtime instance,
 workspace, pane, target version, provider session, hook invocation and request
@@ -1132,9 +1134,9 @@ and 128 per authenticated device; cached retries still work at either limit.
 Cache expiry never recreates a request. Recorded means the core accepted an
 answer; delivered requires a helper ACK and does not prove provider execution.
 
-Scope, exact target, device certificate and revisioned grant are checked before
+Exact target, device certificate and revisioned device grant are checked before
 commit, each response chunk, actual socket delivery and every file publication
-attempt. Every grant edit rotates the lease, including workspace scope expansion,
+attempt. Every grant edit rotates the lease,
 and conservatively cancels an in-flight answer recorded under the prior lease. Revocation cancels a known-unsent remote answer; an answer that may
 have escaped becomes unknown. Choice-free terminal replies still reach the exact
 hook after device revocation; they never carry an allow or deny. File publication

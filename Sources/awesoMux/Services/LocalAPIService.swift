@@ -250,7 +250,7 @@ final class LocalAPIService {
         fingerprint: Data, authority: LocalAPIRuntimeAuthority, deviceName: String,
         requestID: UUID
     ) throws -> CompanionDecisionResponse {
-        guard let store, let runtime, let workspaces = lease.decideWorkspaceIDs, !workspaces.isEmpty else {
+        guard let store, let runtime, lease.decisionsAllowed else {
             throw LocalAPIError.permissionDenied
         }
         #if DEBUG
@@ -273,7 +273,7 @@ final class LocalAPIService {
                 executionPlan: pane.executionPlan, compactTerminalKind: store.compactTerminalKind)
         }
         let result = try coordinator.remoteResponse(
-            answer: answer, deviceID: lease.connectionID, deviceName: deviceName, workspaceIDs: workspaces,
+            answer: answer, deviceID: lease.connectionID, deviceName: deviceName,
             authorize: { body in
                 try authority.performCompanionDecision(certificateFingerprint: fingerprint, lease: lease, body: body)
             },
@@ -287,7 +287,7 @@ final class LocalAPIService {
         return CompanionDecisionResponse(
             response: response,
             validate: {
-                try coordinator.validateRemoteTargets(identities, workspaceIDs: workspaces, eligible: eligible)
+                try coordinator.validateRemoteTargets(identities, eligible: eligible)
             })
     }
 

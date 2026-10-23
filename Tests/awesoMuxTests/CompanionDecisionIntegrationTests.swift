@@ -53,6 +53,71 @@ import Testing
         #expect(access.state.connections.first { $0.id == phone.id } == pruned)
     }
 
+    // Persisted workspace grants must migrate without enabling an explicit off switch.
+    @Test(arguments: [false, true])
+    func legacyDecisionGrantMigratesAndPersists(enabled: Bool) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-migration-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let phone = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
+        let file = root.appendingPathComponent("LocalAPI/access.json")
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        var metadata = try #require(connections[0]["companion"] as? [String: Any])
+        metadata.removeValue(forKey: "decisionsAllowed")
+        if enabled { metadata["decideWorkspaceIDs"] = [UUID().uuidString] }
+        connections[0]["companion"] = metadata
+        object["connections"] = connections
+        access = nil
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        let migrated = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        #expect(migrated.loadFailure == nil)
+        #expect(migrated.state.connections.first { $0.id == phone.id }?.companion?.decisionsAllowed == enabled)
+        let saved = try LocalAPIContract.decoder().decode(LocalAPIAccessState.self, from: Data(contentsOf: file))
+        #expect(saved.connections.first?.companion?.decisionsAllowed == enabled)
+        let persisted = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        let savedConnections = try #require(persisted["connections"] as? [[String: Any]])
+        let savedMetadata = try #require(savedConnections[0]["companion"] as? [String: Any])
+        #expect(savedMetadata["decideWorkspaceIDs"] == nil)
+    }
+
+    @Test func workspaceCreatedAfterGrantHasVisibleDecisions() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-future-workspace-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let fingerprint = Data(repeating: 7, count: 32)
+        let phone = try access.registerCompanion(phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1234)
+        let pairing = CompanionPairingCoordinator(profile: .development(worktreeID: nil), accessStore: access)
+        defer { pairing.stop() }
+        try pairing.setDecisionsAllowed(true, for: phone)
+        let lease = try access.runtimeAuthority.authorizeCompanion(
+            connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        let coordinator = LocalPermissionCoordinator(announcement: { _ in })
+        defer { coordinator.retireAll() }
+        let workspace = UUID(), pane = UUID()
+        let endpoint = try #require(
+            coordinator.install(
+                workspaceID: workspace, paneID: pane, eventFile: root.appendingPathComponent("events.jsonl")))
+        let request = LocalPermissionRequest(
+            target: endpoint.target, providerSessionID: "fixture", invocationID: UUID(), toolUseID: nil,
+            helperPID: getpid(), helperStartMicroseconds: try #require(LocalPermissionFiles.processStartMicroseconds(getpid())),
+            expiresAt: Date().addingTimeInterval(120), tool: "Bash", summary: "echo future workspace")
+        #expect(LocalPermissionFiles.write(request, at: endpoint.file("req", id: request.invocationID)))
+        try #require(await waitUntilEventually { coordinator.cards[pane]?.outcome.state == .pending })
+        let result = try coordinator.remoteResponse(
+            answer: nil, deviceID: phone.id, deviceName: phone.label,
+            authorize: { body in
+                try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: lease, body: body)
+            }, eligible: { $0 == endpoint.target }, fixture: true)
+        #expect(result.pending.map(\.identity) == [request.identity.companionIdentity])
+        try coordinator.validateRemoteTargets(result.pending.map(\.identity), eligible: { $0 == endpoint.target })
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try coordinator.validateRemoteTargets(result.pending.map(\.identity), eligible: { _ in false })
+        }
+    }
+
     enum RevocationStage: CaseIterable { case recorded, claimed, escaped }
 
     @Test(arguments: [false, true], RevocationStage.allCases)
@@ -122,7 +187,7 @@ import Testing
         var authorizationCalls = 0
         let result = try coordinator.remoteResponse(
             answer: .init(identity: request.identity.companionIdentity, choice: .allow, retryID: UUID()),
-            deviceID: UUID(), deviceName: "Phone", workspaceIDs: [workspace],
+            deviceID: UUID(), deviceName: "Phone",
             authorize: { body in
                 authorizationCalls += 1
                 // Commit, pump refresh, then the actual post-claim write.
@@ -182,19 +247,18 @@ import Testing
             ).get()
         }
         let old = try lease()
-        #expect(old.decideWorkspaceIDs == nil)
+        #expect(!old.decisionsAllowed)
         #expect(throws: LocalAPIError.permissionDenied) {
             try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: old) {
                 Issue.record("Default grant permitted work")
             }
         }
-        let workspace = UUID()
-        try access.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: [workspace])
+        try access.updateCompanionDecisionsAllowed(connectionID: phone.id, allowed: true)
         let granted = try lease()
         #expect(granted != old)
-        #expect(granted.decideWorkspaceIDs == [workspace])
+        #expect(granted.decisionsAllowed)
         try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: granted) {}
-        try access.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: nil)
+        try access.updateCompanionDecisionsAllowed(connectionID: phone.id, allowed: false)
         #expect(throws: LocalAPIError.permissionDenied) {
             try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: granted) {
                 Issue.record("Revoked grant permitted work")
