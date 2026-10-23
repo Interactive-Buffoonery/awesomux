@@ -108,6 +108,11 @@ if command == "session" {
     emit(consoleState())
     exit(0)
 }
+if command == "canonical-path" {
+    guard args.count == 3 else { fail("canonical-path requires one path") }
+    print(URL(fileURLWithPath: args[2]).resolvingSymlinksInPath().standardizedFileURL.path)
+    exit(0)
+}
 if command == "paths" {
     emit([
         "home": FileManager.default.homeDirectoryForCurrentUser.path,

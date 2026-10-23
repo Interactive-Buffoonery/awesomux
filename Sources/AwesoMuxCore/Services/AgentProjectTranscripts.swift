@@ -237,7 +237,8 @@ public enum AgentProjectTranscripts {
             probes += 1
             do {
                 let handle = try SecureFileReader.open(at: url, symlinkPolicy: .rejectFinalComponent)
-                guard handle.resolvedURL.path.hasPrefix(canonicalRoot.path + "/") else {
+                let sourcePath = handle.resolvedURL.resolvingSymlinksInPath().standardizedFileURL.path
+                guard sourcePath.hasPrefix(canonicalRoot.path + "/") else {
                     incomplete = true
                     continue
                 }

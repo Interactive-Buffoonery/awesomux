@@ -691,7 +691,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 report["reason"] = "Startup ready; lifecycle and transcript journeys not executed"
                 log("startup", "pass")
             elif args.project_transcripts:
-                project = Path(title(first))
+                project = Path(run([helper, "canonical-path", title(first)]))
                 slug = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(project))
                 claude = fixture_home / ".claude/projects" / slug
                 codex = fixture_home / ".codex/sessions/2026/10/22"
