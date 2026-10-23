@@ -1,10 +1,8 @@
 import SwiftUI
 
 public enum AwShadow: Sendable {
-    case window
     case overlay
     case sheet
-    case toast
     case findBar
     case handle
 
@@ -21,14 +19,10 @@ public enum AwShadow: Sendable {
 
     var radius: CGFloat {
         switch self {
-        case .window:
-            return 24
         case .overlay:
             return 16
         case .sheet:
             return 28
-        case .toast:
-            return 18
         case .findBar:
             return 14
         case .handle:
@@ -38,14 +32,10 @@ public enum AwShadow: Sendable {
 
     var y: CGFloat {
         switch self {
-        case .window:
-            return 18
         case .overlay, .findBar:
             return 10
         case .sheet:
             return 22
-        case .toast:
-            return 12
         case .handle:
             return 4
         }
@@ -53,9 +43,9 @@ public enum AwShadow: Sendable {
 
     var opacity: Double {
         switch self {
-        case .window, .sheet:
+        case .sheet:
             return 0.30
-        case .overlay, .toast:
+        case .overlay:
             return 0.24
         case .findBar:
             return 0.20
