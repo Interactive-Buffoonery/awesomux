@@ -69,6 +69,19 @@ enum CompanionTerminalWatchRelay {
         let payload: Data
     }
 
+    struct Authority {
+        let leader: UInt64
+        let grid: Stream.Grid
+
+        init?(_ message: ZmxMessage) {
+            guard message.tag == ZmxTag.authority.rawValue, message.payload.count == 20 else { return nil }
+            leader = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
+            let rows = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt16.self) }.littleEndian
+            let cols = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 18, as: UInt16.self) }.littleEndian
+            grid = .init(rows: Int(rows), cols: Int(cols))
+        }
+    }
+
     static let zmxHeaderBytes = 8
     static let acceptTimeout: Duration = .seconds(1)
     static let writeTimeout: Duration = .seconds(Stream.idleTimeoutSeconds)
@@ -152,12 +165,9 @@ enum CompanionTerminalWatchRelay {
                 phase = .awaitingSnapshot
                 return .frames([])
             case .authority:
-                guard message.payload.count == 20 else { return .frames([]) }
-                let id = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
-                let rows = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt16.self) }.littleEndian
-                let cols = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 18, as: UInt16.self) }.littleEndian
-                leader = id == 0 ? nil : String(id)
-                grid = .init(rows: Int(rows), cols: Int(cols))
+                guard let authority = Authority(message) else { return .frames([]) }
+                leader = authority.leader == 0 ? nil : String(authority.leader)
+                grid = authority.grid
                 return .frames(phase == .streaming ? [.leader(.init(leader: leader)), .grid(grid)] : [])
             case .output:
                 switch phase {
@@ -662,20 +672,11 @@ enum CompanionTerminalWatchRelay {
                     let id = payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
                     let revision = payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self) }.littleEndian
                     input.install(generation: generation, id: id, revision: revision, resync: { connection.cancel() }) { data, validate in
-                        let operation = CompanionNetworkOperation<Void>()
-                        try await operation.wait(cancel: { connection.cancel() }) {
-                            do {
-                                try validate()
-                                try buffer.forwardInput(generation: generation) {
-                                    try commitInput {
-                                        connection.send(
-                                            content: data,
-                                            completion: .contentProcessed { error in
-                                                if let error { operation.resolve(.failure(error)) } else { operation.resolve(.success(())) }
-                                            })
-                                    }
-                                }
-                            } catch { operation.resolve(.failure(error)) }
+                        try await send(data, connection: connection) { submit in
+                            try validate()
+                            try buffer.forwardInput(generation: generation) {
+                                try commitInput(submit)
+                            }
                         }
                     }
                     attachmentChanged(id)
@@ -770,14 +771,7 @@ enum CompanionTerminalWatchRelay {
                 }
             },
             sendAttach: {
-                let sent = CompanionNetworkOperation<Void>()
-                try await sent.wait(cancel: { connection.cancel() }) {
-                    connection.send(
-                        content: attachRequest(grid, role: role),
-                        completion: .contentProcessed { error in
-                            if let error { sent.resolve(.failure(error)) } else { sent.resolve(.success(())) }
-                        })
-                }
+                try await send(attachRequest(grid, role: role), connection: connection)
             }, cancel: { connection.cancel() }, delay: delay)
         guard prepared == .continue else { return prepared }
         var parser = ZmxParser()
@@ -799,6 +793,25 @@ enum CompanionTerminalWatchRelay {
             }
         }
         return .end(.closed)
+    }
+
+    @MainActor
+    private static func send(
+        _ data: Data, connection: NWConnection,
+        authorize: (@MainActor @Sendable () -> Void) throws -> Void = { $0() }
+    ) async throws {
+        let operation = CompanionNetworkOperation<Void>()
+        try await operation.wait(cancel: { connection.cancel() }) {
+            do {
+                try authorize {
+                    connection.send(
+                        content: data,
+                        completion: .contentProcessed { error in
+                            if let error { operation.resolve(.failure(error)) } else { operation.resolve(.success(())) }
+                        })
+                }
+            } catch { operation.resolve(.failure(error)) }
+        }
     }
 
     private static func receive(_ connection: NWConnection, timeout: Duration?, delay: @escaping CompanionDelay) async -> Data? {

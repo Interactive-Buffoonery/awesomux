@@ -257,16 +257,11 @@ struct CompanionSettingsPane: View {
             .foregroundStyle(Color.aw.text)
             Toggle(
                 String(localized: "Input"),
-                isOn: Binding(
-                    get: { phone.companion?.terminalInputAllowed == true },
-                    set: { allowed in
-                        do {
-                            try coordinator.setTerminalInputAllowed(allowed, for: phone)
-                            errorMessage = nil
-                        } catch {
-                            errorMessage = String(localized: "awesoMux couldn't save the input permission.")
-                        }
-                    })
+                isOn: permissionBinding(
+                    isAllowed: phone.companion?.terminalInputAllowed == true,
+                    save: { try coordinator.setTerminalInputAllowed($0, for: phone) },
+                    failureMessage: String(localized: "awesoMux couldn't save the input permission.")
+                )
             )
             .disabled(phone.companion?.terminalWatchScope == nil && phone.companion?.terminalInputAllowed != true)
             .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Input from %@"), phone.label))

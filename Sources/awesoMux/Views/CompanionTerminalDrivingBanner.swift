@@ -81,12 +81,10 @@ struct CompanionTerminalDrivingBanner: View {
                 delay: { try await ContinuousClock().sleep(for: $0) }
             ) { message in
                 guard !Task.isCancelled, monitorID == id else { return .end(.closed) }
-                if message.tag == CompanionTerminalWatchRelay.ZmxTag.authority.rawValue, message.payload.count == 20 {
-                    leader = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
-                    let rows = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt16.self) }.littleEndian
-                    let cols = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 18, as: UInt16.self) }.littleEndian
-                    grid = .init(rows: Int(rows), cols: Int(cols))
-                    driving.didObserve(paneID: paneID, sessionName: sessionName, leader: leader ?? 0)
+                if let authority = CompanionTerminalWatchRelay.Authority(message) {
+                    leader = authority.leader
+                    grid = authority.grid
+                    driving.didObserve(paneID: paneID, sessionName: sessionName, leader: authority.leader)
                 }
                 if message.tag == CompanionTerminalWatchRelay.ZmxTag.sessionEnd.rawValue { return .end(.sessionEnded) }
                 return .continue
