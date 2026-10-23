@@ -732,8 +732,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 poll("cancel dismissed browser",lambda: not any((b["title"]=="Refresh" or b["description"]=="Refresh") for b in snapshot()["buttons"]))
                 menu("Pane", "Browse Project Transcripts")
                 poll("rows after reopen",listed)
-                native("key",window_id,"125")
-                native("key",window_id,"36")
+                native("press",window_id,"Open")
                 def opened():
                     nodes=native("dump",window_id)
                     text=json.dumps(nodes)
