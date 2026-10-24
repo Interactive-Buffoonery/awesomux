@@ -11,7 +11,7 @@ named in the table:
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
-| Ghostty | `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` | `Ghostty/LICENSE` |
+| Ghostty | `8ef0ec1238220a5a714be452ed2844f0691fcf83` | `Ghostty/LICENSE` |
 | zmx / amx | `480fc5eae888d0dca7cefc80aff913efeb2eb88c` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
