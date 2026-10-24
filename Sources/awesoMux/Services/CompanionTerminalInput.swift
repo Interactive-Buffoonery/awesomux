@@ -128,7 +128,11 @@ extension CompanionTerminalWatchRelay {
                 throw Stream.EndReason.protocolError
             }
             guard generation == incoming, let submit else { return }
+            if case .input(let sequence, _) = decoded.frame, let highestSequence, sequence <= highestSequence {
+                throw Stream.EndReason.protocolError
+            }
             guard let message = try state.message(decoded.frame) else { return }
+            if case .input(let sequence, _) = decoded.frame { highestSequence = sequence }
             do {
                 try await submit(message) { [self] in
                     try validate()
@@ -143,9 +147,7 @@ extension CompanionTerminalWatchRelay {
             // A completed old socket write never acknowledges input in a new generation.
             guard generation == incoming, buffer.acceptsInput(generation: incoming) else { return }
             if case .input(let sequence, _) = decoded.frame {
-                let highest = max(sequence, highestSequence ?? sequence)
-                highestSequence = highest
-                if buffer.enqueue(.ack(.init(sequence: highest)), generation: incoming) == .overflow {
+                if buffer.enqueue(.ack(.init(sequence: sequence)), generation: incoming) == .overflow {
                     resync()
                 }
             }

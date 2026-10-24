@@ -158,7 +158,7 @@ struct CompanionTerminalInputTests {
                 + Stream.maximumInputBytes)
     }
 
-    @Test func staleGenerationDropsBeforeDecodeAndAcksHighestForwardedSequence() async throws {
+    @Test func staleGenerationDropsBeforeDecodeAndAcksForwardedSequence() async throws {
         let buffer = Relay.Buffer()
         let generation = try #require(buffer.beginGeneration())
         var writes: [Data] = []
@@ -170,10 +170,10 @@ struct CompanionTerminalInputTests {
             })
         try await forwarder.receive(Data([16, 0, 0, 0, 0]))
         #expect(writes.isEmpty)
-        for sequence: UInt64 in [8, 3, 10] {
+        for sequence: UInt64 in [8, 9, 10] {
             try await forwarder.receive(Stream.encode(.input(sequence: sequence, bytes: Data([13])), generation: generation))
             let ack = try #require(buffer.takeFrame())
-            #expect(try Stream.decode(ack.data).frame == .ack(.init(sequence: sequence == 3 ? 8 : sequence)))
+            #expect(try Stream.decode(ack.data).frame == .ack(.init(sequence: sequence)))
             buffer.didWrite(ack)
         }
         #expect(writes.count == 3)
@@ -216,6 +216,32 @@ struct CompanionTerminalInputTests {
         try await forwarder.receive(Stream.encode(.input(sequence: 1, bytes: Data([13])), generation: next + 1))
         #expect(writes.count == 1)
         #expect(try Stream.decode(#require(buffer.takeFrame()).data).frame == .ack(.init(sequence: 1)))
+    }
+
+    @Test func nonIncreasingSequenceRejectsBeforeForwardingOrAck() async throws {
+        let buffer = Relay.Buffer()
+        let generation = try #require(buffer.beginGeneration())
+        var writes: [Data] = []
+        let forwarder = Relay.InputForwarder(role: .interactive, grid: .init(rows: 24, cols: 80), buffer: buffer)
+        forwarder.install(
+            generation: generation, id: 42, revision: 9,
+            submit: { data, validate in
+                try validate(); writes.append(data)
+            })
+        try await forwarder.receive(Stream.encode(.input(sequence: 8, bytes: Data([13])), generation: generation))
+        let ack = try #require(buffer.takeFrame())
+        #expect(try Stream.decode(ack.data).frame == .ack(.init(sequence: 8)))
+        buffer.didWrite(ack)
+        for sequence: UInt64 in [8, 3] {
+            await #expect(throws: Stream.EndReason.protocolError) {
+                try await forwarder.receive(Stream.encode(.input(sequence: sequence, bytes: Data([27])), generation: generation))
+            }
+            #expect(writes.count == 1)
+            #expect(buffer.takeFrame() == nil)
+        }
+        try await forwarder.receive(Stream.encode(.input(sequence: 10, bytes: Data([13])), generation: generation))
+        #expect(writes.count == 2)
+        #expect(try Stream.decode(#require(buffer.takeFrame()).data).frame == .ack(.init(sequence: 10)))
     }
 
     @Test func revocationAtSubmissionForwardsNothingAndSendsNoAck() async throws {
