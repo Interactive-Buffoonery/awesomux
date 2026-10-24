@@ -105,6 +105,7 @@ struct CompanionTerminalDrivingBanner: View {
             guard monitorID == id else { return }
             leader = nil
             grid = nil
+            lastAnnouncement = nil
         }
     }
 }
