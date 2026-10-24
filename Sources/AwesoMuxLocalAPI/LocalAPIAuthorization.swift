@@ -53,6 +53,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
     public let decisionsAllowed: Bool
     public let terminalPreviewAllowed: Bool
     public let terminalWatchScope: LocalAPITargetScope?
+    public let terminalInputAllowed: Bool
 
     public init(
         connectionID: UUID,
@@ -64,7 +65,8 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         terminalPreviewAllowed: Bool = false,
         companionAlertPreferences: CompanionAlertPreferences? = nil,
         decisionsAllowed: Bool = false,
-        terminalWatchScope: LocalAPITargetScope? = nil
+        terminalWatchScope: LocalAPITargetScope? = nil,
+        terminalInputAllowed: Bool = false
     ) {
         self.connectionID = connectionID
         self.globalRevision = globalRevision
@@ -76,6 +78,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         self.companionAlertPreferences = companionAlertPreferences
         self.decisionsAllowed = decisionsAllowed
         self.terminalWatchScope = terminalWatchScope
+        self.terminalInputAllowed = terminalInputAllowed
     }
 }
 

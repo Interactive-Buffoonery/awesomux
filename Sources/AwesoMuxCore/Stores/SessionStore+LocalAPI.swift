@@ -41,7 +41,7 @@ public extension SessionStore {
             workspace.layout.leaves.contains(where: { if case .terminal(let pane) = $0 { pane.id == paneID } else { false } })
         else { return nil }
         var sessionName: String?
-        if case .local = target.executionPlan { sessionName = target.terminalSessionID }
+        if target.executionPlan.remoteOwnedExecution == nil { sessionName = target.terminalSessionID }
         return LocalAPITerminalWatchTarget(
             workspaceID: target.workspaceID, targetVersion: target.version, localSessionName: sessionName)
     }

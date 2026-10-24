@@ -297,9 +297,12 @@ frames carry provenance, so a phone `ESC` is user input and claims.
 | C. Daemon answers from its own model while leaderless | Extend the DA fallback to CPR, DSR and mode reports the daemon can compute | zmx fork change; color and clipboard queries still need a real client |
 | D. Sole Mac client claims on reattach with the retained grid | `TakeOver` using the current rows and columns restores reply authority without a resize | Later Mac window resizes then apply, which bends the ADR-0036 keep-last-grid decision |
 
-B ships before #788 ships device input, and C follows to make a leaderless
-pane answer the queries it can. B does not elect a leader or
-resize; it only removes the ambiguity, so ADR-0036's no-guessing rule holds.
+Sarah deferred B for #788 on 2026-10-23. Device input ships with option A's
+limitation: a lone Escape on the Mac does not take back control, including
+after the device leaves. Type a letter, arrow or Return to reclaim instead.
+CPR/DSR replies from a non-leading legacy Mac client remain limited too.
+B and C remain follow-ups. B does not elect a leader or resize; it only
+removes the ambiguity, so ADR-0036's no-guessing rule holds.
 Do not add a timeout or heuristic to elect on ESC. B and C each need their
 own issue; #788 covers device input and the banner.
 
@@ -348,9 +351,25 @@ Recorded on 2026-10-21.
 4. **Frame cap:** 64 KiB per input frame with a refusal on the phone, and
    `ack` means forwarded, not accepted, until the zmx fork adds a per-batch
    receipt.
-5. **Escape and query replies:** build option B (typed seam for the Mac
-   client) before #788 ships, with C as a follow-up.
+5. **Escape and query replies:** option B (typed seam for the Mac client)
+   and C are deferred by Sarah for #788 (2026-10-23). Ship the documented
+   lone-Escape limitation and the banner's explicit handback keys.
 6. **Take over gate:** only the ADR-0035 phone-side content gate, with no
    extra biometric prompt per takeover.
 7. **Driving indicator:** show the sidebar row and workspace indicator while
    a device leads, plus the "Last typed from iPhone" note on the pane.
+
+## #788 implementation boundary (2026-10-23)
+
+The initial Mac input path rejects phone `reply` frames until authority epochs
+are available in the shared protocol. The pane banner and its Disconnect action
+ship here; the sidebar/workspace indicator and "Last typed from iPhone" note
+(decision 7) follow separately. Daemon receipts, a per-attachment queue cap and
+draining an in-progress batch on close remain zmx follow-ups. An acknowledgement
+means written to the daemon socket, not daemon acceptance or PTY delivery; a
+close may truncate a started paste, even after acknowledgement.
+
+Remote-owned panes receive the Watch role with `remote_pane`; without a local
+zmx source their stream then ends with `pane_unavailable`. Remote terminal
+stream transport remains follow-up work. Local-amx SSH panes use their local
+daemon and remain eligible for Input.

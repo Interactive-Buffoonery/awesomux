@@ -6,6 +6,20 @@ import Testing
 @MainActor
 @Suite("Companion pane list")
 struct CompanionPaneListTests {
+    @Test func terminalStreamUsesLocalDaemonForLocalAmxSSHOnly() throws {
+        let remote = try #require(RemoteTarget(parsing: "example.test"))
+        let remoteName = try #require(RemoteSessionName(rawValue: "example"))
+        for plan: PaneExecutionPlan in [
+            .local, .ssh(SSHExecution(target: remote)), .ssh(SSHExecution(target: remote, remoteSessionName: remoteName)),
+        ] {
+            let pane = TerminalPane(title: "Terminal", workingDirectory: "~", executionPlan: plan)
+            let session = TerminalSession(title: "Work", workingDirectory: "~", layout: .pane(pane))
+            let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
+            let target = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
+            #expect(target.localSessionName == (plan.remoteOwnedExecution == nil ? pane.terminalSessionID.rawValue : nil))
+        }
+    }
+
     @Test func firstUnboundReadInitializesExactTargets() throws {
         let session = TerminalSession(title: "Work", workingDirectory: "~")
         let pane = try #require(session.panes.first)

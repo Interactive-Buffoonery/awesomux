@@ -217,6 +217,11 @@ struct TerminalPaneLayoutView: View {
                         }
                     }
 
+                    CompanionTerminalDrivingBanner(
+                        paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(for: pane.id, in: session) ?? pane.title,
+                        paneID: pane.id,
+                        sessionName: pane.executionPlan.remoteOwnedExecution == nil ? pane.terminalSessionID.rawValue : nil)
+
                     if runtime.restartedSessionNotices[pane.id] != nil {
                         HStack(spacing: 8) {
                             Text(

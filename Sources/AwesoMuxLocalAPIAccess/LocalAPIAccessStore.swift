@@ -36,6 +36,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public var terminalPreviewAllowed: Bool
     /// Panes this phone may watch live (ADR-0040); nil means no Watch grant.
     public var terminalWatchScope: LocalAPITargetScope?
+    public var terminalInputAllowed: Bool
 
     public init(
         certificateFingerprint: Data,
@@ -47,7 +48,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         terminalPreviewAllowed: Bool = false,
         alertPreferences: CompanionAlertPreferences? = nil,
         decisionsAllowed: Bool = false,
-        terminalWatchScope: LocalAPITargetScope? = nil
+        terminalWatchScope: LocalAPITargetScope? = nil,
+        terminalInputAllowed: Bool = false
     ) {
         self.certificateFingerprint = certificateFingerprint
         self.transport = transport
@@ -59,12 +61,13 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         self.terminalPreviewAllowed = terminalPreviewAllowed
         self.alertPreferences = alertPreferences
         self.terminalWatchScope = terminalWatchScope
+        self.terminalInputAllowed = terminalInputAllowed
     }
 
     private enum CodingKeys: String, CodingKey {
         case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences,
             decisionsAllowed
-        case terminalWatchScope
+        case terminalWatchScope, terminalInputAllowed
     }
 
     private enum LegacyCodingKeys: String, CodingKey {
@@ -85,6 +88,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         terminalPreviewAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalPreviewAllowed) ?? false
         alertPreferences = try values.decodeIfPresent(CompanionAlertPreferences.self, forKey: .alertPreferences)
         terminalWatchScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .terminalWatchScope)
+        terminalInputAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalInputAllowed) == true
     }
 }
 
@@ -253,7 +257,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 terminalPreviewAllowed: metadata.terminalPreviewAllowed,
                 companionAlertPreferences: metadata.alertPreferences ?? CompanionAlertPreferences(),
                 decisionsAllowed: metadata.decisionsAllowed,
-                terminalWatchScope: metadata.terminalWatchScope
+                terminalWatchScope: metadata.terminalWatchScope,
+                terminalInputAllowed: metadata.terminalInputAllowed
             )
             guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
             return .success(lease)
@@ -278,6 +283,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 metadata.paneRenameScope == lease.paneRenameScope,
                 metadata.terminalPreviewAllowed == lease.terminalPreviewAllowed,
                 metadata.terminalWatchScope == lease.terminalWatchScope,
+                metadata.terminalInputAllowed == lease.terminalInputAllowed,
                 (metadata.alertPreferences ?? CompanionAlertPreferences()) == lease.companionAlertPreferences,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
@@ -636,6 +642,38 @@ public final class LocalAPIAccessStore {
         }
     }
 
+    /// Input-only changes keep the Terminal lease revision so remote Watch
+    /// streams can stay attached. Stream authorization rechecks the switch
+    /// at submission; every other policy change still rotates the revision.
+    public func updateCompanionTerminalInputAllowed(connectionID: UUID, allowed: Bool) throws {
+        try requireWritableAuthority()
+        guard let index = state.connections.firstIndex(where: { $0.id == connectionID }),
+            state.connections[index].kind == .companion,
+            let metadata = state.connections[index].companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard !allowed || metadata.terminalWatchScope != nil else { throw LocalAPIAccessFailure.invalidScope }
+        guard metadata.terminalInputAllowed != allowed || persistenceFailureMessage != nil else { return }
+        var candidate = state
+        candidate.connections[index].companion?.terminalInputAllowed = allowed
+        var denied = candidate
+        denied.connections.removeAll { $0.id == connectionID }
+        state = candidate
+        persistenceFailureMessage = nil
+        replaceRuntime(with: denied, invalidating: .none)
+        do {
+            let directorySynced = try persist(candidate)
+            publish(candidate, invalidating: .connection(connectionID))
+            recordDurabilityWarningIfNeeded(directorySynced)
+        } catch {
+            invalidateCompanionRequests(connectionID)
+            persistenceFailureMessage = String(
+                localized:
+                    "This connection is denied for this run, but the input permission could not be saved. Retry before restarting awesoMux.",
+                comment: "Durability warning when denying terminal input succeeds for this run but cannot be saved for future launches.")
+            throw error
+        }
+    }
+
     /// Revalidate on MainActor immediately before mutation, then retain the
     /// refreshed lease for every acknowledgement write.
     public func setCompanionTerminalPreviewAllowed(
@@ -910,7 +948,7 @@ public final class LocalAPIAccessStore {
                 keys.remove(key)
             }
         }
-        for key in ["terminalPreviewAllowed", "decisionsAllowed"] {
+        for key in ["terminalPreviewAllowed", "decisionsAllowed", "terminalInputAllowed"] {
             if let allowed = metadata[key] {
                 guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
                 keys.remove(key)

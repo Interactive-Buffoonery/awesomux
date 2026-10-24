@@ -225,6 +225,17 @@
     "%arg integration" : {
 
     },
+    "%arg is driving · %arg×%arg · type a letter, arrow or Return to take it back" : {
+      "comment" : "Terminal leadership banner. Arguments are the paired device’s name, grid columns, and grid rows. Typing on the Mac takes control back.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg is driving · %2$arg×%3$arg · type a letter, arrow or Return to take it back"
+          }
+        }
+      }
+    },
     "%arg is empty" : {
 
     },
@@ -861,10 +872,10 @@
       "comment" : "Fallback Companion approval title."
     },
     "Allow watching terminals" : {
-
+      "comment" : "Per-phone switch for streaming live terminal output."
     },
     "Allow watching terminals for %@" : {
-
+      "comment" : "Accessibility label for terminal watching. Argument is the paired phone’s name."
     },
     "Allow “%@” to see panes and watch terminals?" : {
       "comment" : "Companion approval title."
@@ -874,6 +885,9 @@
     },
     "Allowed clipboard read for %arg" : {
       "comment" : "VoiceOver announcement after the user allows a terminal program to read the clipboard. Argument is the bidi-isolated pane title."
+    },
+    "Allows typing into every terminal this device may watch. Turn on terminal watching first." : {
+      "comment" : "Explains the terminal input permission and its terminal watching prerequisite."
     },
     "Alpha" : {
       "comment" : "Companion prerelease badge."
@@ -2136,6 +2150,12 @@
     "Disabling stops awesoMux from probing this provider" : {
       "comment" : "Accessibility hint for an enabled agent integration toggle."
     },
+    "Disconnect" : {
+      "comment" : "Button that ends the paired device’s current terminal stream."
+    },
+    "Disconnect %arg from this terminal" : {
+      "comment" : "Accessibility label for ending a terminal stream. Argument is the paired device’s name."
+    },
     "Disconnected from %arg in %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled",
       "localizations" : {
@@ -2751,6 +2771,12 @@
     },
     "Inline Review Comments" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Input" : {
+      "comment" : "Per-phone switch for typing into watched terminals."
+    },
+    "Input from %@" : {
+      "comment" : "Accessibility label for terminal input. Argument is the paired phone’s name."
     },
     "Input requested" : {
       "comment" : "Event requesting user input in the companion away activity summary."
@@ -3385,6 +3411,17 @@
     },
     "No notification banners or sounds, and the Dock icon won’t bounce." : {
 
+    },
+    "No one is driving · %arg×%arg · type a letter, arrow or Return to take it back" : {
+      "comment" : "Terminal leadership banner when no device leads. Arguments are grid columns and rows. Typing on the Mac takes control back.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "No one is driving · %1$arg×%2$arg · type a letter, arrow or Return to take it back"
+          }
+        }
+      }
     },
     "No presets were found under .awesomux/layouts for this project. Use “Save Layout as Preset…” to create one." : {
       "comment" : "Alert text when the project has no layout presets."
@@ -5196,8 +5233,8 @@
     "Stored in config.toml and applied to menus and the command palette." : {
       "comment" : "Keys settings hint."
     },
-    "Streams live terminal output, which can include secrets, to this phone. It cannot type." : {
-
+    "Streams live terminal output, which can include secrets, to this phone." : {
+      "comment" : "Privacy warning for a paired phone’s live terminal watching permission."
     },
     "Style picker lands once the runtime exposes a setter." : {
       "comment" : "Terminal settings hint."
@@ -5690,6 +5727,9 @@
     },
     "This connection is denied for this run, but revocation could not be saved. Retry before restarting awesoMux." : {
 
+    },
+    "This connection is denied for this run, but the input permission could not be saved. Retry before restarting awesoMux." : {
+      "comment" : "Durability warning when denying terminal input succeeds for this run but cannot be saved for future launches."
     },
     "This connection is denied for this run, but the scope change could not be saved. Retry before restarting awesoMux." : {
 
@@ -6315,6 +6355,9 @@
     "awesoMux couldn't save the access setting." : {
 
     },
+    "awesoMux couldn't save the input permission." : {
+      "comment" : "Error shown when saving a paired phone’s terminal input permission fails."
+    },
     "awesoMux couldn't save the pane rename permission." : {
 
     },
@@ -6458,6 +6501,9 @@
     },
     "generated document, read-only" : {
       "comment" : "Spoken qualifier on a document tab whose generated provenance is unknown"
+    },
+    "iPhone" : {
+      "comment" : "Fallback paired device name in the terminal leadership banner."
     },
     "iPhone app" : {
       "comment" : "Companion TestFlight row label."
