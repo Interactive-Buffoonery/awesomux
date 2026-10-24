@@ -45,7 +45,8 @@ struct CompanionTerminalDrivingBanner: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
+            Color.clear.frame(width: 0, height: 0)
             if let statusText {
                 HStack(spacing: 8) {
                     Text(statusText)
@@ -62,11 +63,11 @@ struct CompanionTerminalDrivingBanner: View {
                     }
                 }
                 .padding(8)
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text)
+                .background(Color.aw.surface.chrome)
             }
         }
-        .awFont(AwFont.UI.meta)
-        .foregroundStyle(Color.aw.text)
-        .background(Color.aw.surface.chrome)
         .onChange(of: statusText) { _, status in
             guard let status else {
                 if leader != nil { lastAnnouncement = nil }
