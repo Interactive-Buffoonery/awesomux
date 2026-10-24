@@ -11,8 +11,8 @@ struct AgentSetupsSettingsSection: View {
     var body: some View {
         SettingsSection(
             index: 2,
-            title: String(localized: "Agent setups"),
-            subtitle: String(localized: "Named launch choices for the command palette. Status hooks are shared by provider.")
+            title: String(localized: "Launch setups"),
+            subtitle: String(localized: "Named launch choices for the command palette.")
         ) {
             ForEach(Array(store.setups.enumerated()), id: \.element.id) { index, setup in
                 let rowName = String(
