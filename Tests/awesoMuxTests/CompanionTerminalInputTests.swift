@@ -194,6 +194,30 @@ struct CompanionTerminalInputTests {
         #expect(try Stream.decode(#require(buffer.takeFrame()).data).frame == .ack(.init(sequence: 1)))
     }
 
+    @Test func reattachRaceDropsInputWithoutForwardingOrAck() async throws {
+        let buffer = Relay.Buffer()
+        let generation = try #require(buffer.beginGeneration())
+        var writes: [Data] = []
+        let forwarder = Relay.InputForwarder(role: .interactive, grid: .init(rows: 24, cols: 80), buffer: buffer)
+        let submit: Relay.InputForwarder.Submit = { data, validate in
+            try validate(); writes.append(data)
+        }
+        forwarder.install(generation: generation, id: 42, revision: 9, submit: submit)
+        let next = try #require(buffer.beginGeneration())
+        try await forwarder.receive(Stream.encode(.input(sequence: 1, bytes: Data([13])), generation: next))
+        #expect(writes.isEmpty)
+        #expect(buffer.takeFrame() == nil)
+        forwarder.install(generation: next + 1, id: 43, revision: 1, submit: submit)
+        try await forwarder.receive(Stream.encode(.input(sequence: 2, bytes: Data([13])), generation: next))
+        #expect(writes.isEmpty)
+        #expect(buffer.takeFrame() == nil)
+        #expect(buffer.endReason == nil)
+        #expect(buffer.beginGeneration() == next + 1)
+        try await forwarder.receive(Stream.encode(.input(sequence: 1, bytes: Data([13])), generation: next + 1))
+        #expect(writes.count == 1)
+        #expect(try Stream.decode(#require(buffer.takeFrame()).data).frame == .ack(.init(sequence: 1)))
+    }
+
     @Test func revocationAtSubmissionForwardsNothingAndSendsNoAck() async throws {
         let buffer = Relay.Buffer()
         let generation = try #require(buffer.beginGeneration())

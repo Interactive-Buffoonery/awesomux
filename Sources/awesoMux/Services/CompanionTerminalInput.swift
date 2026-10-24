@@ -127,8 +127,7 @@ extension CompanionTerminalWatchRelay {
             default:
                 throw Stream.EndReason.protocolError
             }
-            guard generation != nil else { return }
-            guard generation == incoming, let submit else { throw Stream.EndReason.protocolError }
+            guard generation == incoming, let submit else { return }
             guard let message = try state.message(decoded.frame) else { return }
             do {
                 try await submit(message) { [self] in
