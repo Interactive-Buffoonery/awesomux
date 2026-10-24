@@ -77,7 +77,6 @@ final class WorktreeManagerModel {
     let repositoryContext: GitRepositoryContext
     private(set) var state: WorktreeManagerState = .loading
     private(set) var createSubmissionState: WorktreeManagerCreateSubmissionState = .idle
-    private(set) var lastCreateRequest: GitWorktreeCreateRequest?
     /// Set by the controller to jump straight into the create flow (the
     /// palette's "Create Worktree…" command) instead of just opening the
     /// panel. The panel's `.task(id:)` observes this, presents the sheet, and
@@ -252,7 +251,6 @@ final class WorktreeManagerModel {
     {
         guard !createSubmissionState.isSubmitting else { return nil }
         let capturedSplitTarget = splitTarget
-        lastCreateRequest = request
         createSubmissionState = .submitting
         let outcome = await service.create(request)
         await refresh()

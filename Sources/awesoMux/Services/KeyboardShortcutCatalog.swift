@@ -44,13 +44,6 @@ struct KeyBinding: Identifiable {
         Self.modifierDisplays(for: modifiers).map(\.symbol) + [keyDisplay]
     }
 
-    var configValue: ShortcutBindingConfig {
-        ShortcutBindingConfig(
-            key: ShortcutKeyResolver.configKey(for: self),
-            modifiers: modifiers.shortcutModifiers
-        )
-    }
-
     func applying(_ override: ShortcutBindingConfig?) -> KeyBinding {
         guard let override,
             KeyboardShortcutCatalog.validationMessage(for: override) == nil,
@@ -747,12 +740,6 @@ enum KeyboardShortcutCatalog {
         resolved(toggleCommandPalette, keyboard: keyboard).displaySymbol
     }
 
-    static func resolvedBinding(id: String, keyboard: KeyboardConfig) -> KeyBinding? {
-        defaultBindingsByID[id].map {
-            resolved($0, keyboard: keyboard)
-        }
-    }
-
     static func allBindings() -> [KeyBinding] {
         allBindings(keyboard: .defaultValue)
     }
@@ -867,26 +854,6 @@ enum ShortcutKeyResolver {
             }
             let display = String(character).uppercased()
             return (KeyEquivalent(character), display, spokenName(for: display))
-        }
-    }
-
-    static func configKey(for binding: KeyBinding) -> String {
-        switch binding.key {
-        case .upArrow:
-            return "↑"
-        case .downArrow:
-            return "↓"
-        case .leftArrow:
-            return "←"
-        case .rightArrow:
-            return "→"
-        case .space:
-            return " "
-        case .escape:
-            return "\u{1b}"
-        default:
-            let key = String(binding.key.character)
-            return key.count == 1 ? key.lowercased() : binding.keyDisplay
         }
     }
 
@@ -1016,15 +983,6 @@ enum ShortcutEventMatcher {
 }
 
 extension ShortcutEventModifiers {
-    var shortcutModifiers: [ShortcutModifier] {
-        [
-            contains(.control) ? .control : nil,
-            contains(.option) ? .option : nil,
-            contains(.shift) ? .shift : nil,
-            contains(.command) ? .command : nil,
-        ].compactMap { $0 }
-    }
-
     var eventFlags: NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
         if contains(.control) { flags.insert(.control) }
