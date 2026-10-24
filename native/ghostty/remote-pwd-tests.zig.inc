@@ -2,9 +2,9 @@ test "awesomux-remote-pwd bounded complete reports" {
     const testing = std.testing;
     const valid = Report.init("file://remote/tmp");
     try testing.expectEqualStrings("file://remote/tmp", valid.slice());
-    const exact = Report.init(&([_]u8{'a'} ** 2048));
+    const exact = Report.init(&@as([2048]u8, @splat('a')));
     try testing.expectEqual(@as(usize, 2048), exact.slice().len);
-    try testing.expectEqual(@as(usize, 0), Report.init(&([_]u8{'a'} ** 2049)).slice().len);
+    try testing.expectEqual(@as(usize, 0), Report.init(&@as([2049]u8, @splat('a'))).slice().len);
     try testing.expectEqual(@as(usize, 0), Report.init("file://remote/\xff").slice().len);
     try testing.expectEqual(@as(usize, 0), Report.init("file://remote/a\x00b").slice().len);
     try testing.expectEqual(@as(usize, 0), Report.init("").slice().len);

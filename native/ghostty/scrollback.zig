@@ -131,10 +131,10 @@ test "awesomux-scrollback: unchanged rendered rows cannot admit oversized live h
     try testing.expect(terminal.modes.get(.synchronized_output));
     try testing.expect(cached_rows * 80 < test_limits.cells);
     try testing.expect(terminal.screens.active.pages.total_rows * 80 > test_limits.cells);
-    var buffer = [_]u8{0xa5} ** 32;
+    var buffer: [32]u8 = @splat(0xa5);
     try testing.expectError(error.TooLarge, read(terminal.screens.active, test_limits, &buffer));
     // Rejection happens before extraction touches even one output byte.
-    try testing.expectEqualSlices(u8, &([_]u8{0xa5} ** 32), &buffer);
+    try testing.expectEqualSlices(u8, &@as([32]u8, @splat(0xa5)), &buffer);
 }
 
 test "awesomux-scrollback: exact byte capacity succeeds and one byte less rejects" {
@@ -160,14 +160,14 @@ test "awesomux-scrollback: grapheme bytes are bounded independently of cell coun
 test "awesomux-scrollback: page memory and row limits reject before formatting" {
     var screen = try Screen.init(testing.io, testing.allocator, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 0 });
     defer screen.deinit();
-    var buffer = [_]u8{0xa5} ** 32;
+    var buffer: [32]u8 = @splat(0xa5);
     var limits = test_limits;
     limits.page_bytes = 0;
     try testing.expectError(error.TooLarge, read(&screen, limits, &buffer));
     limits = test_limits;
     limits.rows = 2;
     try testing.expectError(error.TooLarge, read(&screen, limits, &buffer));
-    try testing.expectEqualSlices(u8, &([_]u8{0xa5} ** 32), &buffer);
+    try testing.expectEqualSlices(u8, &@as([32]u8, @splat(0xa5)), &buffer);
 }
 
 test "awesomux-scrollback: compressed history is rejected without restoring its pages" {

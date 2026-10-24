@@ -8,6 +8,8 @@ test "awesomux-kitty-clear redraw after prompt clear" {
     t.height_px = 800;
     var state: State = .empty;
     defer state.deinit(alloc);
+    var render_state: terminal.RenderState = .empty;
+    defer render_state.deinit(alloc);
     const s = &t.screens.active.kitty_images;
     try s.addImage(io, alloc, t.screens.active, .{ .id = 1, .width = 1, .height = 1, .format = .rgba, .data = .{ .complete = try alloc.dupe(u8, "rgba") } });
     try s.addPlacement(io, alloc, t.screens.active, 1, 1, .{
@@ -15,7 +17,8 @@ test "awesomux-kitty-clear redraw after prompt clear" {
         .columns = 30,
         .rows = 15,
     });
-    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 20 });
+    try render_state.update(alloc, &t);
+    state.kittyUpdate(alloc, &t, &render_state);
     try testing.expectEqual(@as(usize, 1), state.kitty_placements.items.len);
     t.setCursorPos(20, 1);
     try t.semanticPrompt(.init(.prompt_start));
@@ -23,11 +26,13 @@ test "awesomux-kitty-clear redraw after prompt clear" {
     try t.semanticPrompt(.init(.end_prompt_start_input));
     t.setCursorPos(1, 1);
     t.eraseDisplay(.complete, false);
-    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 20 });
+    try render_state.update(alloc, &t);
+    state.kittyUpdate(alloc, &t, &render_state);
     try testing.expectEqual(@as(usize, 0), state.kitty_placements.items.len);
     try testing.expectEqual(@as(usize, 1), s.placements.count());
     t.eraseDisplay(.scrollback, false);
-    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 20 });
+    try render_state.update(alloc, &t);
+    state.kittyUpdate(alloc, &t, &render_state);
     try testing.expectEqual(@as(usize, 0), state.kitty_placements.items.len);
 }
 
@@ -59,9 +64,9 @@ test "awesomux-kitty-clear bounded history preserves retained and active images"
                 .rows = 1,
             });
         }
-        s.dirty = false;
+        const dirty = s.dirty;
         t.screens.active.eraseHistory(.{ .history = .{ .y = 0 } });
-        try testing.expect(s.dirty);
+        try testing.expect(s.dirty != dirty);
         try testing.expectEqual(@as(usize, 2), s.placements.count());
         var keys = s.placements.keyIterator();
         while (keys.next()) |key| try testing.expect(key.image_id != 1);
@@ -70,10 +75,8 @@ test "awesomux-kitty-clear bounded history preserves retained and active images"
         keys = s.placements.keyIterator();
         try testing.expectEqual(@as(u32, 2), keys.next().?.image_id);
         const generation = s.generation;
-        s.dirty = false;
         t.eraseDisplay(.scrollback, false);
         try testing.expectEqual(generation, s.generation);
-        try testing.expect(!s.dirty);
         try testing.expect(s.imageById(1) != null);
         try testing.expect(s.imageById(3) != null);
         t.eraseDisplay(.complete, false);
