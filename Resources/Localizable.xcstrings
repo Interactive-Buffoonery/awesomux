@@ -6328,7 +6328,7 @@
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn't save the terminal watch permission." : {
-
+      "comment" : "Error shown when saving a paired phone’s terminal watching permission fails."
     },
     "awesoMux couldn't save this app's access." : {
 

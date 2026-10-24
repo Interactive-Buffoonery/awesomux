@@ -240,7 +240,9 @@ struct CompanionSettingsPane: View {
                 isOn: permissionBinding(
                     isAllowed: phone.companion?.terminalWatchScope != nil,
                     save: { try coordinator.setTerminalWatchAllowed($0, for: phone) },
-                    failureMessage: String(localized: "awesoMux couldn't save the terminal watch permission.")
+                    failureMessage: String(
+                        localized: "awesoMux couldn't save the terminal watch permission.",
+                        comment: "Error shown when saving a paired phone’s terminal watching permission fails.")
                 )
             ) {
                 Text(String(localized: "Allow watching terminals"))
