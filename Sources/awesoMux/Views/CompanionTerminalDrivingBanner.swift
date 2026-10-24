@@ -29,10 +29,17 @@ struct CompanionTerminalDrivingBanner: View {
         guard let grid, let leader else { return nil }
         if let device {
             return String(
-                localized: "\(device.name) is driving · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back")
+                localized: "\(device.name) is driving · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back",
+                comment:
+                    "Terminal leadership banner. Arguments are the paired device’s name, grid columns, and grid rows. Typing on the Mac takes control back."
+            )
         }
         if leader == 0 {
-            return String(localized: "No one is driving · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take back")
+            return String(
+                localized: "No one is driving · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back",
+                comment:
+                    "Terminal leadership banner when no device leads. Arguments are grid columns and rows. Typing on the Mac takes control back."
+            )
         }
         return nil
     }
@@ -45,8 +52,13 @@ struct CompanionTerminalDrivingBanner: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     if let device {
-                        Button(String(localized: "Disconnect")) { device.disconnect() }
-                            .accessibilityLabel(String(localized: "Disconnect \(device.name) from this terminal"))
+                        Button(String(localized: "Disconnect", comment: "Button that ends the paired device’s current terminal stream.")) {
+                            device.disconnect()
+                        }
+                        .accessibilityLabel(
+                            String(
+                                localized: "Disconnect \(device.name) from this terminal",
+                                comment: "Accessibility label for ending a terminal stream. Argument is the paired device’s name."))
                     }
                 }
                 .padding(8)
@@ -60,7 +72,7 @@ struct CompanionTerminalDrivingBanner: View {
                 if leader != nil { lastAnnouncement = nil }
                 return
             }
-            let announcement = String(localized: "\(paneDescriptor): \(status)")
+            let announcement = "\(paneDescriptor): \(status)"
             guard lastAnnouncement != announcement else { return }
             lastAnnouncement = announcement
             TerminalAccessibilityAnnouncer.announce(announcement)

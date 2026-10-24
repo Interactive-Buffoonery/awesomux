@@ -245,29 +245,43 @@ struct CompanionSettingsPane: View {
                         comment: "Error shown when saving a paired phone’s terminal watching permission fails.")
                 )
             ) {
-                Text(String(localized: "Allow watching terminals"))
+                Text(String(localized: "Allow watching terminals", comment: "Per-phone switch for streaming live terminal output."))
             }
             .accessibilityLabel(
-                String.localizedStringWithFormat(String(localized: "Allow watching terminals for %@"), phone.label))
+                String.localizedStringWithFormat(
+                    String(
+                        localized: "Allow watching terminals for %@",
+                        comment: "Accessibility label for terminal watching. Argument is the paired phone’s name."), phone.label))
             Text(
                 String(
-                    localized: "Streams live terminal output, which can include secrets, to this phone.")
+                    localized: "Streams live terminal output, which can include secrets, to this phone.",
+                    comment: "Privacy warning for a paired phone’s live terminal watching permission.")
             )
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text)
             Toggle(
-                String(localized: "Input"),
+                String(localized: "Input", comment: "Per-phone switch for typing into watched terminals."),
                 isOn: permissionBinding(
                     isAllowed: phone.companion?.terminalInputAllowed == true,
                     save: { try coordinator.setTerminalInputAllowed($0, for: phone) },
-                    failureMessage: String(localized: "awesoMux couldn't save the input permission.")
+                    failureMessage: String(
+                        localized: "awesoMux couldn't save the input permission.",
+                        comment: "Error shown when saving a paired phone’s terminal input permission fails.")
                 )
             )
             .disabled(phone.companion?.terminalWatchScope == nil && phone.companion?.terminalInputAllowed != true)
-            .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Input from %@"), phone.label))
-            Text(String(localized: "Allows typing into every terminal this device may watch. Turn on terminal watching first."))
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text)
+            .accessibilityLabel(
+                String.localizedStringWithFormat(
+                    String(
+                        localized: "Input from %@",
+                        comment: "Accessibility label for terminal input. Argument is the paired phone’s name."), phone.label))
+            Text(
+                String(
+                    localized: "Allows typing into every terminal this device may watch. Turn on terminal watching first.",
+                    comment: "Explains the terminal input permission and its terminal watching prerequisite.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)

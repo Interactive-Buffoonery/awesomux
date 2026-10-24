@@ -668,8 +668,8 @@ public final class LocalAPIAccessStore {
             invalidateCompanionRequests(connectionID)
             persistenceFailureMessage = String(
                 localized:
-                    "This connection is denied for this run, but the input permission could not be saved. Retry before restarting awesoMux."
-            )
+                    "This connection is denied for this run, but the input permission could not be saved. Retry before restarting awesoMux.",
+                comment: "Durability warning when denying terminal input succeeds for this run but cannot be saved for future launches.")
             throw error
         }
     }

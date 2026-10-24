@@ -1273,7 +1273,8 @@ private final class CompanionNetworkServer {
                 if let attachmentID, acceptedRole.role == .interactive {
                     CompanionTerminalDriving.shared.register(
                         paneID: paneID, sessionName: sessionName, attachmentID: attachmentID, streamID: id,
-                        deviceName: self.pairedConnections().first { $0.id == connectionID }?.label ?? String(localized: "iPhone"),
+                        deviceName: self.pairedConnections().first { $0.id == connectionID }?.label
+                            ?? String(localized: "iPhone", comment: "Fallback paired device name in the terminal leadership banner."),
                         disconnect: { buffer.stop(.closed) })
                 } else {
                     CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
