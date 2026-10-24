@@ -13,6 +13,12 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > These changes affect the terminal engine embedded in awesoMux.
 > The public embedded C header and bundled Ghostty license are unchanged.
 >
+> The native extension regressions pass with Zig 0.17.0. The ReleaseFast
+> archive still contains 277 members. Zig renames `libghostty_zcu.o` and
+> `libhighway_zcu.o` to `ghostty_zcu.o` and `highway_zcu.o`; all other member
+> names are unchanged. The audited inventory digest is
+> `f52ec83b0da3b43ad0ee55c9eb1a20dd8249d8aaf0e7c49de764c5ee61b0e5b8`.
+>
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
 > (`#13209`/`#13220`/`#13226` — parser-bound IO plus print/CSI fast paths).
