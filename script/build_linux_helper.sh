@@ -35,7 +35,11 @@ checksum() {
 
 mkdir -p dist/linux-helper
 for arch in x86_64 aarch64; do
-  swift build -c release --product awesoMuxBridgeHelper --swift-sdk "${arch}-swift-linux-musl"
+  # Link-time strip (lld -s) works for both arches without a cross binutils.
+  # Shrinks the binary users download onto remote hosts; Swift backtraces
+  # on the remote side lose symbol names.
+  swift build -c release --product awesoMuxBridgeHelper --swift-sdk "${arch}-swift-linux-musl" \
+    -Xlinker -s
   out="dist/linux-helper/awesomux-bridge-helper-linux-${arch}"
   install -m 0755 ".build/${arch}-swift-linux-musl/release/awesoMuxBridgeHelper" "${out}"
   (cd dist/linux-helper && checksum "$(basename "${out}")" > "$(basename "${out}").sha256")
