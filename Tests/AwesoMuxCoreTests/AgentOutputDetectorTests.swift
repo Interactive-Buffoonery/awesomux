@@ -214,6 +214,68 @@ struct AgentOutputDetectorTests {
         }
     }
 
+    @Test("quoted Codex menus yield to later live UI")
+    func quotedCodexMenusYieldToLaterLiveUI() {
+        let example = """
+            Would you like to run the following command?
+            $ swift test
+            › 1. Yes, proceed (y)
+              2. Yes, and don't ask again for this command (p)
+              3. No, and tell Codex what to do differently (esc)
+            """
+        let selectedPersistentApproval = example.replacingOccurrences(of: "› 1.", with: "  1.")
+            .replacingOccurrences(of: "  2.", with: "› 2.")
+        #expect(detector.detectedOutput(in: selectedPersistentApproval, liveAgentKind: .codex)?.state == .needsAttention)
+        #expect(detector.detectedOutput(in: example + "\n› Summarize changes", liveAgentKind: .codex)?.state == .waiting)
+        #expect(detector.detectedOutput(in: example + "\n› ", liveAgentKind: .codex)?.state == .waiting)
+        #expect(detector.detectedOutput(in: example + "\n• Working (3s • esc to interrupt)", liveAgentKind: .codex)?.state == .thinking)
+        let prose = """
+            Would you like to run the following command?
+            Yes, proceed
+            No, and tell Codex what to do differently
+            """
+        #expect(detector.detectedOutput(in: prose, liveAgentKind: .codex)?.state != .needsAttention)
+    }
+
+    @Test("live codex pane reads its viewport after the launch banner scrolls away")
+    func liveCodexPaneReadsViewportWithoutBanner() {
+        // A Codex pane on a shared app-server gets no hooks, so its approval
+        // prompt, working line, and idle composer are the only status signals.
+        let approval = """
+              Would you like to run the following command?
+
+              $ swift test
+
+            › 1. Yes, proceed (y)
+              2. Yes, and don't ask again for this command (p)
+              3. No, and tell Codex what to do differently (esc)
+            """
+        #expect(
+            detector.detectedOutput(in: approval, liveAgentKind: .codex)
+                == AgentOutputDetection(state: .needsAttention, agentKind: nil))
+        #expect(
+            detector.detectedOutput(in: "• Working (12s • esc to interrupt)", liveAgentKind: .codex)
+                == AgentOutputDetection(state: .thinking, agentKind: nil))
+        #expect(
+            detector.detectedOutput(in: "› Summarize recent commits\n\n  100% context left", liveAgentKind: .codex)
+                == AgentOutputDetection(state: .waiting, agentKind: .codex))
+        #expect(detector.detectedOutput(in: "› Summarize recent commits", liveAgentKind: .shell) == nil)
+
+        // Quoted prompt text and completion prose in the transcript are not
+        // live approval or turn-end UI; that pane may have no hook to correct it.
+        let quotedApproval = """
+            • Codex asks "Would you like to run the following command?" before it runs tools.
+
+            • Working (3s • esc to interrupt)
+            """
+        #expect(
+            detector.detectedOutput(in: quotedApproval, liveAgentKind: .codex)
+                == AgentOutputDetection(state: .thinking, agentKind: nil))
+        #expect(
+            detector.detectedOutput(in: "• Task complete: tests pass.\n\n› ", liveAgentKind: .codex)
+                == AgentOutputDetection(state: .waiting, agentKind: .codex))
+    }
+
     @Test(arguments: [
         """
         $ rg "permission needed"

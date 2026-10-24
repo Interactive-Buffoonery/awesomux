@@ -27,7 +27,8 @@ public enum AgentHookCommand {
         stdin: Data,
         output: ((String) -> Void)? = nil,
         permissionOutput: ((String) -> Bool)? = nil,
-        errorOutput: ((String) -> Void)? = nil
+        errorOutput: ((String) -> Void)? = nil,
+        isSharedAppServer: (() -> Bool)? = nil
     ) -> Int {
         if arguments == ["--health-check"] {
             return AgentHookHealthCheck.run(
@@ -42,6 +43,13 @@ public enum AgentHookCommand {
             return 0
         }
         let provider = invocation.provider
+
+        // Codex's shared daemon inherits its founder pane's environment, so
+        // even the founder's events cannot be routed safely (openai/codex#48500).
+        guard !(provider == .codex && (isSharedAppServer ?? CodexHookProcessAncestry.isSharedAppServer)()) else {
+            log(provider: provider, eventName: nil, category: "shared-app-server")
+            return 0
+        }
 
         guard let eventFilePath = environment[eventFileEnvironmentKey],
             !eventFilePath.isEmpty

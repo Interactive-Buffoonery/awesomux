@@ -50,8 +50,11 @@ public struct AgentOutputDetector: Sendable {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
 
+        // A live Codex pane may get no hooks (shared app-server), and its launch
+        // banner scrolls away, so the live identity stands in for agent context.
+        let liveKindIsCodex = liveAgentKind == .codex
         guard
-            assumingAgentContext || liveAgentKind == .hermes
+            assumingAgentContext || liveAgentKind == .hermes || liveKindIsCodex
                 || containsAgentContext(normalized, lines: lines)
         else {
             return nil
@@ -65,10 +68,12 @@ public struct AgentOutputDetector: Sendable {
         )
         let treatAsHermes = hasStrongHermesIdentity || liveAgentKind == .hermes
         let canEvaluateStateCues = hasStatefulAgentContext
+            || liveKindIsCodex
             || (assumingAgentContext
                 && !hasGrokIdentity
                 && !hasStrongHermesIdentity)
         let canEvaluateAttentionCues = hasStatefulAgentContext
+            || liveKindIsCodex
             || assumingAgentContext
             || hasGrokIdentity
             || hasStrongHermesIdentity
@@ -100,7 +105,12 @@ public struct AgentOutputDetector: Sendable {
             return AgentOutputDetection(state: .thinking, agentKind: .hermes)
         }
 
-        if canEvaluateAttentionCues && containsNeedsAttentionPrompt(normalized) {
+        // Codex attention must come from its live approval UI, never from
+        // prose: a hookless (shared app-server) pane has no hook to correct it.
+        if liveKindIsCodex
+            ? containsCodexApprovalPrompt(lines)
+            : canEvaluateAttentionCues && containsNeedsAttentionPrompt(normalized)
+        {
             return AgentOutputDetection(state: .needsAttention, agentKind: attentionCueAgentKind)
         }
 
@@ -115,7 +125,8 @@ public struct AgentOutputDetector: Sendable {
             return AgentOutputDetection(state: .thinking, agentKind: stateCueAgentKind)
         }
 
-        if canEvaluateStateCues && !skipClaudeStateCues && containsDoneCue(normalized) {
+        // Codex ends a turn at its composer, not with completion prose.
+        if canEvaluateStateCues && !skipClaudeStateCues && !liveKindIsCodex && containsDoneCue(normalized) {
             return AgentOutputDetection(state: .done, agentKind: stateCueAgentKind)
         }
 
@@ -130,7 +141,8 @@ public struct AgentOutputDetector: Sendable {
             hasGrokIdentity: hasGrokIdentity,
             hasStrongHermesIdentity: hasStrongHermesIdentity
         )
-        let agentKind = inferredKind ?? (liveAgentKind == .hermes ? .hermes : nil)
+        let agentKind =
+            inferredKind ?? (liveAgentKind == .hermes || liveKindIsCodex ? liveAgentKind : nil)
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
         }
@@ -450,6 +462,52 @@ public struct AgentOutputDetector: Sendable {
                 }
         }
     }
+
+    /// Codex 0.163's approval overlay: a question followed by its numbered
+    /// choices at the bottom of the viewport, where the composer would sit.
+    private func containsCodexApprovalPrompt(_ lines: [Substring]) -> Bool {
+        let bottom = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.suffix(12)
+        guard let question = bottom.lastIndex(where: { Self.codexApprovalQuestions.contains($0) }) else {
+            return false
+        }
+        let menu = bottom.suffix(from: bottom.index(after: question))
+        var hasSelectedChoice = false
+        var hasApproval = false
+        var hasRejection = false
+        for line in menu {
+            let selected = line == "›" || line.hasPrefix("› ")
+            let choice = selected ? String(line.dropFirst(2)) : line
+            let parts = choice.split(separator: ".", maxSplits: 1)
+            let numbered = parts.count == 2 && !parts[0].isEmpty && parts[0].allSatisfy(\.isNumber)
+            let label = numbered ? parts[1].trimmingCharacters(in: .whitespaces) : ""
+            let recognized = Self.codexApprovalChoices.contains { label.hasPrefix($0) }
+            if numbered && recognized {
+                hasSelectedChoice = hasSelectedChoice || selected
+                hasApproval = hasApproval || label.hasPrefix("yes,")
+                hasRejection = hasRejection || label.hasPrefix("no,")
+            } else if selected || containsThinkingCue(line) {
+                // A later composer or work indicator means this is transcript,
+                // even when the response quotes a complete numbered menu.
+                return false
+            }
+        }
+        return hasSelectedChoice && hasApproval && hasRejection
+    }
+
+    private static let codexApprovalQuestions = [
+        "would you like to run the following command?",
+        "would you like to make the following edits?",
+        "would you like to grant these permissions?",
+        "would you like to send input to the existing terminal?",
+    ]
+
+    private static let codexApprovalChoices = [
+        "yes, proceed",
+        "yes, just this once",
+        "yes, and don't ask again",
+        "no, and tell codex what to do differently",
+    ]
 
     private func containsNeedsAttentionPrompt(_ text: String) -> Bool {
         if text.contains("permission needed")

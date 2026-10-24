@@ -912,6 +912,17 @@ extension GhosttySurfaceNSView {
             return
         }
 
+        // The stored kind and observed-context latch can outlive Codex. Only
+        // its current foreground process may lend context to bannerless output.
+        if liveKindForGate == .codex {
+            let command =
+                sessionStore.session(id: sessionID)?
+                .layout.pane(id: paneID)?.freshRemoteForegroundComm()
+                ?? documentNudgeForegroundComm()
+            guard AgentProcessRecognition.agentKind(forCommand: command) == .codex
+            else { return }
+        }
+
         guard
             let detection = terminalEventState.agentOutputDetector.detectedOutput(
                 in: visibleText,
@@ -927,6 +938,18 @@ extension GhosttySurfaceNSView {
             return
         }
         applyDetectedAgentOutput(detection)
+    }
+
+    func liveAgentHooksDelivered(for liveAgentKind: AgentKind) -> Bool {
+        guard liveAgentKind.requiresDeliveredHooksForAuthority else { return true }
+        guard let delivered = terminalEventState.codexHooksDelivered,
+            delivered.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        else { return false }
+        guard let current = documentNudgeForegroundGeneration() else {
+            // An unavailable sample cannot prove the hooked process is still in front.
+            return false
+        }
+        return delivered.incarnation == current
     }
 
     func shouldSuppressVisibleTextState(_ detectedState: AgentState, now: TimeInterval) -> Bool {
@@ -1071,11 +1094,13 @@ extension GhosttySurfaceNSView {
         let liveAgentKind = livePane?.agentKind ?? .shell
         let liveDisplayState = livePane?.agentState ?? .idle
         let liveExecutionState = livePane?.agentExecutionState ?? .idle
+        let hooksDelivered = liveAgentHooksDelivered(for: liveAgentKind)
         let decision = terminalEventState.visibleTextAgentStateReducer.visibleTextDecision(
             detectedState: detection.state,
             detectedAgentKind: detection.agentKind,
             detectedKindIsAuthoritative: detection.agentKindIsAuthoritative,
             liveAgentKind: liveAgentKind,
+            liveAgentHooksDelivered: hooksDelivered,
             liveExecutionState: liveExecutionState,
             liveDisplayState: liveDisplayState,
             terminalIsActiveForAttention: sessionIsSelectedInKeyWindow || terminalIsFocused
@@ -1084,12 +1109,12 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // Grok/Hermes can clear sticky thinking via identity-only waiting, but
-        // only when the shell is quiet — mid-turn pure inference may drop live
-        // cues while tools are still about to run; busy shell keeps thinking.
+        // Identity-only waiting can clear sticky thinking only when the shell
+        // is quiet. Mid-turn inference may drop live cues while tools are still
+        // about to run; this includes Codex panes without delivered hooks.
         var applyState = decision.shouldApplyState ? detection.state : nil
         if applyState == .waiting,
-            liveAgentKind.usesIdentityWaitingToClearThinking,
+            (liveAgentKind.usesIdentityWaitingToClearThinking || !hooksDelivered),
             (liveExecutionState == .thinking || liveDisplayState == .thinking),
             livePane?.shellActivity == .busy
         {
@@ -1204,6 +1229,13 @@ extension GhosttySurfaceNSView {
         // visible-text heuristic's own scope, not suppressed here.
         if event.phase == .sessionEnd {
             terminalEventState.hasObservedAgentActivity = false
+            terminalEventState.codexHooksDelivered = nil
+        } else if event.source == .codex, event.phase != .rename,
+            let incarnation = documentNudgeForegroundGeneration()
+        {
+            terminalEventState.codexHooksDelivered = (
+                PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), incarnation
+            )
         }
 
         // Only state-bearing events suppress the visible-text detector,

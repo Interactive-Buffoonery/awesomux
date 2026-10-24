@@ -38,6 +38,13 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         }
     }
 
+    /// Whether hook authority applies only after this pane has received a
+    /// provider hook. The helper drops Codex hooks running inside a shared
+    /// `codex app-server`, so those panes rely on visible text alone.
+    public var requiresDeliveredHooksForAuthority: Bool {
+        self == .codex
+    }
+
     /// Identity-only viewport `.waiting` may clear sticky `.thinking`.
     ///
     /// Do not generalize this to `!usesReliableHooks`: Grok reports reliable
