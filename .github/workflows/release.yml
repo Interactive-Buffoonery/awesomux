@@ -170,6 +170,7 @@ jobs:
           name: linux-helper
           path: dist/linux-helper/
           if-no-files-found: error
+          retention-days: 7
 
   release-tests:
     name: Release gate tests (${{ matrix.group }})
