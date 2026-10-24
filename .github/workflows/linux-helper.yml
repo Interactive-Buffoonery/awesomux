@@ -77,6 +77,7 @@ jobs:
           name: linux-helper
           path: dist/linux-helper/
           if-no-files-found: error
+          retention-days: 3
 
   smoke:
     name: SSH end-to-end smoke
