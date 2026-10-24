@@ -194,58 +194,55 @@ struct CompanionSettingsPane: View {
             }
             .accessibilityLabel(
                 String.localizedStringWithFormat(String(localized: "Allow pane renaming for %@"), phone.label))
-            Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
+            Text(
+                String(
+                    localized: "Lets this phone rename terminal panes in every workspace.",
+                    comment: "Explains that pane rename permission covers every workspace for this paired phone.")
+            )
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
-            Menu(
-                String(
-                    localized: "Decision workspaces",
-                    comment: "Menu for selecting which workspaces this paired phone may answer permission requests for.")
+            Toggle(
+                isOn: permissionBinding(
+                    isAllowed: phone.companion?.decisionsAllowed == true,
+                    save: { try coordinator.setDecisionsAllowed($0, for: phone) },
+                    failureMessage: String(
+                        localized: "awesoMux couldn't save the permission request access.",
+                        comment: "Error shown when saving a paired phone’s permission-answering switch fails.")
+                )
             ) {
-                ForEach(coordinator.decisionWorkspaces, id: \.id) { workspace in
-                    Toggle(
-                        workspace.name,
-                        isOn: Binding(
-                            get: {
-                                coordinator.pairedPhones.first { $0.id == phone.id }?.companion?.decideWorkspaceIDs?.contains(workspace.id)
-                                    == true
-                            },
-                            set: { allowed in
-                                do {
-                                    try coordinator.setDecisionWorkspace(workspace.id, allowed: allowed, for: phone.id)
-                                    errorMessage = nil
-                                } catch {
-                                    errorMessage = String(
-                                        localized: "Could not save decision access.",
-                                        comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
-                                }
-                            }))
-                }
+                Text(
+                    String(
+                        localized: "Allow answering permission requests",
+                        comment: "Per-phone switch for answering agent permission requests in every workspace."))
             }
             .accessibilityLabel(
                 String.localizedStringWithFormat(
                     String(
-                        localized: "Decision workspaces for %@",
-                        comment: "Accessibility label for a paired phone’s decision workspace menu. Argument is the phone’s name."),
+                        localized: "Allow answering permission requests for %@",
+                        comment: "Accessibility label for the permission-answering switch. Argument is the paired phone’s name."),
                     phone.label))
             Text(
                 String(
-                    localized: "Remote decisions are not available yet. Workspace access starts off.",
-                    comment: "Explains that remote permission decisions are not released and workspace access is disabled by default.")
+                    localized:
+                        "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off.",
+                    comment: "Explains the default-off device-wide grant for answering agent permission requests.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text3)
+            Text(
+                String(
+                    localized: "Remote decisions are not available yet.",
+                    comment: "Explains that remote permission answers remain unavailable until the production release gate opens.")
             )
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text3)
             Toggle(
-                isOn: Binding(
-                    get: { phone.companion?.terminalWatchScope != nil },
-                    set: { allowed in
-                        do {
-                            try coordinator.setTerminalWatchAllowed(allowed, for: phone)
-                            errorMessage = nil
-                        } catch {
-                            errorMessage = String(localized: "awesoMux couldn't save the terminal watch permission.")
-                        }
-                    }
+                isOn: permissionBinding(
+                    isAllowed: phone.companion?.terminalWatchScope != nil,
+                    save: { try coordinator.setTerminalWatchAllowed($0, for: phone) },
+                    failureMessage: String(
+                        localized: "awesoMux couldn't save the terminal watch permission.",
+                        comment: "Error shown when saving a paired phone’s terminal watching permission fails.")
                 )
             ) {
                 Text(String(localized: "Allow watching terminals"))
@@ -266,6 +263,19 @@ struct CompanionSettingsPane: View {
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
         .overlay { RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5) }
         .accessibilityElement(children: .contain)
+    }
+
+    private func permissionBinding(isAllowed: Bool, save: @escaping (Bool) throws -> Void, failureMessage: String) -> Binding<Bool> {
+        Binding(
+            get: { isAllowed },
+            set: { allowed in
+                do {
+                    try save(allowed)
+                    errorMessage = nil
+                } catch {
+                    errorMessage = failureMessage
+                }
+            })
     }
 
     private func lastSeenText(_ id: UUID) -> String {

@@ -6,6 +6,13 @@
 - **Deciders:** Sarah
 - **Issue:** [#793](https://github.com/Interactive-Buffoonery/awesomux/issues/793)
 
+## Amendment (2026-10-23)
+
+2026-10-23: Sarah decided device grants are device-wide, not per workspace.
+This supersedes workspace-selection requirements below. Separate default-off
+powers and all request identity, eligibility, expiry and release checks remain.
+Existing narrower Watch and rename grants widen to every workspace on load.
+
 ## Context
 
 [ADR-0028](0028-permission-decision-transport-bridge-primary.md) routes Claude

@@ -18,39 +18,159 @@ import Testing
         #expect(!LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "codex", version: "future"))
     }
 
-    // Unknown workspace inventory must preserve grants; an authoritative inventory
-    // must prune removed workspaces without changing retained grants on replay.
-    @Test func decisionReconciliationRequiresConfiguredInventory() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-inventory-\(UUID())")
+    // Persisted workspace grants must migrate without enabling an explicit off switch.
+    enum LegacyDecisionGrant: CaseIterable { case missing, empty, granted, explicitOff, explicitOn }
+
+    @Test(arguments: LegacyDecisionGrant.allCases)
+    func legacyDecisionGrantMigratesAndPersists(grant: LegacyDecisionGrant) throws {
+        let enabled = grant == .granted || grant == .explicitOn
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-migration-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let phone = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
+        let file = root.appendingPathComponent("LocalAPI/access.json")
+        access = nil
+        _ = try rewriteLegacyDecisionMetadata(at: file) { metadata in
+            switch grant {
+            case .missing: break
+            case .empty: metadata["decideWorkspaceIDs"] = [String]()
+            case .granted: metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+            case .explicitOff:
+                metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+                metadata["decisionsAllowed"] = false
+            case .explicitOn:
+                metadata["decideWorkspaceIDs"] = [String]()
+                metadata["decisionsAllowed"] = true
+            }
+        }
+        let migrated = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        #expect(migrated.loadFailure == nil)
+        #expect(migrated.state.connections.first { $0.id == phone.id }?.companion?.decisionsAllowed == enabled)
+        let saved = try LocalAPIContract.decoder().decode(LocalAPIAccessState.self, from: Data(contentsOf: file))
+        #expect(saved.connections.first?.companion?.decisionsAllowed == enabled)
+        let persisted = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        let savedConnections = try #require(persisted["connections"] as? [[String: Any]])
+        let savedMetadata = try #require(savedConnections[0]["companion"] as? [String: Any])
+        #expect(savedMetadata["decideWorkspaceIDs"] == nil)
+    }
+
+    @Test func malformedLegacyDecisionGrantRemainsDenied() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-invalid-migration-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        _ = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
+        let file = root.appendingPathComponent("LocalAPI/access.json")
+        access = nil
+        let legacy = try rewriteLegacyDecisionMetadata(at: file) { metadata in
+            let workspace = UUID().uuidString
+            metadata["decideWorkspaceIDs"] = [workspace.uppercased(), workspace.lowercased()]
+        }
+        let denied = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        #expect(denied.loadFailure == .preservedInvalidState)
+        #expect(denied.state.connections.isEmpty)
+        #expect(try Data(contentsOf: file) == legacy)
+    }
+
+    @Test func failedMigrationPreservesConnectionsAndAllowsRetry() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-migration-failure-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let fingerprint = Data(repeating: 7, count: 32)
+        let phone = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1234)
+        let outside = try #require(access).prepareRegistration(label: "Outside", statusScope: .allWorkspaces)
+        try #require(access).activateRegistration(outside)
+        try #require(access).setGloballyEnabled(true)
+        let directory = root.appendingPathComponent("LocalAPI")
+        let file = directory.appendingPathComponent("access.json")
+        access = nil
+        _ = try rewriteLegacyDecisionMetadata(at: file) { metadata in
+            metadata["decideWorkspaceIDs"] = [UUID().uuidString]
+        }
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        let migrated = LocalAPIAccessStore(
+            profile: "development", supportDirectoryURL: root, fileManager: MigrationReadOnlyFileManager())
+        #expect(migrated.loadFailure == nil)
+        #expect(migrated.state.connections.count == 2)
+        #expect(migrated.persistenceFailureMessage != nil)
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try migrated.runtimeAuthority.authorizeCompanion(
+                connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+            ).get()
+        }
+        let outsideRequest = LocalAPIRequest(
+            profile: "development", operation: .connectionStatus, connectionID: outside.connection.id,
+            credential: LocalAPICredential.encode(outside.credential))
+        #expect(try migrated.runtimeAuthority.provider.authorize(outsideRequest).get().connectionID == outside.connection.id)
+        #expect(throws: LocalAPIAccessFailure.persistenceFailed) { try migrated.revoke(connectionID: outside.connection.id) }
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try migrated.runtimeAuthority.authorizeCompanion(
+                connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+            ).get()
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try migrated.retryPersistence()
+        #expect(migrated.persistenceFailureMessage == nil)
+        let lease = try migrated.runtimeAuthority.authorizeCompanion(
+            connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        #expect(lease.decisionsAllowed)
+    }
+
+    private func rewriteLegacyDecisionMetadata(at file: URL, change: (inout [String: Any]) -> Void) throws -> Data {
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        let index = try #require(connections.firstIndex { $0["kind"] as? String == "companion" })
+        var metadata = try #require(connections[index]["companion"] as? [String: Any])
+        metadata.removeValue(forKey: "decisionsAllowed")
+        change(&metadata)
+        connections[index]["companion"] = metadata
+        object["connections"] = connections
+        let data = try JSONSerialization.data(withJSONObject: object)
+        try data.write(to: file)
+        return data
+    }
+
+    @Test func workspaceCreatedAfterGrantHasVisibleDecisions() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("decision-future-workspace-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
-        let profile = AppRuntimeProfile.development(worktreeID: nil)
-        let configured = CompanionPairingCoordinator(profile: profile, accessStore: access)
-        let unknown = CompanionPairingCoordinator(profile: profile, accessStore: access)
-        defer { configured.stop(); unknown.stop() }
-        let session = TerminalSession(title: "Live", workingDirectory: "~")
-        let store = SessionStore(groups: [SessionGroup(name: "Group", sessions: [session])])
-        let runtime = GhosttyRuntime()
-        let service = try LocalAPIService(store: store, runtime: runtime, accessStore: access, profile: profile)
-        defer { service.stop() }
-        // Configure before registering a phone so this inventory test opens no listener.
-        configured.configure(service: service)
-        let phone = try access.registerCompanion(
-            phoneName: "Phone", certificateFingerprint: Data(repeating: 7, count: 32), transport: .lan, port: 1234)
-        let removed = UUID()
-        try access.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: [session.id, removed])
-        let before = try #require(access.state.connections.first { $0.id == phone.id })
-        unknown.reconcileDecisionWorkspaces()
-        #expect(access.state.connections.first { $0.id == phone.id } == before)
-        let persisted = try LocalAPIContract.decoder().decode(
-            LocalAPIAccessState.self, from: Data(contentsOf: root.appendingPathComponent("LocalAPI/access.json")))
-        #expect(persisted.connections.first { $0.id == phone.id }?.companion?.decideWorkspaceIDs == [session.id, removed])
-        configured.reconcileDecisionWorkspaces()
-        let pruned = try #require(access.state.connections.first { $0.id == phone.id })
-        #expect(pruned.companion?.decideWorkspaceIDs == [session.id])
-        #expect(pruned.revision != before.revision)
-        configured.reconcileDecisionWorkspaces()
-        #expect(access.state.connections.first { $0.id == phone.id } == pruned)
+        let fingerprint = Data(repeating: 7, count: 32)
+        let phone = try access.registerCompanion(phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1234)
+        let pairing = CompanionPairingCoordinator(profile: .development(worktreeID: nil), accessStore: access)
+        defer { pairing.stop() }
+        try pairing.setDecisionsAllowed(true, for: phone)
+        let lease = try access.runtimeAuthority.authorizeCompanion(
+            connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        let coordinator = LocalPermissionCoordinator(announcement: { _ in })
+        defer { coordinator.retireAll() }
+        let workspace = UUID(), pane = UUID()
+        let endpoint = try #require(
+            coordinator.install(
+                workspaceID: workspace, paneID: pane, eventFile: root.appendingPathComponent("events.jsonl")))
+        let request = try decisionRequest(target: endpoint.target, summary: "echo future workspace")
+        #expect(LocalPermissionFiles.write(request, at: endpoint.file("req", id: request.invocationID)))
+        try #require(await waitUntilEventually { coordinator.cards[pane]?.outcome.state == .pending })
+        let result = try coordinator.remoteResponse(
+            answer: nil, deviceID: phone.id, deviceName: phone.label,
+            authorize: { body in
+                try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: lease, body: body)
+            }, eligible: { $0 == endpoint.target }, fixture: true)
+        #expect(result.pending.map(\.identity) == [request.identity.companionIdentity])
+        try coordinator.validateRemoteTargets(result.pending.map(\.identity), eligible: { $0 == endpoint.target })
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try coordinator.validateRemoteTargets(result.pending.map(\.identity), eligible: { _ in false })
+        }
+    }
+
+    private func decisionRequest(target: LocalPermissionTarget, summary: String) throws -> LocalPermissionRequest {
+        LocalPermissionRequest(
+            target: target, providerSessionID: "fixture", invocationID: UUID(), toolUseID: nil,
+            helperPID: getpid(), helperStartMicroseconds: try #require(LocalPermissionFiles.processStartMicroseconds(getpid())),
+            expiresAt: Date().addingTimeInterval(120), tool: "Bash", summary: summary)
     }
 
     enum RevocationStage: CaseIterable { case recorded, claimed, escaped }
@@ -69,11 +189,7 @@ import Testing
             coordinator.install(
                 workspaceID: workspace, paneID: pane,
                 eventFile: root.appendingPathComponent("events.jsonl")))
-        let request = LocalPermissionRequest(
-            target: endpoint.target, providerSessionID: "fixture", invocationID: UUID(),
-            toolUseID: nil, helperPID: getpid(),
-            helperStartMicroseconds: try #require(LocalPermissionFiles.processStartMicroseconds(getpid())),
-            expiresAt: Date().addingTimeInterval(120), tool: "Bash", summary: "echo fixture")
+        let request = try decisionRequest(target: endpoint.target, summary: "echo fixture")
         var fd: Int32 = -1
         defer { if fd >= 0 { close(fd) } }
         func openHook() throws -> Int32 {
@@ -122,7 +238,7 @@ import Testing
         var authorizationCalls = 0
         let result = try coordinator.remoteResponse(
             answer: .init(identity: request.identity.companionIdentity, choice: .allow, retryID: UUID()),
-            deviceID: UUID(), deviceName: "Phone", workspaceIDs: [workspace],
+            deviceID: UUID(), deviceName: "Phone",
             authorize: { body in
                 authorizationCalls += 1
                 // Commit, pump refresh, then the actual post-claim write.
@@ -182,23 +298,34 @@ import Testing
             ).get()
         }
         let old = try lease()
-        #expect(old.decideWorkspaceIDs == nil)
+        #expect(!old.decisionsAllowed)
         #expect(throws: LocalAPIError.permissionDenied) {
             try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: old) {
                 Issue.record("Default grant permitted work")
             }
         }
-        let workspace = UUID()
-        try access.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: [workspace])
+        try access.updateCompanionDecisionsAllowed(connectionID: phone.id, allowed: true)
         let granted = try lease()
         #expect(granted != old)
-        #expect(granted.decideWorkspaceIDs == [workspace])
+        #expect(granted.decisionsAllowed)
         try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: granted) {}
-        try access.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: nil)
+        try access.updateCompanionDecisionsAllowed(connectionID: phone.id, allowed: false)
         #expect(throws: LocalAPIError.permissionDenied) {
             try access.runtimeAuthority.performCompanionDecision(certificateFingerprint: fingerprint, lease: granted) {
                 Issue.record("Revoked grant permitted work")
             }
         }
+    }
+}
+
+// Make the directory unwritable after validation and reading, before migration saves.
+private final class MigrationReadOnlyFileManager: FileManager, @unchecked Sendable {
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        let attributes = try super.attributesOfItem(atPath: path)
+        if URL(fileURLWithPath: path).lastPathComponent == "access.json" {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o500], ofItemAtPath: URL(fileURLWithPath: path).deletingLastPathComponent().path)
+        }
+        return attributes
     }
 }

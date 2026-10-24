@@ -59,7 +59,7 @@ final class LocalAPIService {
     private var awayMonitor: CompanionAwayMonitor?
     #if DEBUG
         private var decisionFixture: CompanionDecisionFixture?
-        var decisionFixtureWorkspaceID: UUID? { decisionFixture?.workspaceID }
+        var hasDecisionFixture: Bool { decisionFixture != nil }
     #endif
     private let server: LocalAPIServer
     private let capture: LocalAPIServer.Capture
@@ -241,16 +241,12 @@ final class LocalAPIService {
             certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
     }
 
-    var companionDecisionWorkspaces: [(id: UUID, name: String)] {
-        store?.groups.flatMap(\.sessions).map { ($0.id, store?.sidebarResolvedTitle(for: $0.id) ?? $0.title) } ?? []
-    }
-
     func companionDecisions(
         answer: CompanionDecisionAnswer?, lease: LocalAPIAuthorizationLease,
         fingerprint: Data, authority: LocalAPIRuntimeAuthority, deviceName: String,
         requestID: UUID
     ) throws -> CompanionDecisionResponse {
-        guard let store, let runtime, let workspaces = lease.decideWorkspaceIDs, !workspaces.isEmpty else {
+        guard let store, let runtime, lease.decisionsAllowed else {
             throw LocalAPIError.permissionDenied
         }
         #if DEBUG
@@ -262,9 +258,7 @@ final class LocalAPIService {
         #endif
         let eligible: (LocalPermissionTarget) -> Bool = { [weak self, weak store] target in
             #if DEBUG
-                if let fixture = self?.decisionFixture {
-                    return target.workspaceID == fixture.workspaceID
-                }
+                if self?.decisionFixture != nil { return true }
             #endif
             guard let store, let session = store.session(id: target.workspaceID),
                 let pane = session.layout.pane(id: target.paneID)
@@ -273,7 +267,7 @@ final class LocalAPIService {
                 executionPlan: pane.executionPlan, compactTerminalKind: store.compactTerminalKind)
         }
         let result = try coordinator.remoteResponse(
-            answer: answer, deviceID: lease.connectionID, deviceName: deviceName, workspaceIDs: workspaces,
+            answer: answer, deviceID: lease.connectionID, deviceName: deviceName,
             authorize: { body in
                 try authority.performCompanionDecision(certificateFingerprint: fingerprint, lease: lease, body: body)
             },
@@ -287,7 +281,7 @@ final class LocalAPIService {
         return CompanionDecisionResponse(
             response: response,
             validate: {
-                try coordinator.validateRemoteTargets(identities, workspaceIDs: workspaces, eligible: eligible)
+                try coordinator.validateRemoteTargets(identities, eligible: eligible)
             })
     }
 
@@ -317,7 +311,7 @@ final class LocalAPIService {
             guard let store, let runtime else {
                 return CompanionAPIResponse(requestID: request.requestID, error: LocalAPIError.appUnavailable.rawValue)
             }
-            let workspaces = store.companionWorkspaces(scope: lease.statusScope, terminalPreviewAllowed: lease.terminalPreviewAllowed) {
+            let workspaces = store.companionWorkspaces(terminalPreviewAllowed: lease.terminalPreviewAllowed) {
                 paneID in
                 runtime.companionLastOutputLine(paneID: paneID)
             }
@@ -395,9 +389,7 @@ final class LocalAPIService {
     @MainActor
     private final class CompanionDecisionFixture {
         let coordinator = LocalPermissionCoordinator(announcement: { _ in })
-        let workspaceID: UUID
         init(directory: URL, workspaceID: UUID) throws {
-            self.workspaceID = workspaceID
             var identities: [String: CompanionDecisionIdentity] = [:]
             let paneID = UUID()
             for (name, workspace, expiry) in [

@@ -283,17 +283,17 @@ The usual 8 KiB request bound applies.
 Each phone's optional persisted `paneRenameScope` is independent of status,
 context, and terminal-preview permissions. Missing means denied for both legacy
 and new grants. Only the Mac's **Allow pane renaming** control can enable or
-disable it; the phone cannot grant itself rename permission. Enabling captures
-that phone's current status scope. At mutation time both the status scope and
-rename scope must allow the exact target. Granting rename never widens status
-visibility. Turning the control off removes the grant. Every change rotates the
+disable it; the phone cannot grant itself rename permission. Enabling stores
+`allWorkspaces`, covering every current and future workspace. Older non-nil
+rename scopes migrate to `allWorkspaces` when loaded; missing grants stay off.
+Turning the control off removes the grant. Every change rotates the
 connection revision and invalidates pending requests before saving; a failed
 save denies this phone for the run until Retry Save succeeds.
 
 The endpoint rechecks the original certificate and lease under the authority
 lock, then checks cancellation and its monotonic deadline before a synchronous
 MainActor `SessionStore` rename. The lock remains held with no suspension.
-A revoked, replaced, disabled, or scope-changed grant cannot perform a pending
+A revoked, replaced, disabled, or changed grant cannot perform a pending
 mutation. Response writes recheck the same lease too. A rename already applied
 before a disconnect/revocation may have no receipt; reconnect and read the pane
 roster to reconcile. Retrying the same target and title has the native idempotent
@@ -303,7 +303,7 @@ The native title sanitizer trims whitespace, removes unsafe display scalars,
 and caps titles at 200 Characters. A title that sanitizes to empty returns
 `invalid_title`; it never resets the native custom-title pin. A missing workspace
 or pane, or a pane no longer in the supplied workspace, returns `stale_target`.
-An existing document-group leaf returns `nonterminal_target`. Scope/grant denial
+An existing document-group leaf returns `nonterminal_target`. Grant denial
 returns `permission_denied` before target lookup. Cancellation and expiry return
 `cancelled` and `timeout` without mutating. Success is the standard envelope with
 `profile`, `appInstanceID`, and `capturedAt`, without roster or content. The native
@@ -552,8 +552,8 @@ Watch access is a per-phone scope persisted as `terminalWatchScope` in companion
 metadata; absent or `null` means off. New pairings get `allWorkspaces`, so a
 paired phone can watch any terminal, including future workspaces. The
 **Allow watching terminals** switch in Mac Companion settings turns this off and
-on per phone. Pairings that predate this default keep their selected workspaces
-until the switch is turned off and on again. A phone with the scope sees
+on per phone. When older pairing metadata loads, any existing Watch scope
+migrates to `allWorkspaces` and is saved; an absent scope stays off. A phone with the scope sees
 a `terminalStream` object on
 `get_connection_status` holding the limits below; no object means `watch_terminal`
 returns `permission_denied`. The paired `get_capabilities` operation always
@@ -1098,13 +1098,19 @@ preference arguments and self-only access over pinned mutual TLS. Its isolated
 store fixture retains its diagnostic directory and prints the path. These host
 cases do not prove native focus, visibility or lock transitions; exercise those
 with the worktree app separately.
-## Scoped permission decisions
+## Permission decisions
 
 `list_pending_decisions` and `decide` are Companion-only operations, separate
 from the bearer local API. They require a default-off Decide grant on the Mac
-for explicitly selected workspace IDs. Pairing, previews, status and pane
-renaming never grant decision access. Grant changes rotate the connection
-revision; deleting a workspace removes its grant.
+controlled by **Allow answering permission requests**. The `decisionsAllowed`
+Boolean covers every workspace, including workspaces created later. A non-empty
+legacy `decideWorkspaceIDs` list migrates to on and is replaced on disk; absent
+or empty legacy grants stay off. Pairing, previews, status and pane renaming
+never grant decision access. Grant changes rotate the connection revision.
+If saving a migration fails, connections remain visible and companion access
+pauses until Retry Save succeeds; Outside-app grants stay active. Older Mac
+builds reject the new metadata field, so downgrading pauses access until a
+compatible build reads the preserved file.
 
 The shared protocol's `CompanionDecisionIdentity` binds runtime instance,
 workspace, pane, target version, provider session, hook invocation and request
@@ -1132,9 +1138,9 @@ and 128 per authenticated device; cached retries still work at either limit.
 Cache expiry never recreates a request. Recorded means the core accepted an
 answer; delivered requires a helper ACK and does not prove provider execution.
 
-Scope, exact target, device certificate and revisioned grant are checked before
+Exact target, device certificate and revisioned device grant are checked before
 commit, each response chunk, actual socket delivery and every file publication
-attempt. Every grant edit rotates the lease, including workspace scope expansion,
+attempt. Every grant edit rotates the lease,
 and conservatively cancels an in-flight answer recorded under the prior lease. Revocation cancels a known-unsent remote answer; an answer that may
 have escaped becomes unknown. Choice-free terminal replies still reach the exact
 hook after device revocation; they never carry an allow or deny. File publication

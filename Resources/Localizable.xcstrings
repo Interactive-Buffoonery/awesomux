@@ -813,6 +813,12 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
+    "Allow answering permission requests" : {
+      "comment" : "Per-phone switch for answering agent permission requests in every workspace."
+    },
+    "Allow answering permission requests for %@" : {
+      "comment" : "Accessibility label for the permission-answering switch. Argument is the paired phone’s name."
+    },
     "Allow enables this iPhone to see every workspace and pane’s status, each terminal’s last output line, and live terminal output. You can turn previews and watching off in Companion settings; this phone can also change its own preview setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
     },
@@ -1606,6 +1612,9 @@
     "Companion" : {
       "comment" : "Companion settings sidebar title."
     },
+    "Companion access is paused because updated permissions could not be saved. Retry Save to restore access." : {
+      "comment" : "Recoverable warning when device-wide companion permission migration could not be saved."
+    },
     "Companion is not listening. Open Settings and try pairing again." : {
 
     },
@@ -1781,9 +1790,6 @@
     },
     "Could not reload Ghostty configuration." : {
 
-    },
-    "Could not save decision access." : {
-      "comment" : "Error shown when saving a paired phone’s workspace decision permission fails."
     },
     "Could not save terminal preview access. Retry Save before restarting awesoMux." : {
       "comment" : "Companion preview permission save error."
@@ -2002,12 +2008,6 @@
     },
     "Daemon" : {
       "comment" : "Diagnostics process type"
-    },
-    "Decision workspaces" : {
-      "comment" : "Menu for selecting which workspaces this paired phone may answer permission requests for."
-    },
-    "Decision workspaces for %@" : {
-      "comment" : "Accessibility label for a paired phone’s decision workspace menu. Argument is the phone’s name."
     },
     "Default" : {
       "comment" : "Pane title-bar color submenu item that clears a custom pane color."
@@ -2906,8 +2906,11 @@
     "Let awesoMux get my attention" : {
 
     },
-    "Lets this phone rename terminal panes within its visible workspaces." : {
-
+    "Lets this phone answer permission requests in every workspace, including new workspaces. Access starts off." : {
+      "comment" : "Explains the default-off device-wide grant for answering agent permission requests."
+    },
+    "Lets this phone rename terminal panes in every workspace." : {
+      "comment" : "Explains that pane rename permission covers every workspace for this paired phone."
     },
     "License" : {
       "comment" : "About window link to the project's own MIT license\nAdvanced settings label.\nButton opening a bundled third-party license file"
@@ -4238,8 +4241,8 @@
     "Remote connection details" : {
       "comment" : "VoiceOver label for the remote connection details panel"
     },
-    "Remote decisions are not available yet. Workspace access starts off." : {
-      "comment" : "Explains that remote permission decisions are not released and workspace access is disabled by default."
+    "Remote decisions are not available yet." : {
+      "comment" : "Explains that remote permission answers remain unavailable until the production release gate opens."
     },
     "Remote file transfer cancelled" : {
       "comment" : "Remote handoff cancellation accessibility status"
@@ -6315,6 +6318,9 @@
     "awesoMux couldn't save the pane rename permission." : {
 
     },
+    "awesoMux couldn't save the permission request access." : {
+      "comment" : "Error shown when saving a paired phone’s permission-answering switch fails."
+    },
     "awesoMux couldn't save the rendered diff to its cache." : {
       "comment" : "Branch diff failure when writing the rendered Markdown to the app cache fails"
     },
@@ -6322,7 +6328,7 @@
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn't save the terminal watch permission." : {
-
+      "comment" : "Error shown when saving a paired phone’s terminal watching permission fails."
     },
     "awesoMux couldn't save this app's access." : {
 

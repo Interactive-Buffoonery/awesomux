@@ -7,7 +7,7 @@ import Testing
 @Suite("Companion preview and rename grant coexistence")
 struct CompanionGrantCoexistenceTests {
     @Test func metadataRoundTripPreservesBothPermissions() throws {
-        let scope = LocalAPITargetScope.persistentWorkspaces([UUID()])
+        let scope = LocalAPITargetScope.allWorkspaces
         let metadata = LocalAPICompanionMetadata(
             certificateFingerprint: Data(repeating: 5, count: 32), transport: .lan,
             pairedAt: Date(timeIntervalSince1970: 0), port: 1234,

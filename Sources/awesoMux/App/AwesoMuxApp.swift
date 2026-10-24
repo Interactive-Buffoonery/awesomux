@@ -823,7 +823,6 @@ struct AwesoMuxApp: App {
             let rootContentAfterGroupsWatch =
                 rootContentAfterSaveStatus
             .onChange(of: sessionStore.groups) { _, _ in
-                    companionPairingCoordinator.reconcileDecisionWorkspaces()
                 saveSessionIfRestoreEnabled()
                     Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)

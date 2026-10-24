@@ -1,5 +1,4 @@
 import AwesoMuxCompanionProtocol
-import AwesoMuxLocalAPI
 import Foundation
 import Testing
 @testable import AwesoMuxCore
@@ -13,13 +12,12 @@ struct CompanionPaneListTests {
         let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
         #expect(store.localAPIInstanceID == nil)
         #expect(store.localAPITargets.isEmpty)
-        _ = store.companionWorkspaces(scope: .allWorkspaces) { _ in nil }
+        _ = store.companionWorkspaces { _ in nil }
         let target = try #require(store.localAPITargets[pane.id])
         #expect(target.workspaceID == session.id)
         #expect(target.terminalSessionID == pane.terminalSessionID.rawValue)
-        let scope = LocalAPITargetScope.exactTarget(paneID: pane.id, targetVersion: target.version)
         for _ in 0..<2 {
-            let roster = store.companionWorkspaces(scope: scope) { _ in nil }
+            let roster = store.companionWorkspaces { _ in nil }
             #expect(roster.first?.panes.map(\.paneID) == [pane.id.uuidString])
             #expect(store.localAPITargets[pane.id]?.version == target.version)
         }
@@ -31,7 +29,7 @@ struct CompanionPaneListTests {
         let pane = try #require(session.panes.first)
         let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
         if bound { store.bindLocalAPIInstance(UUID()) }
-        _ = store.companionWorkspaces(scope: .allWorkspaces) { _ in nil }
+        _ = store.companionWorkspaces { _ in nil }
         let original = try #require(store.localAPITargets[pane.id]?.version)
         #expect(
             store.applyDetectedAgentState(
@@ -49,27 +47,19 @@ struct CompanionPaneListTests {
         let returned = try #require(store.localAPITargets[pane.id])
         #expect(returned.workspaceID == session.id)
         #expect(returned.version != moved.version)
-        for stale in [original, providerVersion, moved.version] {
-            let roster = store.companionWorkspaces(
-                scope: .exactTarget(paneID: pane.id, targetVersion: stale), terminalPreviewAllowed: true
-            ) { _ in
-                Issue.record("Stale target must not sample a native surface")
-                return nil
-            }
-            #expect(roster.isEmpty)
-        }
-        let current = store.companionWorkspaces(scope: .exactTarget(paneID: pane.id, targetVersion: returned.version)) { _ in nil }
-        #expect(current.first?.panes.map(\.paneID) == [pane.id.uuidString])
+        let current = store.companionWorkspaces { _ in nil }
+        #expect(
+            current.flatMap(\.panes).first { $0.paneID == pane.id.uuidString }?.targetVersion == returned.version.uuidString.lowercased())
         #expect(store.closePane(id: pane.id, in: session.id) != nil)
         #expect(store.localAPITargets[pane.id] == nil)
         #expect(store.localAPITargets[sibling] != nil)
     }
 
-    @Test func unboundSameStateRuntimeIdentityInvalidatesExactPreview() throws {
+    @Test func unboundSameStateRuntimeIdentityUpdatesRosterTarget() throws {
         let session = TerminalSession(title: "Work", workingDirectory: "~")
         let pane = try #require(session.panes.first)
         let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
-        _ = store.companionWorkspaces(scope: .allWorkspaces) { _ in nil }
+        _ = store.companionWorkspaces { _ in nil }
         #expect(store.localAPIAttentionJournal == nil)
         #expect(
             store.applyAgentRuntimeEvent(
@@ -91,20 +81,11 @@ struct CompanionPaneListTests {
         #expect(identified.providerSessionID == "identified-session")
         #expect(identified.version != anonymous.version)
         var reads = 0
-        let stale = store.companionWorkspaces(
-            scope: .exactTarget(paneID: pane.id, targetVersion: anonymous.version), terminalPreviewAllowed: true
-        ) { _ in
-            reads += 1
-            return "private"
-        }
-        #expect(stale.isEmpty)
-        #expect(reads == 0)
-        let current = store.companionWorkspaces(
-            scope: .exactTarget(paneID: pane.id, targetVersion: identified.version), terminalPreviewAllowed: true
-        ) { _ in
+        let current = store.companionWorkspaces(terminalPreviewAllowed: true) { _ in
             reads += 1
             return "permitted"
         }
+        #expect(current.first?.panes.first?.targetVersion == identified.version.uuidString.lowercased())
         #expect(current.first?.panes.first?.lastOutputLine == "permitted")
         #expect(reads == 1)
     }
@@ -127,7 +108,7 @@ struct CompanionPaneListTests {
         let store = SessionStore(groups: [SessionGroup(name: "One", sessions: [session]), SessionGroup(name: "Two", sessions: [second])])
         let selection = store.selectedSessionID
         var reads: [UUID] = []
-        let result = store.companionWorkspaces(scope: .allWorkspaces, terminalPreviewAllowed: true) { id in
+        let result = store.companionWorkspaces(terminalPreviewAllowed: true) { id in
             reads.append(id)
             return CompanionPanePreview.lastLine(in: id == shell.id ? "old\nlast line\n \n" : nil)
         }
@@ -144,30 +125,10 @@ struct CompanionPaneListTests {
         #expect(store.selectedSessionID == selection)
     }
 
-    @Test func filtersBeforeReadingTerminalContent() throws {
-        let first = TerminalSession(title: "First", workingDirectory: "~")
-        let second = TerminalSession(title: "Second", workingDirectory: "~")
-        let pane = try #require(first.panes.first)
-        let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [first, second])])
-        for scope in [LocalAPITargetScope.persistentPanes([pane.id]), .persistentWorkspaces([first.id])] {
-            var reads: [UUID] = []
-            let result = store.companionWorkspaces(scope: scope, terminalPreviewAllowed: true) {
-                reads.append($0); return "permitted"
-            }
-            #expect(result.map(\.workspaceID) == [first.id.uuidString])
-            #expect(reads == [pane.id])
-        }
-        let denied = store.companionWorkspaces(scope: .exactTarget(paneID: pane.id, targetVersion: UUID())) { _ in
-            Issue.record("Stale target must not read viewport")
-            return "private"
-        }
-        #expect(denied.isEmpty)
-    }
-
     @Test func deniedPhoneGetsRosterWithoutInvokingReader() {
         let session = TerminalSession(title: "Work", workingDirectory: "~")
         let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
-        let roster = store.companionWorkspaces(scope: .allWorkspaces) { _ in
+        let roster = store.companionWorkspaces { _ in
             Issue.record("Preview permission must precede even a cached read")
             return "private"
         }

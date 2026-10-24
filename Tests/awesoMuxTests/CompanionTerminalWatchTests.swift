@@ -49,6 +49,39 @@ struct CompanionTerminalWatchTests {
                 .terminalWatchScope == nil)
     }
 
+    @Test(arguments: [
+        nil, LocalAPITargetScope.allWorkspaces, .persistentWorkspaces([UUID()]), .persistentPanes([UUID()]),
+        .exactTarget(paneID: UUID(), targetVersion: UUID()),
+    ])
+    func legacyWatchAndRenameScopesMigrateAndPersist(scope: LocalAPITargetScope?) throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let phone = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1, terminalWatchScope: scope)
+        let file = home.appending(path: "LocalAPI/access.json")
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        var metadata = try #require(connections[0]["companion"] as? [String: Any])
+        metadata["paneRenameScope"] = metadata["terminalWatchScope"]
+        connections[0]["companion"] = metadata
+        object["connections"] = connections
+        access = nil
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        let migrated = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let expected: LocalAPITargetScope? = scope == nil ? nil : .allWorkspaces
+        #expect(migrated.loadFailure == nil)
+        #expect(migrated.state.connections.first?.companion?.terminalWatchScope == expected)
+        let saved = try LocalAPIContract.decoder().decode(
+            LocalAPIAccessState.self, from: Data(contentsOf: home.appending(path: "LocalAPI/access.json")))
+        #expect(saved.connections.first?.companion?.terminalWatchScope == expected)
+        #expect(saved.connections.first?.companion?.paneRenameScope == expected)
+        let lease = try migrated.runtimeAuthority.authorizeCompanion(
+            connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        #expect(lease.terminalWatchScope == expected)
+    }
+
     @Test func grantingWatchRotatesLeaseAndRevokingInvalidatesOldCommits() throws {
         let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
