@@ -224,7 +224,10 @@ final class AgentTranscriptLiveRefresh {
                 // `.local` because ADR-0033 leaves no other supported value —
                 // an operational fact, not a proof about this tab. A decoded
                 // identity is restored with no filesystem resolution behind it.
-                AgentTranscriptImporter.open(
+                if identity.projectDirectory != nil {
+                    return AgentProjectTranscripts.open(identity: identity, configHome: configHome)
+                }
+                return AgentTranscriptImporter.open(
                     agentKind: identity.agentKind,
                     executionPlan: .local,
                     configHome: configHome,
@@ -232,7 +235,10 @@ final class AgentTranscriptLiveRefresh {
                 )
             },
             refresh: { transcript, shouldCommit in
-                AgentTranscriptOpener.refresh(transcript, store: store, shouldCommit: shouldCommit)
+                AgentTranscriptOpener.refresh(
+                    transcript, store: store, projectDirectory: identity.projectDirectory,
+                    shouldCommit: shouldCommit
+                )
             },
             watch: { url, onChange in
                 // `.leadingEdge`, because the stream in `follow` coalesces but

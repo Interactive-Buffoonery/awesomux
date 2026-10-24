@@ -87,7 +87,7 @@ public enum AgentTranscriptImporter {
 
                 switch self {
                 case .claudeCode where type == "user" || type == "assistant": return true
-                case .codex where type == "response_item" || type == "event_msg": return true
+                case .codex where AgentTranscriptRenderer.isCodexConversationRecord(record): return true
                 case .pi where type == "message" || type == "custom_message": return true
                 default: continue
                 }
@@ -325,10 +325,10 @@ public enum AgentTranscriptImporter {
             if containsConversation != current.containsConversation {
                 return containsConversation
             }
-            if containsConversation {
-                return modified > current.modified
+            if handle.size != current.handle.size {
+                return handle.size > current.handle.size
             }
-            return handle.size > current.handle.size
+            return modified > current.modified
         }
     }
 }
