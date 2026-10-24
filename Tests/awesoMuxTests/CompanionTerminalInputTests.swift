@@ -303,6 +303,30 @@ struct CompanionTerminalInputTests {
     }
 
     @Test(arguments: [false, true])
+    func socketWriteErrorOnlyPropagatesForCurrentGeneration(invalidateGeneration: Bool) async throws {
+        let buffer = Relay.Buffer()
+        let generation = try #require(buffer.beginGeneration())
+        let forwarder = Relay.InputForwarder(role: .interactive, grid: .init(rows: 24, cols: 80), buffer: buffer)
+        let error = POSIXError(.EPIPE)
+        forwarder.install(
+            generation: generation, id: 42, revision: 9,
+            submit: { _, validate in
+                try validate()
+                await Task.yield()
+                if invalidateGeneration { #expect(buffer.beginGeneration() == generation + 1) }
+                throw error
+            })
+        let input = try Stream.encode(.input(sequence: 1, bytes: Data([13])), generation: generation)
+        if invalidateGeneration {
+            try await forwarder.receive(input)
+        } else {
+            await #expect(throws: error) { try await forwarder.receive(input) }
+        }
+        #expect(buffer.endReason == nil)
+        #expect(buffer.takeFrame() == nil)
+    }
+
+    @Test(arguments: [false, true])
     func malformedInputEndsStreamWithProtocolError(oversized: Bool) async {
         let buffer = Relay.Buffer()
         let ready = CompanionNetworkOperation<Void>()

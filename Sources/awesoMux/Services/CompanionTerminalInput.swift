@@ -138,9 +138,9 @@ extension CompanionTerminalWatchRelay {
                     try validate()
                     guard generation == incoming, buffer.acceptsInput(generation: incoming) else { throw CancellationError() }
                 }
-            } catch is CancellationError {
+            } catch {
                 guard !Task.isCancelled, generation != incoming || !buffer.acceptsInput(generation: incoming) else {
-                    throw CancellationError()
+                    throw error
                 }
                 return
             }
