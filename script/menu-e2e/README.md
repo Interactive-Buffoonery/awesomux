@@ -44,7 +44,7 @@ python3 script/menu-e2e/run.py --baseline /path/to/reviewed-baseline.json \
 Run the **entire command** under the machine-wide heavy-work lease:
 
 ```sh
-heavy-gate python3 script/menu-e2e/run.py --capture \
+process-gate python3 script/menu-e2e/run.py --capture \
   --output /tmp/awesomux-menu-capture-001
 ```
 

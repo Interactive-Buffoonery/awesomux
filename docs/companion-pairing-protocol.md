@@ -1092,8 +1092,8 @@ Delivery uses direct LAN/Tailscale polling. Phone settings UI and push delivery
 remain follow-up work.
 
 For focused persistence, journal and event-time store verification, run
-`heavy-gate swift run companion-pairing-e2e --alert-preferences-only`.
-The full `heavy-gate ./script/run_companion_pairing_e2e.sh` also checks strict
+`process-gate swift run companion-pairing-e2e --alert-preferences-only`.
+The full `process-gate ./script/run_companion_pairing_e2e.sh` also checks strict
 preference arguments and self-only access over pinned mutual TLS. Its isolated
 store fixture retains its diagnostic directory and prints the path. These host
 cases do not prove native focus, visibility or lock transitions; exercise those

@@ -20,7 +20,7 @@ notifications, activation ordering, multiple intervals, empty activity, device
 suppression, overflow, resolution identity, and journal replacement.
 
 ```sh
-heavy-gate -- swift run local-api-e2e --command-attention-only /tmp/while-away-792-run
+process-gate -- swift run local-api-e2e --command-attention-only /tmp/while-away-792-run
 ```
 
 This runs the existing authenticated local socket command journeys plus the
@@ -33,5 +33,5 @@ Native acceptance still needs an authenticated paired phone during a real lock
 or switched-user interval, both activation/return orderings, no qualifying phone
 activity, deleted targets, multiple intervals, overflow, banner dismissal,
 keyboard navigation, VoiceOver, window resizing, and light/dark appearance.
-Run those only with an owned app/profile under heavy-gate; keep existing
+Run those only with an owned app/profile under process-gate; keep existing
 Accessibility/Screen Recording grants and clean up only owned processes.
