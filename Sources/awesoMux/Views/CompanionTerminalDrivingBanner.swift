@@ -29,14 +29,14 @@ struct CompanionTerminalDrivingBanner: View {
         guard let grid, let leader else { return nil }
         if let device {
             return String(
-                localized: "\(device.name) is driving · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back",
+                localized: "\(device.name) has control · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back",
                 comment:
                     "Terminal leadership banner. Arguments are the paired device’s name, grid columns, and grid rows. Typing on the Mac takes control back."
             )
         }
         if leader == 0 {
             return String(
-                localized: "No one is driving · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back",
+                localized: "No one has control · \(grid.cols)×\(grid.rows) · type a letter, arrow or Return to take it back",
                 comment:
                     "Terminal leadership banner when no device leads. Arguments are grid columns and rows. Typing on the Mac takes control back."
             )

@@ -219,22 +219,22 @@
     "%arg has activity that will be interrupted. The workspace will be closed permanently and can't be reopened." : {
       "comment" : "Opening line of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
     },
-    "%arg has not been refreshed." : {
-      "comment" : "Accessibility lead for a remote document restored from its saved copy"
-    },
-    "%arg integration" : {
-
-    },
-    "%arg is driving · %arg×%arg · type a letter, arrow or Return to take it back" : {
+    "%arg has control · %arg×%arg · type a letter, arrow or Return to take it back" : {
       "comment" : "Terminal leadership banner. Arguments are the paired device’s name, grid columns, and grid rows. Typing on the Mac takes control back.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$arg is driving · %2$arg×%3$arg · type a letter, arrow or Return to take it back"
+            "value" : "%1$arg has control · %2$arg×%3$arg · type a letter, arrow or Return to take it back"
           }
         }
       }
+    },
+    "%arg has not been refreshed." : {
+      "comment" : "Accessibility lead for a remote document restored from its saved copy"
+    },
+    "%arg integration" : {
+
     },
     "%arg is empty" : {
 
@@ -3412,13 +3412,13 @@
     "No notification banners or sounds, and the Dock icon won’t bounce." : {
 
     },
-    "No one is driving · %arg×%arg · type a letter, arrow or Return to take it back" : {
+    "No one has control · %arg×%arg · type a letter, arrow or Return to take it back" : {
       "comment" : "Terminal leadership banner when no device leads. Arguments are grid columns and rows. Typing on the Mac takes control back.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "No one is driving · %1$arg×%2$arg · type a letter, arrow or Return to take it back"
+            "value" : "No one has control · %1$arg×%2$arg · type a letter, arrow or Return to take it back"
           }
         }
       }

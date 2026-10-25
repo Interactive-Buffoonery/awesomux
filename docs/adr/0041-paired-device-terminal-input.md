@@ -77,11 +77,11 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   or the handshake's preferred grid if no `grid` frame was sent (ADR-0036).
   Both paths are one tap or one keystroke apart.
 - While a device leads, the Mac pane shows a banner naming the device and
-  grid (columns × rows), for example "iPhone is driving · 40×24 · type here
+  grid (columns × rows), for example "iPhone has control · 40×24 · type here
   to take it back". The Mac pane never hides or blocks local typing; a Mac
   keystroke claims leadership back in daemon order and the phone drops to
-  follower presentation naming the new leader ("Mac is driving", "iPad is
-  driving"). The stream's role does not change; only leadership does. Until
+  follower presentation naming the new leader ("Mac has control", "iPad has
+  control"). The stream's role does not change; only leadership does. Until
   option B below ships, a lone Escape on the Mac does not claim (see that
   section), so the banner says "type a letter, arrow or Return to take it
   back". The banner also offers **Disconnect**, which ends that device's
@@ -241,7 +241,7 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   the leader, invalidates its queued replies and
   retains the grid (ADR-0036). If the phone was leading, the pane is then
   leaderless at the phone's grid until the next Mac keystroke or Take over
-  and the banner reads "No one is driving · 40×24 · type a letter, arrow or
+  and the banner reads "No one has control · 40×24 · type a letter, arrow or
   Return to take back" (same Escape caveat as above), with no Disconnect
   action; if the Mac had already taken back, nothing changes.
   The same leaderless banner applies to lock, dismissal and a dropped
