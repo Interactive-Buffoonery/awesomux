@@ -4,21 +4,20 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `8ef0ec1238220a5a714be452ed2844f0691fcf83` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
-> This update adds upstream fixes for a
-> [scrollback cursor-page use-after-free](https://github.com/ghostty-org/ghostty/commit/65ff54c67),
-> [PTY and terminal resize synchronization](https://github.com/ghostty-org/ghostty/pull/14706),
-> and [mouse-button release reporting at prompts](https://github.com/ghostty-org/ghostty/pull/14710).
-> These changes affect awesoMux's terminal engine; upstream's macOS application
-> changes do not replace awesoMux's own window and command handling.
+> This pin moves Ghostty to Zig 0.17 and includes upstream fixes for
+> [Kitty graphics cancellation](https://github.com/ghostty-org/ghostty/pull/14812)
+> and [control-sequence continuation](https://github.com/ghostty-org/ghostty/pull/14814).
+> These changes affect the terminal engine embedded in awesoMux.
+> The public embedded C header and bundled Ghostty license are unchanged.
 >
-> The generated awesoMux scrollback and path-link extensions build against this
-> pin and pass their native regression suites. The ReleaseFast archive inventory
-> remains at 277 members with digest
-> `dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82`.
-> The bundled Ghostty license is byte-identical to the file at this revision.
+> The native extension regressions pass with Zig 0.17.0. The ReleaseFast
+> archive still contains 277 members. Zig renames `libghostty_zcu.o` and
+> `libhighway_zcu.o` to `ghostty_zcu.o` and `highway_zcu.o`; all other member
+> names are unchanged. The audited inventory digest is
+> `f52ec83b0da3b43ad0ee55c9eb1a20dd8249d8aaf0e7c49de764c5ee61b0e5b8`.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -34,7 +33,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > synchronously and leave it resident — see the ceiling notes in
 > `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
 >
-> The pin includes Ghostty's Zig 0.16 static-link workarounds. Its current
+> The pin requires Zig 0.17 and retains the static-link post-processor. Its current
 > archive post-processor leaves compiler-rt's `_memset` private-external, which
 > ld64 still rejects beside Ghostty's own override; our build script finishes
 > that one-symbol localization before publishing the archive. The zmx and
