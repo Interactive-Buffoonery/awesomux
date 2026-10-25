@@ -30,6 +30,27 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
     // deliberately-injected marker and break the feature.
     unsetenv(FloatingPanelStoreFactory.spawnEnvironmentKey)
     unsetenv(CompactTerminalKind.spawnEnvironmentKey)
+    // When a coding agent launches awesoMux, its tool-call environment describes
+    // that agent run, not the user, and pane daemons keep it for the life of
+    // each session. Codex sets NO_COLOR for its own output (colorless Claude
+    // Code in every pane) and CODEX_CI/CODEX_THREAD_ID make a `codex` started in
+    // a pane think it is a nested CI tool call. ELECTRON_RUN_AS_NODE comes from
+    // Electron agent hosts and makes Electron CLIs such as `code` run as plain
+    // Node. Other CODEX_* keys (CODEX_HOME, CODEX_API_KEY, ...) are user
+    // configuration, so only these run-scoped keys are removed.
+    let environment = ProcessInfo.processInfo.environment
+    if ["CODEX_SANDBOX", "CODEX_THREAD_ID", "CODEX_CI"].contains(where: { environment[$0] != nil }) {
+        unsetenv("NO_COLOR")
+    }
+    let agentRunKeys = [
+        "CODEX_CI", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID",
+        "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID", "CODEX_VERSION",
+        "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "CODEX_COMPANION_SESSION_ID",
+        "CLAUDE_AGENT_SDK_VERSION", "ELECTRON_RUN_AS_NODE",
+    ]
+    for key in agentRunKeys {
+        unsetenv(key)
+    }
     // Strip the GHOSTTY_*/CMUX_* families too. When awesoMux is launched from
     // inside another ghostty-based terminal (Ghostty, cmux, or awesoMux
     // itself), the child process inherits GHOSTTY_RESOURCES_DIR / GHOSTTY_BIN_DIR

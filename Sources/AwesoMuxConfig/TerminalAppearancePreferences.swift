@@ -150,8 +150,8 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
     /// awesoMux, not the fresh pane inside awesoMux; leaking them changes
     /// shell startup behavior such as fastfetch graphics selection. `NO_COLOR`
     /// is intentionally preserved because it is a user-facing color opt-out,
-    /// not parent-terminal context. Development launchers that inject stale
-    /// `NO_COLOR` should sanitize their own launch environment instead.
+    /// not parent-terminal context. App startup drops a Codex-injected
+    /// `NO_COLOR`, because that one describes the agent run, not the user.
     /// Do not relax to "caller wins" without a real downstream need; if one
     /// ever appears (e.g. headless agent runners that want `TERM=dumb`),
     /// introduce a separate API surface for it rather than weakening this
