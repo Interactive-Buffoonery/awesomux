@@ -1,7 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
-import AwesoMuxTestSupport
 import Testing
 
 @testable import awesoMux
