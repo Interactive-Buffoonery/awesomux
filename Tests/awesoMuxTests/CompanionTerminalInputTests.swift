@@ -42,7 +42,7 @@ struct CompanionTerminalInputTests {
             try !JSONDecoder().decode(LocalAPICompanionMetadata.self, from: JSONSerialization.data(withJSONObject: old))
                 .terminalInputAllowed)
         access.relinquishAuthority()
-        let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let restored = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         #expect(restored.loadFailure == nil)
         #expect(restored.state.connections.first { $0.id == phone.id }?.companion?.terminalInputAllowed == true)
         try restored.updateCompanionTerminalWatchScope(connectionID: phone.id, scope: nil)
