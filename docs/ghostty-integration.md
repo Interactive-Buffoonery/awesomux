@@ -185,7 +185,7 @@ Focused native regression, with `AWESOMUX_ZIG` set to the compatible Zig binary
 used by the standard native build:
 
 ```sh
-heavy-gate -- sh -c '
+process-gate -- sh -c '
   set -eu
   generated_source=$(python3 script/prepare_ghostty_source.py)
   cd "$generated_source"
