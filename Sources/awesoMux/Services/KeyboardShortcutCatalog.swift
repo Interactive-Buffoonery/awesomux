@@ -786,11 +786,7 @@ enum KeyboardShortcutCatalog {
     }
 
     private static let defaultBindingsByID = Dictionary(
-        uniqueKeysWithValues:
-            settingsSections
-            .flatMap(\.entries)
-            .flatMap(\.bindings)
-            .map { ($0.id, $0) }
+        uniqueKeysWithValues: allBindings().map { ($0.id, $0) }
     )
 }
 

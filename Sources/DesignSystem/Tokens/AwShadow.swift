@@ -159,9 +159,7 @@ private extension AwShadow {
     var color: Color {
         Color.aw.surface.shadow
     }
-}
 
-extension AwShadow {
     var shouldRasterizeAnimatedShadow: Bool {
         radius > Self.rasterizedRadiusThreshold
     }
