@@ -32,9 +32,8 @@ func terminalEffectiveTheme(
 
 // Internal (not `private`) and `savedFrame`/`save` take an injectable
 // `UserDefaults`, defaulted to `.standard`, so characterization tests can drive
-// the save/restore round-trip against an isolated suite. Mirrors the seam
-// already used by `SettingsDefault.registerInitialValues(_:)`. Runtime call
-// sites are unchanged.
+// the save/restore round-trip against an isolated suite. Runtime call sites
+// are unchanged.
 enum PrimaryWindowFramePersistence {
     /// SwiftUI scene/window restoration is intentionally not the source of truth
     /// for the primary frame. The app persists under this stable key and feeds

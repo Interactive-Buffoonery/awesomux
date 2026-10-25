@@ -271,13 +271,6 @@ struct AwesoMuxApp: App {
         // base env. Drop stale launcher-only terminal context once, before the
         // runtime starts, instead of mutating process env around every surface.
         sanitizeInheritedTerminalContextFromProcessEnvironment()
-        // Must run before SessionPersistence.load() and before any
-        // AppDelegate lifecycle callback fires (applicationWillFinishLaunching,
-        // applicationDidFinishLaunching, .onAppear). Non-`@AppStorage`
-        // consumers reading `UserDefaults.standard.bool(forKey:)` directly
-        // otherwise see the type's zero value (false / "" / 0) instead of
-        // the documented `SettingsDefault` — see INT-159.
-        SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
         let supportDirectoryURL = runtimeProfile.supportDirectoryURL
         let localAPIAccessStore = LocalAPIAccessStore(

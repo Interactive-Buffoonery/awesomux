@@ -94,7 +94,7 @@ Ghostty’s own **`macos/Sources/Ghostty/`** tree remains the best upstream refe
 
 ## Runtime composition
 
-1. **`AwesoMuxApp`** — Registers default settings (`SettingsDefault`) *before* loading state so `UserDefaults` observers see real defaults. Loads `SessionStore` via `SessionPersistence.load()`, owns `GhosttyRuntime` and the local `DiagnosticsModel`, and wires `AppDelegate` to the store and runtime after launch.
+1. **`AwesoMuxApp`** — Loads `SessionStore` via `SessionPersistence.load()`, owns `GhosttyRuntime` and the local `DiagnosticsModel`, and wires `AppDelegate` to the store and runtime after launch.
 
 **Local diagnostics (INT-671):** after the user performs a manual refresh and while its Settings pane remains visible, `DiagnosticsModel` samples the awesoMux process tree every 30 seconds and retains at most one hour of aggregate CPU and memory history. Manual refresh also discovers awesoMux-owned `amx` daemon trees; timed samples reuse that cached ownership instead of launching `amx list`. The sampler keeps fixed deadlines, skips missed intervals, and gives macOS timing tolerance to reduce wakeups. `LocalDiagnosticEventRecorder` receives bounded, privacy-safe config, restore, terminal, and runtime-failure outcomes; normal agent activity is not duplicated into diagnostics. This state is never persisted or uploaded, as required by ADR-0008.
 
