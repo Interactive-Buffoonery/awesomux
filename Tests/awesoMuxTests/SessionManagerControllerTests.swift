@@ -15,18 +15,16 @@ struct SessionManagerControllerTests {
         let failed = TerminalSessionID.generate()
         let pending = TerminalSessionID.generate()
         center.begin(pending, daemonPID: 42, createdEpoch: 100)
-        var result: Bool?
-        let task = Task {
-            result = await SessionManagerModel.waitForConfirmations(
-                for: [failed, pending], center: center)
-        }
-        let completed = await waitUntilEventually(deadline: .seconds(10)) { result != nil }
-        task.cancel()
-        await task.value
+        let clock = ContinuousClock()
+        let started = clock.now
+        let result = await SessionManagerModel.waitForConfirmations(
+            for: [failed, pending], center: center)
 
-        #expect(completed)
         #expect(result == false)
         #expect(center.expectationToken(for: pending) == nil)
+        // The sibling's only other exit is its 30s startup timeout; returning
+        // sooner proves cancellation, however long a loaded main actor took.
+        #expect(started.duration(to: clock.now) < .seconds(30))
     }
 
     @Test("multi-pane restore requires every daemon to be detached")
