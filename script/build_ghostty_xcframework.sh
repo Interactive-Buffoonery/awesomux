@@ -83,7 +83,7 @@ find_archive() {
   esac
 }
 
-# Ghostty's Zig 0.16 post-processor leaves compiler-rt's `_memset` as a
+# Ghostty's static-link post-processor leaves compiler-rt's `_memset` as a
 # private-external symbol. ld64 still rejects that alongside Ghostty's own
 # private-external override, so finish the localization before publishing.
 # This becomes a no-op once upstream makes the symbol truly non-external.
