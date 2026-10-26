@@ -138,8 +138,10 @@ to local-amx panes.
 
 A pane may instead declare `PersistenceOwner.remoteZmx`, naming a validated
 session on the remote host. For such a pane, the remote host's backend owns
-persistence: opening it runs `ssh <host> '<backend> attach <name>'` directly,
-with no local daemon, no local agent-signaling side channel (§4 does not
+persistence: opening it runs `ssh <host> '<backend> attach <name>'` inside a
+local `amx attach <terminalSessionID> <ssh command>` carrier when bundled amx
+is available, regardless of the command-bridge toggle. Without amx it runs SSH
+directly. Neither path has a local agent-signaling side channel (§4 does not
 apply), and no bridge preflight. Installation and recovery steps live in
 [`docs/remote-session-persistence.md`](../remote-session-persistence.md).
 
@@ -191,11 +193,16 @@ for a keypress to act on it. Neither is free:
 - libghostty's own child-exit code is 0 for every child on macOS, because
   ghostty spawns through `/usr/bin/login`, which does not propagate the child's
   status (`login -flpq "$USER" /bin/sh -c 'exit 7'` returns 0; ghostty's source
-  records the symptom without naming the cause). A remote-owned pane also has
-  no `amx` status channel to report into.
+  records the symptom without naming the cause).
 
-So the ssh client runs under a local `/bin/sh` that writes its exit status to a
-per-pane file, which the exit decision reads and deletes. A file rather than an
+The carrier reports SSH's exit through its authenticated `session-end` status
+feed. Code 0 closes the pane; every other code or missing reason latches the
+disconnected overlay without automatic respawn. A recreated carrier always
+receives the SSH command again; existing-only recovery never creates one.
+
+Only the direct-SSH fallback runs the ssh client under a local `/bin/sh` that
+writes its exit status to a per-attach file, which the exit decision reads and
+deletes. A file rather than an
 in-band terminal report, deliberately: a write completes before the writer
 exits, so the status is guaranteed readable when the child-exited action
 arrives, whereas terminal bytes are parsed on libghostty's reader thread with no
@@ -216,12 +223,18 @@ pre-#214 build, and a snapshot fails to restore as a whole rather than per
 pane — so downgrading loses the restore. Accepted pre-1.0; no compatibility
 shim.
 
-Remote-owned panes trade away every local-daemon extra: agent status and
-sidebar agent state, path-bar cwd, `amx send`/`amx history` scripted
-automation (see [`docs/amx-automation.md`](../amx-automation.md)), and
-local-socket liveness probing on the quit path. App-relaunch reattach — the
-remote zmx already holds the session when awesoMux next attaches — is the
-promise; recovering a live drop automatically is not.
+Carried panes support Companion Watch/Input and local `amx send`/`amx history`.
+Their local history starts at carrier creation; the remote daemon retains the
+full history. The SSH connection survives app quit and a relaunch rejoins a
+live carrier. A missing carrier re-runs SSH to the same remote session.
+Persistence still belongs to the remote host.
+
+Neither launch path installs bridge helpers, agent signaling, browser routing,
+path-bar cwd polling or remote liveness probes. Carrier creation preserves
+remote agent chrome because it does not prove the remote shell was recreated.
+Carrier metadata is distinct from locally owned shell metadata; it does not
+publish local-shell recovery labels. Local daemon GC retains carrier IDs while
+their panes exist, and daemon-backed work remains quit-safe.
 
 ## Amendment: unmanaged Markdown file reads
 

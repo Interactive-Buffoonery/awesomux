@@ -219,10 +219,17 @@ automatically.
 The session may not survive a remote host restart. An incompatible `zmx`
 upgrade can also end existing sessions.
 
-Remote-owned sessions do not have the features provided by the local `amx`
-backend or Linux bridge helper. awesoMux cannot read their agent state, show
-their current directory in the path bar, send scripted input, read history, or
-check whether a command is running before closing the pane.
+When bundled `amx` is available, a local carrier keeps the SSH connection open
+after app quit. Reopening joins the live carrier; if it ended, a new carrier
+runs SSH to reattach to the same remote session. Companion can watch and type
+through that carrier when authorized. Local `amx send` and `amx history` reach
+the carrier; its history starts at carrier creation, while the remote session
+retains the full history.
+
+Without bundled `amx`, the pane uses direct SSH and Companion reports
+`remote_pane`. Neither path uses the Linux bridge helper, reads remote agent
+state, polls path-bar cwd, or checks remote command liveness before closing.
+A clean SSH exit closes the pane; failures show Reconnect without retrying.
 
 If SSH fails or the backend cannot attach, awesoMux shows the disconnected
 remote pane. It does not open a local shell instead.

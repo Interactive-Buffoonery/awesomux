@@ -59,8 +59,11 @@ setup.
 
 **Remote-owned panes:** a pane declaring `PersistenceOwner.remoteZmx` still
 sets `$ZMX_SESSION`, but it names a session in the *far* host's `ZMX_DIR`,
-owned by the remote zmx, not awesoMux's local daemon. The local `amx` has no
-socket for it — `send` and `history` cannot reach such a pane. See
+owned by the remote zmx. When bundled amx is available, a local carrier
+named by the pane's `terminalSessionID` holds SSH. From the Mac, `send` and
+`history` reach that carrier using the profile's socket directory and local
+session ID, not the far host's `ZMX_SESSION`. Carrier history begins at its
+creation; full history remains remote. Direct-SSH fallback has no local socket. See
 [Remote session persistence](remote-session-persistence.md) for remote backend
 installation and recovery commands.
 
@@ -296,7 +299,7 @@ user's zmx domain instead, outside this local single-user domain entirely.
   `vendor/zmx/src/socket.zig:77-94,115-120`), so the name budget shrinks as
   `ZMX_DIR` grows. Bare UUIDs (36 bytes) always fit awesoMux's dirs — keep
   custom socket dirs short.
-- **Remote-owned pane** (`PersistenceOwner.remoteZmx`) — no local daemon at
-  all: the remote host's zmx owns the session. No `send`/`history` (no local
-  socket to address, see [Addressing](#addressing-which-session-is-my-pane)),
-  no agent status side channel, no `amx cwd`.
+- **Remote-owned pane** (`PersistenceOwner.remoteZmx`) — a local amx carrier
+  supports `send`/`history` and Companion Watch/Input while persistence remains
+  remote. Direct-SSH fallback has no local socket. Neither path has the agent
+  status side channel or path-bar `amx cwd` polling.
