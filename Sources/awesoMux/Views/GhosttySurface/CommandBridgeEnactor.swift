@@ -123,6 +123,7 @@ final class CommandBridgeEnactor {
         ) -> String? = { sessionID, status, remote, mode in
             AmxBackend.attachCommand(for: sessionID, status: status, remote: remote, mode: mode)
         }
+    var statusChannelProvider: (TerminalSessionID) -> AmxStatusChannel? = { AmxBackend.makeStatusChannel(for: $0) }
     var remoteOwnedCarrierCommandProvider: (TerminalSessionID, AmxStatusChannel?, SSHExecution, AmxAttachMode) -> String? = {
         id, status, execution, mode in
         AmxBackend.attachCommand(
@@ -229,7 +230,7 @@ final class CommandBridgeEnactor {
             // secure pre-create (file squat, EACCES) returns nil, in which case
             // we attach WITHOUT `AMX_STATUS_FILE`/`AMX_STATUS_TOKEN` and the
             // exit handler degrades to its legacy exitCode + `amx list` probe.
-            let channel = AmxBackend.makeStatusChannel(for: pane.terminalSessionID)
+            let channel = statusChannelProvider(pane.terminalSessionID)
             // Arm only once the command is known to CARRY the channel. Arming
             // first would leave a watcher sitting on a file the spawned command
             // never names, so `beginExitSupervision` would trust an empty feed
@@ -260,53 +261,14 @@ final class CommandBridgeEnactor {
                 try? FileManager.default.removeItem(at: channel.fileURL)
             }
             beginStatusWatch(channel: nil)
-            if mode == .existingOnly {
-                // Recovery must be confirmed by this pane's authenticated status
-                // event. A client count cannot identify who attached, so never
-                // launch an existing-only attach without its ownership signal.
-                SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
-                latchErrorDeferringChrome(clearBackendMetadata: false)
-                return .localShell
-            }
-            return .bridgeAttach(baseAttachCommand)
+            return prepareStatuslessAttach(for: pane, baseAttachCommand: baseAttachCommand)
         case .remoteOwnedAttach:
             // A pane re-pointed from a bridge session to a remote-owned one
             // reaches here with the previous attach's watcher still armed on a
             // feed the far host writes nothing to. Drop it before anything else
             // rather than relying on `handleSessionRepoint` having run first.
             beginStatusWatch(channel: nil)
-            if mode == .existingOnly {
-                SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
-                latchErrorDeferringChrome(clearBackendMetadata: false)
-                return .localShell
-            }
-            guard let execution = pane.executionPlan.remoteOwnedExecution,
-                let sessionName = execution.sessionName
-            else {
-                // `SSHExecution`'s failable init and its decode-time re-check
-                // make a nameless `.remoteZmx` plan unrepresentable, so this is
-                // dead today — but a nameless remote pane has nothing to attach
-                // to, and ADR-0022 says such a pane errors rather than falls
-                // through to a typable local shell. Fail safe, don't trap.
-                latchErrorDeferringChrome()
-                return .localShell
-            }
-            // REQUIRED: `handleProcessExit` returns early (letting the host
-            // silently close the pane) unless a session id is recorded, so
-            // without this a dropped ssh would vanish instead of latching.
-            sessionID = pane.terminalSessionID
-            // Mint a fresh status file per attach. A failure to mint is not
-            // worth refusing the attach over — the pane still connects, it just
-            // loses the ability to tell a clean `exit` from a dropped
-            // connection, which is exactly the behaviour it had before.
-            remoteOwnedExitStatusFile = remoteOwnedExitStatusFileProvider(pane.terminalSessionID)
-            return .remoteOwnedAttach(
-                remoteOwnedAttachCommandProvider(
-                    execution.target,
-                    sessionName,
-                    remoteOwnedExitStatusFile
-                )
-            )
+            return prepareStatuslessAttach(for: pane)
         case .remoteUnavailable:
             // A remote-tagged group whose attach command couldn't be built —
             // bundled `amx` missing, OR the command bridge globally disabled —
@@ -325,6 +287,46 @@ final class CommandBridgeEnactor {
             clearStateForLocalShellFallback()
             return .localShell
         }
+    }
+
+    private func prepareStatuslessAttach(
+        for pane: TerminalPane, baseAttachCommand: String? = nil
+    ) -> SurfaceLaunchCommand {
+        if attachMode(for: pane) == .existingOnly {
+            SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
+            latchErrorDeferringChrome(clearBackendMetadata: false)
+            return .localShell
+        }
+        if pane.executionPlan.remoteOwnedExecution == nil, let baseAttachCommand {
+            return .bridgeAttach(baseAttachCommand)
+        }
+        guard let execution = pane.executionPlan.remoteOwnedExecution,
+            let sessionName = execution.sessionName
+        else {
+            // `SSHExecution`'s failable init and its decode-time re-check
+            // make a nameless `.remoteZmx` plan unrepresentable, so this is
+            // dead today — but a nameless remote pane has nothing to attach
+            // to, and ADR-0022 says such a pane errors rather than falls
+            // through to a typable local shell. Fail safe, don't trap.
+            latchErrorDeferringChrome()
+            return .localShell
+        }
+        // REQUIRED: `handleProcessExit` returns early (letting the host
+        // silently close the pane) unless a session id is recorded, so
+        // without this a dropped ssh would vanish instead of latching.
+        sessionID = pane.terminalSessionID
+        // Mint a fresh status file per attach. A failure to mint is not
+        // worth refusing the attach over — the pane still connects, it just
+        // loses the ability to tell a clean `exit` from a dropped
+        // connection, which is exactly the behaviour it had before.
+        remoteOwnedExitStatusFile = remoteOwnedExitStatusFileProvider(pane.terminalSessionID)
+        return .remoteOwnedAttach(
+            remoteOwnedAttachCommandProvider(
+                execution.target,
+                sessionName,
+                remoteOwnedExitStatusFile
+            )
+        )
     }
 
     /// Latch synchronously so `createSurfaceIfNeeded`'s post-return guard blocks

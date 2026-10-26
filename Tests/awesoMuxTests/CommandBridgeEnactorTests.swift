@@ -245,6 +245,25 @@ struct CommandBridgeEnactorTests {
         }
     }
 
+    @Test("carrier status mint failure uses the direct SSH exit file")
+    func remoteOwnedCarrierWithoutStatusFallsBack() throws {
+        let fixture = try makeRemoteOwnedFixture(bridgeEnabled: true)
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.remoteOwnedCarrierCommandProvider = { _, _, _, _ in "carrier" }
+        enactor.statusChannelProvider = { _ in nil }
+        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+        guard case .remoteOwnedAttach = launch else {
+            Issue.record("expected direct SSH fallback")
+            return
+        }
+        #expect(enactor.remoteOwnedExitStatusFile != nil)
+        #expect(enactor.statusWatcher == nil)
+        enactor.remoteOwnedExitStatusConsumer = { _ in 0 }
+        enactor.beginExitSupervision(exitCode: 0)
+        #expect(!enactor.errorLatched)
+        #expect(enactor.sessionID == nil)
+    }
+
     @Test(arguments: [false, true])
     func remoteOwnedCarrierIgnoresBridgeToggle(bridgeEnabled: Bool) throws {
         let fixture = try makeRemoteOwnedFixture(bridgeEnabled: bridgeEnabled, agentKind: .codex)
