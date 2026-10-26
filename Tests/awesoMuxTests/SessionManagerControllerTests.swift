@@ -8,6 +8,17 @@ import Testing
 @Suite("Session Manager controller")
 @MainActor
 struct SessionManagerControllerTests {
+    @Test("carrier rows have no primary action")
+    func carrierActions() {
+        for lifecycle in [DaemonLifecycle.owned, .detachedRestorable, .abandoned, .expired, .inUseElsewhere] {
+            let row = DaemonRow(
+                id: .generate(), pid: 10, createdEpoch: 20, clients: 0,
+                lifecycle: lifecycle, activity: .busy, pinned: false, owner: nil,
+                isRemoteCarrier: true)
+            #expect(row.primaryAction == nil)
+        }
+    }
+
     @Test("one failed pane cancels confirmation waits for its siblings")
     func failedPaneCancelsSiblingConfirmation() async {
         let center = SessionRecoveryConfirmationCenter()

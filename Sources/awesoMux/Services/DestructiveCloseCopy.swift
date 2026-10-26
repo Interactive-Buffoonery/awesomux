@@ -4,8 +4,8 @@ import Foundation
 /// Confirmation copy for the closes that destroy something, kept honest about
 /// what awesoMux can actually reach.
 ///
-/// A pane declaring remote-owned zmx persistence (ADR-0023 amendment #214) has
-/// no local daemon in front of it: its session belongs to the far host and
+/// A pane declaring remote-owned zmx persistence (ADR-0023 amendment #214)
+/// loses only its local SSH carrier: its session belongs to the far host and
 /// survives every local close by design. Promising to terminate it would be a
 /// lie, and it is the reason these bodies are composed from whole sentences
 /// instead of one string per variant — risk state times persistence ownership
@@ -20,7 +20,8 @@ enum DestructiveCloseCopy {
             byJoining: targets.map(\.sshDestination)
         )
         return String(
-            localized: "Panes on \(destinations) only disconnect; the remote host keeps their sessions running.",
+            localized:
+                "Panes on \(destinations) disconnect and stop their local SSH connections; the remote host keeps their sessions running.",
             comment:
                 "Close-confirmation line for panes whose zmx session the remote host owns. The argument is a list of SSH destinations."
         )
@@ -29,7 +30,7 @@ enum DestructiveCloseCopy {
     /// Body of the clear-workspace (permanent close) confirmation. The clear
     /// path kills the local `amx` daemon behind every pane, so it terminates
     /// local shells and local-amx SSH panes — and only disconnects the panes
-    /// the far host owns.
+    /// the far host owns by stopping their local SSH carriers.
     static func clearWorkspaceBody(
         title: String,
         hasInterruptedActivity: Bool,

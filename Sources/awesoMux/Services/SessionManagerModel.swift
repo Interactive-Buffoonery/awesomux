@@ -159,6 +159,7 @@ final class SessionManagerModel {
         if let target = jumpTarget(for: row.id) {
             return .opened(sessionID: target.sessionID, paneID: target.paneID)
         }
+        guard daemon.recoveryMetadata?.isRemoteCarrier != true else { return .unavailable }
         guard daemon.clients == 0 else {
             await refresh()
             return .changed

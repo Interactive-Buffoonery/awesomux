@@ -70,6 +70,12 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
   or passes bytes from a Watch stream to the PTY. The daemon enforces the role
   as well ([ADR-0036](0036-multi-client-terminal-leadership.md)).
 
+Remote-owned panes use a local amx carrier for their SSH connection when
+available. The phone joins that carrier as a sibling client, using the same
+snapshot, output, input, grid and leadership relay. Only direct-SSH fallback
+panes lack a local stream source and report Watch/`remote_pane` followed by
+`pane_unavailable`.
+
 ### Handshake and versioning
 
 - The phone sends a standard v1 request frame, operation `watch_terminal`, with

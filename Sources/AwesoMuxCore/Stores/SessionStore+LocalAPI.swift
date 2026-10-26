@@ -5,6 +5,7 @@ import Foundation
 struct LocalAPITargetRecord {
     var workspaceID: UUID
     var terminalSessionID: String
+    var localSessionName: String?
     var executionPlan: PaneExecutionPlan
     var provider: AgentKind
     var runtimeEpoch: UUID?
@@ -25,7 +26,7 @@ public struct LocalAPIRoutingKey: Equatable, Sendable {
 public struct LocalAPITerminalWatchTarget: Equatable, Sendable {
     public let workspaceID: UUID
     public let targetVersion: UUID
-    /// The zmx session name under the amx socket directory; nil for remote zmx panes.
+    /// The local daemon name, including a remote pane's carrier; nil for direct SSH.
     public let localSessionName: String?
 }
 
@@ -40,10 +41,8 @@ public extension SessionStore {
             let workspace = groups.flatMap(\.sessions).first(where: { $0.id == target.workspaceID }),
             workspace.layout.leaves.contains(where: { if case .terminal(let pane) = $0 { pane.id == paneID } else { false } })
         else { return nil }
-        var sessionName: String?
-        if target.executionPlan.remoteOwnedExecution == nil { sessionName = target.terminalSessionID }
         return LocalAPITerminalWatchTarget(
-            workspaceID: target.workspaceID, targetVersion: target.version, localSessionName: sessionName)
+            workspaceID: target.workspaceID, targetVersion: target.version, localSessionName: target.localSessionName)
     }
 
     func bindLocalAPIInstance(_ instanceID: UUID) {
@@ -165,7 +164,7 @@ extension SessionStore {
         let runtime = runtimeEventReducer.stateByPaneID[pane.id]
         if var existing = localAPITargets[pane.id], existing.workspaceID == workspaceID,
             existing.terminalSessionID == terminalID, existing.executionPlan == pane.executionPlan,
-            existing.provider == pane.agentKind
+            existing.provider == pane.agentKind, existing.localSessionName == pane.localTerminalSessionName
         {
             if existing.runtimeEpoch != runtime?.identityEpoch || existing.providerSessionID != runtime?.providerSessionID {
                 existing.version = UUID()
@@ -176,7 +175,7 @@ extension SessionStore {
             return
         }
         localAPITargets[pane.id] = LocalAPITargetRecord(
-            workspaceID: workspaceID, terminalSessionID: terminalID,
+            workspaceID: workspaceID, terminalSessionID: terminalID, localSessionName: pane.localTerminalSessionName,
             executionPlan: pane.executionPlan, provider: pane.agentKind,
             runtimeEpoch: runtime?.identityEpoch, providerSessionID: runtime?.providerSessionID
         )

@@ -18,6 +18,7 @@ public enum DaemonRecoveryReducer {
         _ request: DaemonRecoveryRequest,
         into groups: inout [SessionGroup]
     ) -> TerminalSession.ID? {
+        guard !request.metadata.isRemoteCarrier else { return nil }
         guard
             !groups.contains(where: { group in
                 group.sessions.contains { session in
