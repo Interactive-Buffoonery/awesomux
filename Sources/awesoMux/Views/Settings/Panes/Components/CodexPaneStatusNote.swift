@@ -39,15 +39,28 @@ struct CodexPaneStatusNote: View {
                         .awFont(AwFont.Mono.meta)
                         .textSelection(.enabled)
                     Button(action: copyAlias) {
-                        Label(String(localized: "Copy Alias"), systemImage: "doc.on.doc")
+                        Label(
+                            String(localized: "Copy Alias", comment: "Button that copies the codex --no-daemon shell alias."),
+                            systemImage: "doc.on.doc")
                     }
                     .buttonStyle(.bordered)
-                    .accessibilityLabel(String(localized: "Copy Alias"))
-                    .accessibilityHint(String(localized: "Copy the Codex no-daemon alias to the clipboard."))
+                    .accessibilityHint(
+                        String(
+                            localized: "Copy the Codex no-daemon alias to the clipboard.",
+                            comment: "Copy Alias button hint. Keep Codex and no-daemon untranslated."))
                 }
-                bullet(String(localized: "`codex agents` and remote control need the shared server."))
-                bullet(String(localized: "A session may stop when its terminal closes."))
-                bullet(String(localized: "Turning off auto-start in Codex's config isn't enough on its own."))
+                bullet(
+                    String(
+                        localized: "`codex agents` and remote control need the shared server.",
+                        comment: "Codex --no-daemon tradeoff. Preserve the command in backticks."))
+                bullet(
+                    String(
+                        localized: "A session may stop when its terminal closes.",
+                        comment: "Codex --no-daemon tradeoff."))
+                bullet(
+                    String(
+                        localized: "Turning off auto-start in Codex's config isn't enough on its own.",
+                        comment: "Codex --no-daemon tradeoff: disabling app-server auto-start alone does not help."))
             }
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text2)

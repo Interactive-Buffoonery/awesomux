@@ -642,7 +642,7 @@
       "comment" : "Remote browser confirmation explanation; argument is the configured SSH destination"
     },
     "A session may stop when its terminal closes." : {
-
+      "comment" : "Codex --no-daemon tradeoff."
     },
     "About" : {
       "comment" : "Advanced settings title."
@@ -1713,7 +1713,7 @@
       "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
     },
     "Copy Alias" : {
-
+      "comment" : "Button that copies the codex --no-daemon shell alias."
     },
     "Copy Branch" : {
 
@@ -1755,7 +1755,7 @@
       "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
     },
     "Copy the Codex no-daemon alias to the clipboard." : {
-
+      "comment" : "Copy Alias button hint. Keep Codex and no-daemon untranslated."
     },
     "Copy the draft before closing." : {
       "comment" : "Document note recovery message when only copying is safe\nNew annotation recovery message when only copying is safe"
@@ -5960,7 +5960,7 @@
 
     },
     "Turning off auto-start in Codex's config isn't enough on its own." : {
-
+      "comment" : "Codex --no-daemon tradeoff: disabling app-server auto-start alone does not help."
     },
     "Type" : {
       "comment" : "Diagnostics process table column"
@@ -6279,7 +6279,7 @@
       "comment" : "Error shown when a managed SSH preference cannot persist because the config file on disk is invalid"
     },
     "`codex agents` and remote control need the shared server." : {
-
+      "comment" : "Codex --no-daemon tradeoff. Preserve the command in backticks."
     },
     "a running shell process" : {
       "comment" : "Activity noun in the quit dialog body when only shell processes are at risk."
