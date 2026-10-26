@@ -303,3 +303,30 @@ user's zmx domain instead, outside this local single-user domain entirely.
   supports `send`/`history` and Companion Watch/Input while persistence remains
   remote. Direct-SSH fallback has no local socket. Neither path has the agent
   status side channel or path-bar `amx cwd` polling.
+
+## Terminals from a paired phone
+
+[ADR-0042](adr/0042-phone-terminals.md) defines phone opening and creation.
+With the device's Mac-approved Input switch on, opening a terminal sends a new
+`claim` with the phone's grid after the snapshot. Watch is an explicit choice;
+Input off receives an enforced Watch stream. Mac typing takes control back.
+
+`watch_terminal` hydrates a restored, unvisited terminal through the same native
+surface/SSH preflight path as Mac selection, without moving Mac selection or
+focus. `list_panes` includes its target version while availability is still
+`awaitingHydration`; phone rows must allow opening that state. Unopenable panes
+return `pane_exited`, `pane_disconnected` or `terminal_unavailable`, rather than
+silently failing.
+
+Companion-only `create_terminal` accepts an optional `workspaceID`: omit it for
+a local shell in the configured default group, or pass it to split that
+workspace's active terminal with its existing execution location and local
+launch directory. As with native Cmd-D, local-amx SSH splits do not carry over
+the reported remote working directory. A workspace containing a remote-owned
+zmx pane returns `remote_workspace_unsupported` before any mutation.
+It requires Input and a Terminal grant covering the workspace; new workspaces
+require all-workspaces Terminal access. The response's `createdTerminal`
+contains `workspaceID`, `paneID` and `targetVersion` for `watch_terminal`.
+Creation never accepts arbitrary commands, SSH hosts or split direction, is not
+exposed through the bearer API or `amx`, and must not be retried automatically
+if its acknowledgement is lost. Refresh the pane roster instead.

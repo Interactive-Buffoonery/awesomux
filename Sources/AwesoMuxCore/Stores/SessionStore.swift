@@ -1113,7 +1113,8 @@ public final class SessionStore {
         title: String? = nil,
         workingDirectory: String? = nil,
         agentKind: AgentKind = .shell,
-        groupName: String = "awesoMux"
+        groupName: String = "awesoMux",
+        executionPlan: PaneExecutionPlan? = nil
     ) -> TerminalSession.ID {
         let sessionID = WorkspaceTreeReducer.addSession(
             to: &_groups,
@@ -1121,7 +1122,8 @@ public final class SessionStore {
             title: title,
             workingDirectory: workingDirectory,
             agentKind: agentKind,
-            groupName: groupName
+            groupName: groupName,
+            executionPlan: executionPlan
         )
         commit(
             WorkspaceMutationEffect(

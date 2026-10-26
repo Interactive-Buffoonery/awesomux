@@ -10,7 +10,8 @@ struct WorkspaceTreeReducer: Sendable {
         title: String?,
         workingDirectory: String?,
         agentKind: AgentKind,
-        groupName: String
+        groupName: String,
+        executionPlan: PaneExecutionPlan? = nil
     ) -> TerminalSession.ID {
         let lookupKey = SessionStoreText.groupLookupKey(groupName)
         let groupIndex = groups.firstIndex(where: {
@@ -18,7 +19,8 @@ struct WorkspaceTreeReducer: Sendable {
                 .caseInsensitiveCompare(lookupKey) == .orderedSame
         })
         let executionPlan =
-            groupIndex.flatMap { groups[$0].remote }
+            executionPlan
+            ?? groupIndex.flatMap { groups[$0].remote }
             .map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) }
             ?? .local
         let session = mintSession(

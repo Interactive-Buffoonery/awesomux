@@ -249,6 +249,18 @@ Only these operations are accepted:
 - `watch_terminal`, with required `paneID`, `targetVersion`, and `streamVersion`
   plus an optional `grid`; requires a separate Mac-approved watch scope. See
   [`watch_terminal`](#watch_terminal).
+- `create_terminal`, with an optional `workspaceID` to split an existing
+  workspace, or no argument to create a local workspace. Requires Terminal
+  authority covering the workspace and Input on. The success envelope's
+  `createdTerminal` contains UUID strings `workspaceID`, `paneID` and
+  `targetVersion`. New workspaces require all-workspaces Terminal authority.
+  A workspace containing a remote-owned (`.remoteZmx`) pane returns
+  `remote_workspace_unsupported` before any mutation. Local-amx SSH splits use
+  native Cmd-D behavior: they inherit the execution plan and local launch
+  directory, but do not carry over the reported remote working directory.
+  See [ADR-0042](adr/0042-phone-terminals.md) for exact request/response shapes,
+  authorization, hydration and lost-reply behavior. Like `rename_pane`, this
+  Mac-only decoder does not require a shared protocol package change.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
   `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
@@ -541,6 +553,15 @@ v1 pairing, guess a second address, or infer a grant upgrade. Older phones
 reject v2 links and continue using their existing v1 pairing.
 
 ### `watch_terminal`
+
+[ADR-0041](adr/0041-paired-device-terminal-input.md) extends the original
+Watch-only implementation below with the interactive role when Input is on.
+[ADR-0042](adr/0042-phone-terminals.md) changes phone opening to send a fresh
+`claim` with its grid after `snapshot_end` in Input mode. Watch is explicit;
+Input off stays Mac-enforced Watch. A restored `awaitingHydration` pane has a
+target version and may be opened: the Mac starts its native surface/SSH attach
+before accepting the stream. Initial failures include `pane_exited`,
+`pane_disconnected`, `terminal_unavailable`, `stale_target` and `timeout`.
 
 Implements the live terminal stream from [ADR-0040](adr/0040-live-terminal-stream.md)
 for #786, watch role only. The Mac attaches to the pane's zmx session as a

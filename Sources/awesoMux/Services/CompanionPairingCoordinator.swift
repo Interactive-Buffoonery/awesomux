@@ -511,6 +511,15 @@ final class CompanionPairingCoordinator {
             capture: { request, lease, routes in
                 await service.companionResponse(request: request, lease: lease, routes: routes)
             },
+            createTerminal: { request, lease, fingerprint, deadline in
+                try service.createCompanionTerminal(
+                    request: request, lease: lease, certificateFingerprint: fingerprint, deadline: deadline)
+            },
+            prepareTerminalWatch: { paneID, targetVersion, lease, fingerprint, deadline in
+                try await service.prepareCompanionTerminal(
+                    paneID: paneID, targetVersion: targetVersion, lease: lease,
+                    certificateFingerprint: fingerprint, deadline: deadline)
+            },
             terminalWatchTarget: { service.terminalWatchTarget(paneID: $0) },
             terminalWatchRegistry: terminalWatchRegistry,
             routes: { [weak self] in self?.currentRoutes },
@@ -691,6 +700,11 @@ private final class CompanionNetworkServer {
     private let setTerminalPreview: @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease
     private let decisions: @MainActor (CompanionDecisionAnswer?, LocalAPIAuthorizationLease, Data, UUID) throws -> CompanionDecisionResponse
     private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse
+    private let createTerminal:
+        @MainActor (CompanionTerminalCreateRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws ->
+            CompanionTerminalCreated
+    private let prepareTerminalWatch:
+        @MainActor (UUID, UUID, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) async throws -> LocalAPITerminalWatchTarget
     private let terminalWatchTarget: @MainActor (UUID) -> LocalAPITerminalWatchTarget?
     private let routes: @MainActor () -> CompanionRoutes?
     private let markActivity: @MainActor () -> Void
@@ -729,6 +743,12 @@ private final class CompanionNetworkServer {
             @escaping @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void,
         setTerminalPreview: @escaping @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease,
         capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse,
+        createTerminal:
+            @escaping @MainActor (CompanionTerminalCreateRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws ->
+            CompanionTerminalCreated,
+        prepareTerminalWatch:
+            @escaping @MainActor (UUID, UUID, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) async throws ->
+            LocalAPITerminalWatchTarget,
         terminalWatchTarget: @escaping @MainActor (UUID) -> LocalAPITerminalWatchTarget?,
         terminalWatchRegistry: CompanionTerminalWatchRegistry,
         routes: @escaping @MainActor () -> CompanionRoutes?,
@@ -757,6 +777,8 @@ private final class CompanionNetworkServer {
         self.setAlertPreferences = setAlertPreferences
         self.decisions = decisions
         self.capture = capture
+        self.createTerminal = createTerminal
+        self.prepareTerminalWatch = prepareTerminalWatch
         self.terminalWatchTarget = terminalWatchTarget
         self.terminalWatchRegistry = terminalWatchRegistry
         self.renamePane = renamePane
@@ -1102,6 +1124,23 @@ private final class CompanionNetworkServer {
                 markSeen(connectionID)
                 return
             }
+            if request.operation == CompanionTerminalCreate.operation {
+                let mutation = try CompanionTerminalCreateRequest.decode(object)
+                let lease = try authority.authorizeCompanion(
+                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                markActivity()
+                if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                let created = try createTerminal(mutation, lease, fingerprint, mutationDeadline)
+                let response = CompanionTerminalCreateResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID,
+                    capturedAt: Date(), createdTerminal: created)
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(response), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+                markSeen(connectionID)
+                return
+            }
             guard object["workspaceID"] == nil, object["title"] == nil else { throw LocalAPIError.invalidRequest }
             if object.keys.contains("terminalPreviewAllowed"),
                 request.operation != CompanionOperation.setTerminalPreview.rawValue
@@ -1124,7 +1163,8 @@ private final class CompanionNetworkServer {
             if isWatch {
                 try await serveTerminalWatch(
                     connection, id: id, object: object, request: request, lease: lease, connectionID: connectionID,
-                    fingerprint: fingerprint, requestDeadline: deadline, responseProgress: responseProgress)
+                    fingerprint: fingerprint, requestDeadline: deadline, mutationDeadline: mutationDeadline,
+                    responseProgress: responseProgress)
                 return
             }
             if request.operation == CompanionOperation.setTerminalPreview.rawValue {
@@ -1203,15 +1243,13 @@ private final class CompanionNetworkServer {
     private func serveTerminalWatch(
         _ connection: NWConnection, id: UUID, object: [String: Any], request: LocalAPIRequest,
         lease: LocalAPIAuthorizationLease, connectionID: UUID, fingerprint: Data,
-        requestDeadline: Task<Void, Never>, responseProgress: ResponseProgress
+        requestDeadline: Task<Void, Never>, mutationDeadline: ContinuousClock.Instant, responseProgress: ResponseProgress
     ) async throws {
         typealias Stream = CompanionTerminalStream
-        guard lease.terminalWatchScope == .allWorkspaces else { throw LocalAPIError.permissionDenied }
         let grid = try CompanionTerminalWatchRequest.grid(object)
         guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
-        guard let target = terminalWatchTarget(paneID), target.targetVersion == targetVersion else {
-            throw LocalAPIError.staleTarget
-        }
+        if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+        let target = try await prepareTerminalWatch(paneID, targetVersion, lease, fingerprint, mutationDeadline)
         let acceptedRole = CompanionTerminalAuthorization.accepted(
             inputAllowed: lease.terminalInputAllowed, local: target.localSessionName != nil)
         let authorization = CompanionTerminalAuthorization(lease: lease, accepted: acceptedRole, local: target.localSessionName != nil)

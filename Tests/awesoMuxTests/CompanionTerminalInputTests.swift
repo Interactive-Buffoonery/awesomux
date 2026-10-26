@@ -116,6 +116,22 @@ struct CompanionTerminalInputTests {
             terminalWatchScope: watch ? .allWorkspaces : nil, terminalInputAllowed: input)
     }
 
+    @Test func firstFrameAfterSnapshotCanClaimPhoneGridWithoutInput() async throws {
+        let buffer = Relay.Buffer()
+        let generation = try #require(buffer.beginGeneration())
+        #expect(buffer.enqueue(.snapshotEnd(.init(bytes: 0)), generation: generation) == .continue)
+        buffer.didWrite(try #require(buffer.takeFrame()))
+        var writes: [Data] = []
+        let forwarder = Relay.InputForwarder(role: .interactive, grid: .init(rows: 24, cols: 80), buffer: buffer)
+        forwarder.install(generation: generation, id: 42, revision: 9) { data, validate in
+            try validate()
+            writes.append(data)
+        }
+        try await forwarder.receive(Stream.encode(.claim(.init(grid: .init(rows: 32, cols: 40))), generation: generation))
+        #expect(writes == [Relay.zmxMessage(.takeOver, typedHeader(rows: 32, cols: 40))])
+        #expect(buffer.takeFrame() == nil)
+    }
+
     @Test func typedBatchesCarryAttachmentRevisionGridAndExactBytes() throws {
         var input = Relay.InputState(role: .interactive, grid: .init(rows: 24, cols: 80))
         input.attach(id: 42, revision: 9)
