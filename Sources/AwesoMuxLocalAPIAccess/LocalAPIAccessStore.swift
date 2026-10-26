@@ -314,6 +314,35 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
         }
     }
 
+    /// Creation requires workspace-wide Terminal authority; a pane-only grant
+    /// cannot cover a new pane, and a new workspace requires all workspaces.
+    public func performCompanionTerminalOperation<Result>(
+        workspaceID: UUID?, requiresInput: Bool,
+        certificateFingerprint: Data, lease: LocalAPIAuthorizationLease,
+        body: () throws -> Result
+    ) throws -> Result {
+        try lock.withLock {
+            guard let connection = state.connections.first(where: { $0.id == lease.connectionID }),
+                connection.kind == .companion, connection.revision == lease.connectionRevision,
+                lease.globalRevision == connection.revision,
+                connection.statusScope == .allWorkspaces, connection.statusScope == lease.statusScope,
+                connection.contextGrant == nil, lease.contextGrant == nil,
+                let metadata = connection.companion,
+                let scope = metadata.terminalWatchScope, scope == lease.terminalWatchScope,
+                metadata.terminalInputAllowed == lease.terminalInputAllowed,
+                !requiresInput || metadata.terminalInputAllowed,
+                constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
+            else { throw LocalAPIError.permissionDenied }
+            switch scope {
+            case .allWorkspaces: break
+            case .persistentWorkspaces(let ids):
+                guard let workspaceID, ids.contains(workspaceID) else { throw LocalAPIError.permissionDenied }
+            case .persistentPanes, .exactTarget: throw LocalAPIError.permissionDenied
+            }
+            return try body()
+        }
+    }
+
     /// Hold the revisioned device authority across the core commit and each
     /// actual hook write. Phone requests cannot change this Mac-owned grant.
     public func performCompanionDecision(

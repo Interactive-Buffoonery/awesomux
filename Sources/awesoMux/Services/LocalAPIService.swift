@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxConfig
 import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
@@ -68,13 +69,15 @@ final class LocalAPIService {
     private let profileValue: String
     private weak var store: SessionStore?
     private weak var runtime: GhosttyRuntime?
+    private weak var settings: AppSettingsStore?
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
     init(
         store: SessionStore,
         runtime: GhosttyRuntime,
         accessStore: LocalAPIAccessStore,
-        profile: AppRuntimeProfile = .current
+        profile: AppRuntimeProfile = .current,
+        settings: AppSettingsStore? = nil
     ) throws {
         let profileValue = profile.environmentValue
         guard accessStore.ownsAuthority, accessStore.loadFailure == nil else { throw LocalAPIError.accessDisabled }
@@ -194,6 +197,7 @@ final class LocalAPIService {
         self.store = store
         self.runtime = runtime
         self.capture = capture
+        self.settings = settings
         renameStore = store
         renameAuthority = accessStore.runtimeAuthority
         server = try LocalAPIServer(
@@ -241,6 +245,49 @@ final class LocalAPIService {
             certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
     }
 
+    func createCompanionTerminal(
+        request: CompanionTerminalCreateRequest, lease: LocalAPIAuthorizationLease,
+        certificateFingerprint: Data, deadline: ContinuousClock.Instant
+    ) throws -> CompanionTerminalCreated {
+        guard let store else { throw LocalAPIError.appUnavailable }
+        return try CompanionTerminalCreate.apply(
+            request: request, store: store,
+            defaultGroup: settings?.workspaces.value.defaultGroup ?? WorkspaceConfig.defaultValue.defaultGroup,
+            authority: renameAuthority, certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
+    }
+
+    func prepareCompanionTerminal(
+        paneID: UUID, targetVersion: UUID, lease: LocalAPIAuthorizationLease,
+        certificateFingerprint: Data, deadline: ContinuousClock.Instant
+    ) async throws -> LocalAPITerminalWatchTarget {
+        guard let store, let runtime else { throw LocalAPIError.appUnavailable }
+        let target = try CompanionTerminalOpen.prepare(
+            paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline
+        ) { workspace, pane in
+            guard runtime.isReady, runtime.isCommandBridgeEnabled else { throw LocalAPIError.terminalUnavailable }
+            let integrations = settings?.agentIntegrations.value ?? .defaultValue
+            let surface = runtime.surfaceView(
+                sessionStore: store, session: workspace, pane: pane,
+                enabledAgentRuntimeFileDropSources: AgentRuntimeConsent.enabledFileDropSources(from: integrations),
+                grokIconEnabled: integrations.grok.enabled)
+            // Use the same launch/preflight path as a native mount without
+            // selecting the workspace or moving the Mac's first responder.
+            surface.createSurfaceIfNeeded()
+            guard !surface.commandBridgeEnactor.errorLatched else { throw LocalAPIError.paneDisconnected }
+            guard surface.surface != nil || surface.commandBridgeEnactor.bridgePreflightInFlight else {
+                throw LocalAPIError.terminalUnavailable
+            }
+        }
+        guard let sessionName = target.localSessionName else { throw LocalAPIError.terminalUnavailable }
+        try await CompanionTerminalOpen.waitForSocket(
+            at: AmxBackend.sessionSocketDirectory() + "/" + sessionName, deadline: deadline)
+        return try CompanionTerminalOpen.prepare(
+            paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline,
+            hydrate: { _, _ in })
+    }
+
     func companionDecisions(
         answer: CompanionDecisionAnswer?, lease: LocalAPIAuthorizationLease,
         fingerprint: Data, authority: LocalAPIRuntimeAuthority, deviceName: String,
@@ -286,7 +333,8 @@ final class LocalAPIService {
     }
 
     func terminalWatchTarget(paneID: UUID) -> LocalAPITerminalWatchTarget? {
-        store?.localAPITerminalWatchTarget(paneID: paneID)
+        guard let store, let target = store.localAPITerminalWatchTarget(paneID: paneID) else { return nil }
+        return try? store.companionTerminalToOpen(paneID: paneID, targetVersion: target.targetVersion).2
     }
 
     func companionResponse(
@@ -326,11 +374,12 @@ final class LocalAPIService {
     static func start(
         store: SessionStore,
         runtime: GhosttyRuntime,
-        accessStore: LocalAPIAccessStore
+        accessStore: LocalAPIAccessStore,
+        settings: AppSettingsStore? = nil
     ) -> LocalAPIService? {
         // Bare SwiftPM test processes have no supported public runtime profile.
         guard case .test = AppRuntimeProfile.current else {
-            do { return try LocalAPIService(store: store, runtime: runtime, accessStore: accessStore) } catch {
+            do { return try LocalAPIService(store: store, runtime: runtime, accessStore: accessStore, settings: settings) } catch {
                 accessStore.relinquishAuthority()
                 logger.error("Local API unavailable: \(String(describing: error), privacy: .public)")
                 return nil

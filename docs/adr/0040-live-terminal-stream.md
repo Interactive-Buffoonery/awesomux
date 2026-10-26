@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-20
 - **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
+- **Amended:** 2026-10-26 — lazy-pane opening and initial phone claims (ADR-0042)
 - **Deciders:** Sarah
 - **Issue:** [#826](https://github.com/Interactive-Buffoonery/awesomux/issues/826)
 
@@ -53,6 +54,10 @@ connection into a long-lived terminal stream backed by a dedicated zmx client
 the Mac opens for that device and pane. The stream always begins with a
 snapshot, then carries output in daemon order. Every reconnect is a new attach
 with a new snapshot. Nothing is replayed, and no stream crosses a relay.
+
+[ADR-0042](0042-phone-terminals.md) adds authorized lazy-pane hydration before
+acceptance and changes the phone's Input-on opening default to a fresh `claim`
+after the snapshot. The stream format and daemon attach semantics are unchanged.
 
 ### Stream source and the emulator boundary
 
@@ -184,7 +189,9 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
   stream. The Mac learns of the drop from the socket or the heartbeat deadline
   and detaches the old zmx client; a reconnect before that detach supersedes it.
 - Reconnect never restores leadership. A device that led before the drop
-  attaches as a follower until its next accepted input or explicit Take over.
+  attaches as a follower until a fresh accepted input or claim. ADR-0042's
+  Input-on opening policy sends that new claim after the new snapshot; it never
+  restores queued input or an old claim.
 - **Input after failover is never replayed.** Each `input` frame carries its
   generation and sequence; the Mac answers `ack` with the highest input
   sequence it forwarded to the daemon within that generation. Input that is

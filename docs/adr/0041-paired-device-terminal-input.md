@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-21
+- **Amended:** 2026-10-26 — phone opening and creation defaults (ADR-0042)
 - **Deciders:** Sarah
 - **Issue:** [#787](https://github.com/Interactive-Buffoonery/awesomux/issues/787)
 
@@ -66,10 +67,11 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 
 ### Taking over
 
-- A device whose Input switch is on attaches its stream in the interactive
-  role (ADR-0040) but starts as a follower: attaching never claims or
-  resizes.
-  The phone shows the leader's grid, scaled and pannable, with a **Take
+- [ADR-0042](0042-phone-terminals.md) changes the opening default: opening
+  with Input on sends a fresh `claim` at the phone's grid after the snapshot;
+  Watch is an explicit choice. The low-level interactive attach alone still
+  starts as a follower and preserves the grid until that claim or input.
+  A follower shows the leader's grid, scaled and pannable, with a **Take
   over** control. Take over sends a `claim` frame carrying the phone's
   requested grid; the Mac forwards it as a typed `TakeOver` so leadership
   moves without a dummy keystroke. The first `input` frame from a follower

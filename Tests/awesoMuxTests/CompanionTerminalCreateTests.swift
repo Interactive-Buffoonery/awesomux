@@ -1,0 +1,230 @@
+import AwesoMuxCore
+import AwesoMuxLocalAPI
+import AwesoMuxLocalAPIAccess
+import Foundation
+import Testing
+@testable import awesoMux
+
+@MainActor
+@Suite("Companion terminal create")
+struct CompanionTerminalCreateTests {
+    private let fingerprint = Data(repeating: 7, count: 32)
+
+    private func fixture(input: Bool = true, scope: LocalAPITargetScope? = .allWorkspaces) -> (
+        SessionStore, LocalAPIRuntimeAuthority, LocalAPIAuthorizationLease
+    ) {
+        let store = SessionStore(groups: [])
+        let grant = LocalAPIConnectionGrant(
+            id: UUID(), label: "Phone", createdAt: Date(), credentialVerifier: Data(), revision: UUID(),
+            statusScope: .allWorkspaces, kind: .companion,
+            companion: .init(
+                certificateFingerprint: fingerprint, transport: .lan, pairedAt: Date(), port: 1234,
+                terminalWatchScope: scope, terminalInputAllowed: input))
+        var state = LocalAPIAccessState(profile: "development")
+        state.connections = [grant]
+        let authority = LocalAPIRuntimeAuthority(state: state)
+        let lease = try! authority.authorizeCompanion(
+            connectionID: grant.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        return (store, authority, lease)
+    }
+
+    private func create(
+        _ store: SessionStore, _ authority: LocalAPIRuntimeAuthority, _ lease: LocalAPIAuthorizationLease,
+        workspaceID: UUID? = nil, deadline: ContinuousClock.Instant = .now.advanced(by: .seconds(5))
+    ) throws -> CompanionTerminalCreated {
+        try CompanionTerminalCreate.apply(
+            request: .init(workspaceID: workspaceID), store: store, defaultGroup: "Default",
+            authority: authority, certificateFingerprint: fingerprint, lease: lease, deadline: deadline)
+    }
+
+    @Test func inputOffAndMissingTerminalGrantCannotCreate() {
+        for (input, scope): (Bool, LocalAPITargetScope?) in [(false, .allWorkspaces), (true, nil)] {
+            let (store, authority, lease) = fixture(input: input, scope: scope)
+            #expect(throws: LocalAPIError.permissionDenied) { try create(store, authority, lease) }
+            #expect(store.groups.isEmpty)
+        }
+    }
+
+    @Test func workspaceOutsideGrantCannotSplitOrCreateWorkspace() throws {
+        let allowed = UUID()
+        let (store, authority, lease) = fixture(scope: .persistentWorkspaces([allowed]))
+        let workspaceID = store.addSession()
+        #expect(throws: LocalAPIError.permissionDenied) { try create(store, authority, lease, workspaceID: workspaceID) }
+        #expect(throws: LocalAPIError.permissionDenied) { try create(store, authority, lease) }
+        #expect(store.session(id: workspaceID)?.panes.count == 1)
+    }
+
+    @Test func createsLocalShellInDefaultGroupWithOpenableIdentity() throws {
+        let (store, authority, lease) = fixture()
+        let result = try create(store, authority, lease)
+        let session = try #require(store.session(id: result.workspaceID))
+        let pane = try #require(session.layout.pane(id: result.paneID))
+        #expect(store.groups.first?.name == "Default")
+        #expect(pane.executionPlan == .local)
+        #expect(pane.agentKind == .shell)
+        #expect(store.localAPITerminalWatchTarget(paneID: pane.id)?.targetVersion == result.targetVersion)
+    }
+
+    @Test func defaultRemoteGroupStillCreatesLocalShell() throws {
+        let (store, authority, lease) = fixture()
+        let host = try #require(RemoteTarget(parsing: "example.test"))
+        _ = store.createRemoteWorkspaceGroup(named: "Default", target: host)
+        let result = try create(store, authority, lease)
+        #expect(store.session(id: result.workspaceID)?.activePane?.executionPlan == .local)
+    }
+
+    @Test func splitInSSHWorkspaceInheritsExecutionLocation() throws {
+        let (store, authority, lease) = fixture()
+        let host = try #require(RemoteTarget(parsing: "example.test"))
+        let pane = TerminalPane(title: "Remote", workingDirectory: "/srv/work", executionPlan: .ssh(SSHExecution(target: host)))
+        let session = TerminalSession(title: "Remote", workingDirectory: "/srv/work", layout: .pane(pane))
+        store.insertSession(session, groupName: "Remote")
+        let result = try create(store, authority, lease, workspaceID: session.id)
+        let split = try #require(store.session(id: session.id)?.layout.pane(id: result.paneID))
+        #expect(split.executionPlan == pane.executionPlan)
+        #expect(split.workingDirectory == pane.workingDirectory)
+        #expect(split.id != pane.id)
+        #expect(store.session(id: session.id)?.panes.count == 2)
+    }
+
+    @Test func expiredRevokedAndMissingTargetsDoNotMutate() throws {
+        let (store, authority, lease) = fixture()
+        #expect(throws: LocalAPIError.timeout) {
+            try create(store, authority, lease, deadline: .now.advanced(by: .seconds(-1)))
+        }
+        #expect(throws: LocalAPIError.staleTarget) { try create(store, authority, lease, workspaceID: UUID()) }
+        authority.replace(with: LocalAPIAccessState(profile: "development"))
+        #expect(throws: LocalAPIError.permissionDenied) { try create(store, authority, lease) }
+        #expect(store.groups.isEmpty)
+    }
+
+    @Test func workspaceGrantAllowsSplitButPaneGrantDoesNot() throws {
+        let workspace = TerminalSession(title: "Shell", workingDirectory: "~")
+        for (scope, allowed): (LocalAPITargetScope, Bool) in [
+            (.persistentWorkspaces([workspace.id]), true), (.persistentPanes([workspace.activePaneID]), false),
+        ] {
+            let (store, authority, lease) = fixture(scope: scope)
+            store.insertSession(workspace, groupName: "Work")
+            if allowed {
+                let result = try create(store, authority, lease, workspaceID: workspace.id)
+                #expect(result.workspaceID == workspace.id)
+                #expect(store.session(id: workspace.id)?.panes.count == 2)
+            } else {
+                #expect(throws: LocalAPIError.permissionDenied) { try create(store, authority, lease, workspaceID: workspace.id) }
+                #expect(store.session(id: workspace.id)?.panes.count == 1)
+            }
+        }
+    }
+
+    @Test func unavailablePanesReturnSpecificReasonsWithoutHydrating() throws {
+        let (_, authority, lease) = fixture()
+        let exited = TerminalPane(title: "Exited", workingDirectory: "~", foregroundProcessLiveness: .exited, executionPlan: .local)
+        let host = try #require(RemoteTarget(parsing: "example.test"))
+        var disconnected = TerminalPane(title: "Disconnected", workingDirectory: "~", executionPlan: .local)
+        disconnected.remoteReconnect = .disconnected(.init(target: host))
+        for (pane, reason) in [(exited, LocalAPIError.paneExited), (disconnected, .paneDisconnected)] {
+            let workspace = TerminalSession(title: "Unavailable", workingDirectory: "~", layout: .pane(pane))
+            let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [workspace])])
+            let target = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
+            #expect(throws: reason) {
+                try CompanionTerminalOpen.prepare(
+                    paneID: pane.id, targetVersion: target.targetVersion, store: store,
+                    authority: authority, certificateFingerprint: fingerprint, lease: lease,
+                    deadline: .now.advanced(by: .seconds(5))
+                ) { _, _ in Issue.record("Unavailable pane was hydrated") }
+            }
+        }
+    }
+
+    @Test func requestAcceptsOnlyOptionalWorkspaceIdentity() throws {
+        let base: [String: Any] = [
+            "schemaVersion": 1, "requestID": UUID().uuidString, "operation": "create_terminal",
+            "connectionID": UUID().uuidString,
+        ]
+        #expect(try CompanionTerminalCreateRequest.decode(base).workspaceID == nil)
+        var split = base
+        let workspaceID = UUID()
+        split["workspaceID"] = workspaceID.uuidString
+        #expect(try CompanionTerminalCreateRequest.decode(split).workspaceID == workspaceID)
+        for key in ["paneID", "targetVersion", "title", "source", "grid", "credential"] {
+            var invalid = base
+            invalid[key] = "unexpected"
+            #expect(throws: LocalAPIError.invalidRequest) { try CompanionTerminalCreateRequest.decode(invalid) }
+        }
+        for value in [NSNull(), true, 1, "bad-uuid"] as [Any] {
+            var invalid = base
+            invalid["workspaceID"] = value
+            #expect(throws: LocalAPIError.invalidRequest) { try CompanionTerminalCreateRequest.decode(invalid) }
+        }
+    }
+
+    @Test func restoredUnvisitedPaneIsVersionedAndHydratedWithoutSelection() throws {
+        let (original, authority, lease) = fixture(input: false)
+        let workspaceID = original.addSession()
+        _ = original.addSession()
+        let store = SessionStore(restoring: original.snapshot())
+        let pane = try #require(store.session(id: workspaceID)?.activePane)
+        let selection = store.selectedSessionID
+        #expect(selection != workspaceID)
+        let roster = store.companionWorkspaces { _ in nil }
+        let version = try #require(roster.first?.panes.first?.targetVersion.flatMap(UUID.init(uuidString:)))
+        #expect(PaneAvailability.of(.terminal(pane)) == .awaitingHydration)
+        var hydrated: UUID?
+        let target = try CompanionTerminalOpen.prepare(
+            paneID: pane.id, targetVersion: version, store: store,
+            authority: authority, certificateFingerprint: fingerprint, lease: lease,
+            deadline: .now.advanced(by: .seconds(5))
+        ) { session, terminal in
+            #expect(session.id == workspaceID)
+            hydrated = terminal.id
+        }
+        #expect(hydrated == pane.id)
+        #expect(target.localSessionName == pane.terminalSessionID.rawValue)
+        #expect(target.targetVersion == version)
+        #expect(store.selectedSessionID == selection)
+    }
+
+    @Test func socketReadinessObservesCreationAndAlreadyPresentSocket() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let socket = directory.appending(path: "terminal")
+        let waiting = Task { @MainActor in
+            try await CompanionTerminalOpen.waitForSocket(at: socket.path, deadline: .now.advanced(by: .seconds(2)))
+        }
+        await Task.yield()
+        #expect(FileManager.default.createFile(atPath: socket.path, contents: Data()))
+        try await waiting.value
+        try await CompanionTerminalOpen.waitForSocket(at: socket.path, deadline: .now.advanced(by: .seconds(2)))
+    }
+
+    @Test func socketReadinessIsBoundedAndCancellationDoesNotWaitForCreation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appending(path: "missing").path
+        await #expect(throws: LocalAPIError.timeout) {
+            try await CompanionTerminalOpen.waitForSocket(at: path, deadline: .now.advanced(by: .milliseconds(20)))
+        }
+        let waiting = Task { @MainActor in
+            try await CompanionTerminalOpen.waitForSocket(at: path, deadline: .now.advanced(by: .seconds(2)))
+        }
+        waiting.cancel()
+        await #expect(throws: CancellationError.self) { try await waiting.value }
+    }
+
+    @Test func unauthorizedWatchDoesNotHydrate() throws {
+        let (store, authority, lease) = fixture(scope: nil)
+        let workspace = store.addSession()
+        let pane = try #require(store.session(id: workspace)?.activePane)
+        let target = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try CompanionTerminalOpen.prepare(
+                paneID: pane.id, targetVersion: target.targetVersion, store: store,
+                authority: authority, certificateFingerprint: fingerprint, lease: lease,
+                deadline: .now.advanced(by: .seconds(5))
+            ) { _, _ in Issue.record("Denied phone hydrated a pane") }
+        }
+    }
+}

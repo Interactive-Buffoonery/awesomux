@@ -407,7 +407,8 @@ struct AwesoMuxApp: App {
             store: loadResult.store,
             runtime: ghosttyRuntime,
             accessStore: localAPIAccessStore,
-            companionPairingCoordinator: companionPairingCoordinator
+            companionPairingCoordinator: companionPairingCoordinator,
+            settings: appSettingsStore
         )
     }
 

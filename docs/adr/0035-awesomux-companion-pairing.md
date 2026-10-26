@@ -38,8 +38,9 @@ renaming** control stores an optional `paneRenameScope`; absent means denied,
 including existing and newly paired phones. A rename must satisfy both that
 scope and the phone's status scope. Preview permission never grants mutation
 authority. Only terminal panes can be renamed, using native pane and workspace
-UUIDs and `SessionStore.renamePane`; create, split, close, document-group rename,
-and workspace rename remain outside this layer (#795). Recheck the certificate
+UUIDs and `SessionStore.renamePane`. [ADR-0042](0042-phone-terminals.md) adds
+creation under Terminal and Input authority; close, document-group rename and
+workspace rename remain outside this layer (#795). Recheck the certificate
 and original revisioned lease at the synchronous MainActor mutation, holding the
 authority lock through the store change. Cancellation or an expired request
 deadline prevents a pending mutation. Policy changes invalidate outstanding
