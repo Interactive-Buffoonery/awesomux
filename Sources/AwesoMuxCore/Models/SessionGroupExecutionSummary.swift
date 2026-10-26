@@ -52,6 +52,7 @@ public struct SessionGroupExecutionSummary: Hashable, Sendable {
                     includesLocal = true
                 case .remote(let target):
                     remoteTargets.insert(target)
+                    // A carrier does not change who owns the remote work.
                     if pane.executionPlan.remoteOwnedExecution == nil {
                         localAmx.insert(target)
                     } else {

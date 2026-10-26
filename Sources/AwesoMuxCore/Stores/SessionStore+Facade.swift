@@ -776,6 +776,7 @@ extension SessionStore {
         }
 
         _groups[position.groupIndex].sessions[position.sessionIndex].layout = layout
+        reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
         return true
     }
 

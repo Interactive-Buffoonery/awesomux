@@ -5,7 +5,7 @@ import Foundation
 /// what awesoMux can actually reach.
 ///
 /// A pane declaring remote-owned zmx persistence (ADR-0023 amendment #214) has
-/// no local daemon in front of it: its session belongs to the far host and
+/// only loses its local SSH carrier: its session belongs to the far host and
 /// survives every local close by design. Promising to terminate it would be a
 /// lie, and it is the reason these bodies are composed from whole sentences
 /// instead of one string per variant — risk state times persistence ownership

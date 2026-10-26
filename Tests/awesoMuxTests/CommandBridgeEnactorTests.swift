@@ -245,6 +245,66 @@ struct CommandBridgeEnactorTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func remoteOwnedCarrierIgnoresBridgeToggle(bridgeEnabled: Bool) throws {
+        let fixture = try makeRemoteOwnedFixture(bridgeEnabled: bridgeEnabled, agentKind: .codex)
+        let enactor = fixture.view.commandBridgeEnactor
+        defer { enactor.beginStatusWatch(channel: nil) }
+        enactor.remoteOwnedCarrierCommandProvider = { id, status, execution, _ in
+            #expect(execution.sessionName?.rawValue == "work")
+            return "carrier \(id.rawValue) status=\(status != nil)"
+        }
+        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: bridgeEnabled)
+        #expect(launch == .bridgeAttach("carrier \(fixture.sessionID.rawValue) status=true"))
+        #expect(enactor.statusWatcher?.isArmed == true)
+        #expect(enactor.remoteOwnedExitStatusFile == nil)
+        fixture.view.applyPostSpawnPaneState(for: launch)
+        #expect(fixture.livePane?.terminalBackendMetadata == .amxRemoteCarrier)
+        #expect(fixture.store.localAPITerminalWatchTarget(paneID: fixture.paneID)?.localSessionName == fixture.sessionID.rawValue)
+        enactor.handleStatusEvents([try attachedEvent(pid: 123, createdAt: 1, sessionID: fixture.sessionID)])
+        #expect(fixture.livePane?.terminalBackendMetadata == .amxRemoteCarrier)
+        #expect(fixture.livePane?.agentKind == AgentKind.codex)
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] == nil)
+        fixture.store.updateTerminalBackendMetadata(
+            sessionID: fixture.hostSessionID, paneID: fixture.paneID,
+            metadata: TerminalBackendMetadata(rawValue: "amx:recovery:existing"))
+        fixture.view.pane = try #require(fixture.livePane)
+        fixture.view.applyPostSpawnPaneState(for: launch)
+        #expect(fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly)
+        enactor.beginExitSupervision(exitCode: 0)
+        #expect(enactor.errorLatched)
+        #expect(fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly)
+    }
+
+    @Test(arguments: [false, true])
+    func remoteOwnedCarrierExitPreservesSSHOutcome(bridgeEnabled: Bool) throws {
+        for (reason, code): (SessionEndReason?, Int?) in [
+            (.shellExit, 0), (.shellExit, 1), (.shellExit, 127), (.shellExit, 255),
+            (.shellExit, nil), (.daemonDied, 0), (.detached, 0), (nil, nil),
+        ] {
+            let fixture = try makeRemoteOwnedFixture(bridgeEnabled: bridgeEnabled)
+            let enactor = fixture.view.commandBridgeEnactor
+            defer { enactor.beginStatusWatch(channel: nil) }
+            enactor.sessionID = fixture.sessionID
+            let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+            enactor.beginStatusWatch(channel: channel)
+            fixture.view.applyPostSpawnPaneState(for: .bridgeAttach("carrier"))
+            enactor.latestSessionEndReason = reason
+            enactor.latestSessionEndCode = code
+            // Stale far-side OSC reports must never decide SSH's outcome.
+            enactor.beginExitSupervision(exitCode: 0)
+            if reason == .shellExit && code == 0 {
+                #expect(!enactor.errorLatched)
+                #expect(enactor.sessionID == nil)
+            } else {
+                #expect(enactor.errorLatched)
+                #expect(fixture.livePane?.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget())))
+                #expect(fixture.livePane?.terminalBackendMetadata == .empty)
+            }
+            #expect(enactor.respawnLedger.respawnAttempts == 0)
+        }
+    }
+
     enum NoStatusWatcherCase: String, CaseIterable {
         case noStatusAttachClearsPreviousStatusWatcher
         case bridgeAttachWithoutChannelBearingCommandArmsNoWatcher
@@ -1316,6 +1376,7 @@ struct CommandBridgeEnactorTests {
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false
         )
+        view.commandBridgeEnactor.remoteOwnedCarrierCommandProvider = { _, _, _, _ in nil }
         return Fixture(
             sessionID: sessionID,
             hostSessionID: session.id,

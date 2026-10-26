@@ -14,10 +14,7 @@ public enum BridgeSurfaceCommand: Equatable {
     /// to reach its host). Must surface an error, never a local shell: a local
     /// shell masquerading as the remote host is the ADR-0022 trust violation.
     case remoteUnavailable
-    /// Run `zmx attach <name>` on the remote host itself. The far side owns the
-    /// session, so there is no local `amx` daemon in the picture and no bridge
-    /// to wrap — the pane is an ssh child whose persistence survives on the
-    /// host, not in this app.
+    /// Run SSH directly when the local carrier backend is unavailable.
     case remoteOwnedAttach
 }
 
@@ -36,12 +33,10 @@ public enum BridgeSurfaceCommandPolicy {
         attachCommandAvailable: Bool,
         executionPlan: PaneExecutionPlan = .local
     ) -> BridgeSurfaceCommand {
-        // Decided before every other input: a remote-owned pane's persistence
-        // lives on the far host, so neither the local amx daemon
-        // (`attachCommandAvailable`) nor the command bridge (`bridgeEnabled`)
-        // has anything to contribute, and neither can make it unreachable.
+        // Remote persistence ignores the bridge toggle. A local daemon only
+        // carries SSH; the remote host still owns the shell.
         if executionPlan.remoteOwnedExecution != nil {
-            return .remoteOwnedAttach
+            return attachCommandAvailable ? .bridgeAttach : .remoteOwnedAttach
         }
         if bridgeEnabled, attachCommandAvailable { return .bridgeAttach }
         // A remote execution plan wins regardless of `bridgeEnabled`: a pane

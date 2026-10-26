@@ -112,6 +112,8 @@ final class DaemonRecoveryMetadataSynchronizer {
         groups.flatMap { group in
             group.sessions.flatMap { session in
                 session.panes.compactMap { pane in
+                    // Carrier metadata stays excluded: these labels cannot
+                    // reconstruct a remote-owned execution plan.
                     guard pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata else {
                         return nil
                     }

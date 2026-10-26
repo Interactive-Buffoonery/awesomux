@@ -146,6 +146,7 @@ public enum DaemonGCPlan {
         recentlyClosed: [RecentlyClosedWorkspace],
         lastClosedTransient: RecentlyClosedWorkspace?
     ) -> (livePane: Set<TerminalSessionID>, restorable: Set<TerminalSessionID>) {
+        // Include remote-owned pane IDs: their local carriers are owned too.
         var livePane = Set<TerminalSessionID>()
         for group in groups {
             for session in group.sessions {

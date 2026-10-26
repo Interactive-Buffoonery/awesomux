@@ -235,7 +235,7 @@ enum TerminalAccessibilityAnnouncer {
             ) + " " + recovery
         }
         // A remote-owned pane never reaches the background-sessions arm: it runs
-        // with no local daemon, so the setting is nothing to it.
+        // independently of the bridge toggle, including its local carrier.
         if !backgroundSessionsEnabled {
             if let pane {
                 return String(

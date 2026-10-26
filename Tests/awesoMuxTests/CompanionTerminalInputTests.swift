@@ -1,3 +1,4 @@
+import AwesoMuxCore
 import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
@@ -13,7 +14,22 @@ struct CompanionTerminalInputTests {
     typealias Stream = CompanionTerminalStream
     typealias Relay = CompanionTerminalWatchRelay
 
-    @Test func roleAssignmentExplainsWatchAndNeverTypesRemotePanes() {
+    @Test func roleAssignmentUsesCarrierAndExplainsDirectSSHWatch() throws {
+        let remote = try #require(RemoteTarget(parsing: "example.test"))
+        let name = try #require(RemoteSessionName(rawValue: "work"))
+        var pane = TerminalPane(
+            title: "Remote", workingDirectory: "~",
+            executionPlan: .ssh(SSHExecution(target: remote, remoteSessionName: name)))
+        for metadata: TerminalBackendMetadata in [.empty, .amxRemoteCarrier] {
+            pane.terminalBackendMetadata = metadata
+            let local = pane.localTerminalSessionName != nil
+            #expect(
+                CompanionTerminalAuthorization.accepted(inputAllowed: true, local: local)
+                    == (local ? .init(role: .interactive) : .init(role: .watch, watchReason: .remotePane)))
+            #expect(
+                CompanionTerminalAuthorization.accepted(inputAllowed: false, local: local)
+                    == .init(role: .watch, watchReason: local ? .inputOff : .remotePane))
+        }
         #expect(CompanionTerminalAuthorization.accepted(inputAllowed: true, local: true) == .init(role: .interactive))
         #expect(CompanionTerminalAuthorization.accepted(inputAllowed: false, local: true) == .init(role: .watch, watchReason: .inputOff))
         for input in [false, true] {

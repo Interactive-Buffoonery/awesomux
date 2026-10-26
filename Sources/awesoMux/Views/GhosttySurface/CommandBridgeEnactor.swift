@@ -123,6 +123,13 @@ final class CommandBridgeEnactor {
         ) -> String? = { sessionID, status, remote, mode in
             AmxBackend.attachCommand(for: sessionID, status: status, remote: remote, mode: mode)
         }
+    var remoteOwnedCarrierCommandProvider: (TerminalSessionID, AmxStatusChannel?, SSHExecution, AmxAttachMode) -> String? = {
+        id, status, execution, mode in
+        AmxBackend.attachCommand(
+            for: id, status: status, remote: execution.target,
+            remoteSessionName: execution.sessionName, mode: mode
+        )
+    }
     var remoteOwnedAttachCommandProvider:
         (
             RemoteTarget,
@@ -186,19 +193,18 @@ final class CommandBridgeEnactor {
     /// Returns the launch the host passes to `runtime.createSurface`. Called
     /// from `createSurfaceIfNeeded`.
     func prepareAttach(for pane: TerminalPane, bridgeEnabled: Bool) -> SurfaceLaunchCommand {
+        discardRemoteOwnedExitStatusFile()
         let remote = pane.executionPlan.remoteTarget
         let mode = attachMode(for: pane)
-        // Availability probe only, deliberately built WITHOUT a status channel:
-        // `attachCommand` fails solely on a missing bundled `amx` (or an invalid
-        // id), never on the channel, so the policy can be decided before any
-        // channel exists. That ordering is what keeps a `.status.jsonl` from
-        // being created for a pane that will never write one — a remote-owned
-        // attach has no local process to report into it, and the fallback arms
-        // would only have to delete it again.
-        let baseAttachCommand: String? =
-            bridgeEnabled
-            ? attachCommandProvider(pane.terminalSessionID, nil, remote, mode)
-            : nil
+        // Probe before minting a status file. Remote-owned carriers ignore
+        // the command-bridge toggle and never use the managed bridge command.
+        func attachCommand(status: AmxStatusChannel?) -> String? {
+            if let execution = pane.executionPlan.remoteOwnedExecution {
+                return remoteOwnedCarrierCommandProvider(pane.terminalSessionID, status, execution, mode)
+            }
+            return bridgeEnabled ? attachCommandProvider(pane.terminalSessionID, status, remote, mode) : nil
+        }
+        let baseAttachCommand = attachCommand(status: nil)
         let policyResult = BridgeSurfaceCommandPolicy.command(
             bridgeEnabled: bridgeEnabled,
             attachCommandAvailable: baseAttachCommand != nil,
@@ -229,7 +235,7 @@ final class CommandBridgeEnactor {
             // never names, so `beginExitSupervision` would trust an empty feed
             // instead of falling back to the legacy exitCode probe.
             if let channel,
-                let command = attachCommandProvider(pane.terminalSessionID, channel, remote, mode)
+                let command = attachCommand(status: channel)
             {
                 let recoveryExpectationToken =
                     mode == .existingOnly
@@ -269,6 +275,11 @@ final class CommandBridgeEnactor {
             // feed the far host writes nothing to. Drop it before anything else
             // rather than relying on `handleSessionRepoint` having run first.
             beginStatusWatch(channel: nil)
+            if mode == .existingOnly {
+                SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
+                latchErrorDeferringChrome(clearBackendMetadata: false)
+                return .localShell
+            }
             guard let execution = pane.executionPlan.remoteOwnedExecution,
                 let sessionName = execution.sessionName
             else {
@@ -518,7 +529,7 @@ final class CommandBridgeEnactor {
     /// that screen and the close callback driving `handleProcessExit` does not
     /// fire until a key is pressed. A normal bridge pane usually notices through
     /// its status feed's `session-end` signal, but an attach client can die
-    /// before writing it; a remote-owned pane has no status feed at all. Without
+    /// before writing it; direct-SSH fallback has no status feed at all. Without
     /// this, either path can sit behind a keypress.
     ///
     /// Enacts on a LATER main-actor turn, and that is load-bearing rather than
@@ -563,9 +574,11 @@ final class CommandBridgeEnactor {
         // authoritative here; clean shell exits clear it before re-entering the
         // normal close path.
         guard !processAlive,
-              runtime.isCommandBridgeEnabled,
               let currentPane = sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID),
-              currentPane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata else {
+            (runtime.isCommandBridgeEnabled
+                && currentPane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata)
+                || currentPane.terminalBackendMetadata == .amxRemoteCarrier
+        else {
             return false
         }
 
@@ -651,8 +664,15 @@ final class CommandBridgeEnactor {
                 sessionStore.updateTerminalBackendMetadata(
                     sessionID: hostSessionID,
                     paneID: paneID,
-                    metadata: AmxBackend.establishedSessionMetadata
+                    metadata: host.pane.executionPlan.remoteOwnedExecution == nil
+                        ? AmxBackend.establishedSessionMetadata : .amxRemoteCarrier
                 )
+                if host.pane.executionPlan.remoteOwnedExecution != nil {
+                    // A new carrier can rejoin an unchanged remote shell. Its
+                    // creation proves neither a fresh shell nor successful SSH.
+                    confirmRemoteOwnedAttach()
+                    continue
+                }
                 let incarnation = AmxDaemonIncarnation(pid: daemonPid, createdAt: daemonCreatedAt)
                 let outcome = respawnLedger.recordAttach(incarnation)
                 // `created` on a first attach means amx launched a new daemon
@@ -892,7 +912,7 @@ final class CommandBridgeEnactor {
 
         // This is deliberately a superset of the remote-owned failure branch:
         // existing-only rejection and clean exit discard the temporary capture.
-        let capturesRemoteOutput = host.pane.executionPlan.remoteOwnedExecution != nil && !statusFeedWasArmed
+        let capturesRemoteOutput = host.pane.executionPlan.remoteOwnedExecution != nil
         let diagnosticText = capturesRemoteOutput ? Self.remoteFailureTail(host.visibleTerminalText()) : nil
         if host.hasNativeSurface {
             host.disposeNativeSurface(resetHostedLayer: true)
@@ -907,7 +927,7 @@ final class CommandBridgeEnactor {
         // feed. The legacy exitCode + `sessionExists` path below is the fallback
         // for an unpatched amx / missing status file / failed arm.
         if statusFeedWasArmed {
-            decideExitFromStatus()
+            decideExitFromStatus(diagnosticText: diagnosticText)
             return
         }
 
@@ -919,14 +939,9 @@ final class CommandBridgeEnactor {
             return
         }
 
-        // Remote-owned pane: no status feed is ever armed for it, so it would
-        // otherwise fall into the legacy path below — and both halves of that
-        // path are wrong here. `sessionExists` probes the LOCAL `amx list`,
-        // which can never contain a session living on another host (a
-        // guaranteed false "session is gone" error), and the bridge-disabled
-        // arm clears state and re-creates, which the policy would answer with
-        // another remote-owned attach: a silent infinite re-attach loop.
-        //
+        // Direct SSH (or a carrier whose status feed failed) never enters
+        // local-shell fallback or automatic reattach. Only the direct launch
+        // writes the exit file; missing evidence fails closed.
         // The status comes from the attach wrapper's own file, NOT the passed
         // `exitCode`: that argument carries libghostty's `command_finished`
         // cache, which holds whatever OSC 133 the pane last saw — including
@@ -1016,7 +1031,7 @@ final class CommandBridgeEnactor {
     /// Status-driven exit decision: map the latest `session-end` reason (or its
     /// absence) through the pure `BridgeSessionEndPolicy`, then enact the result.
     /// Synchronous — the reason is already known, no async daemon probe needed.
-    private func decideExitFromStatus() {
+    private func decideExitFromStatus(diagnosticText: String? = nil) {
         if let sessionID,
             sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID)?
                 .terminalBackendMetadata.amxAttachDisposition == .existingOnly
@@ -1030,14 +1045,21 @@ final class CommandBridgeEnactor {
         let reason = latestSessionEndReason
         let exitCode = latestSessionEndCode
         let isRemote = host.pane.executionPlan.remoteTarget != nil
-        let command = BridgeSessionEndPolicy.decide(
-            reason: reason,
-            bridgeEnabled: runtime.isCommandBridgeEnabled,
-            isRemote: isRemote,
-            exitCode: exitCode,
-            respawnAttempts: respawnLedger.respawnAttempts,
-            maxAttempts: Self.maxRespawnAttempts
-        )
+        let command: BridgeSessionEndCommand
+        if host.pane.executionPlan.remoteOwnedExecution != nil {
+            // Carrier failure must never respawn SSH or a local shell. Only
+            // the authenticated ssh clean-exit signal closes this pane.
+            command = reason == .shellExit && exitCode == 0 ? .markExited : .error
+        } else {
+            command = BridgeSessionEndPolicy.decide(
+                reason: reason,
+                bridgeEnabled: runtime.isCommandBridgeEnabled,
+                isRemote: isRemote,
+                exitCode: exitCode,
+                respawnAttempts: respawnLedger.respawnAttempts,
+                maxAttempts: Self.maxRespawnAttempts
+            )
+        }
 
         // Consume the reason regardless of outcome so a later spurious exit on
         // the same pane can't re-decide off this same stale signal.
@@ -1112,7 +1134,7 @@ final class CommandBridgeEnactor {
         case .error:
             // Respawn budget exhausted — stop trying and surface the failure.
             // `markError` clears the in-flight flag itself.
-            markError()
+            markError(diagnosticText: diagnosticText)
         }
     }
 
