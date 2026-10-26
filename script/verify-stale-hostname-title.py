@@ -63,11 +63,11 @@ import Foundation
 
         let localNames = LocalHostnames.resolve()
         print("local hostnames: \(localNames.sorted())")
-        if case .remote = RemoteSessionDetector.detect(title: staleTitle, localNames: localNames) {
-            check(true, "detector alone reads the stale hostname as foreign (precondition)")
-        } else {
-            check(false, "detector alone reads the stale hostname as foreign (precondition)")
+        var staleHost: String?
+        if case let .remote(host) = RemoteSessionDetector.detect(title: staleTitle, localNames: localNames) {
+            staleHost = host
         }
+        check(staleHost != nil, "detector alone reads the stale hostname as foreign (precondition)")
 
         await waitUntil(localShellOwnsTerminal)
         check(localShellOwnsTerminal(), "real local zsh owns its terminal at the prompt")
@@ -98,7 +98,7 @@ import Foundation
         report("codex")
         check(current().remotePresentationHost == "build-server", "indeterminate remote agent title remains sticky")
         report(staleTitle)
-        check(current().remotePresentationHost == "syn-172-100-12-34",
+        check(staleHost != nil && current().remotePresentationHost == staleHost,
             "the same stale name is remote when ssh owns the terminal")
 
         terminal.write(Data([3]))
@@ -112,7 +112,6 @@ import Foundation
         check(current().executionPlan == .local && current().workingDirectory == NSHomeDirectory(),
             "runtime presentation never changes local execution authority or cwd")
 
-
         terminal.write(Data("exit\n".utf8))
         print("RESULT \(failures == 0 ? "PASS" : "FAIL") failures=\(failures)")
         if failures != 0 { exit(1) }
@@ -120,17 +119,14 @@ import Foundation
 }
 '''
 
+# Depends on the checkout's own AwesoMuxCore product (via the `awesomux`
+# symlink) so the proof tracks the real target graph and dependency pins.
 PACKAGE = '''// swift-tools-version: 6.3
 import PackageDescription
 let package = Package(name: "StaleHostnameProof", platforms: [.macOS(.v15)],
-    dependencies: [.package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.9.0"),
-                   .package(url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git", exact: "0.1.0")], targets: [
-    .target(name: "UnicodeHygiene"), .target(name: "SecureFileIO"),
-    .target(name: "AwesoMuxBridgeProtocol", dependencies: ["UnicodeHygiene"]),
-    .target(name: "AwesoMuxLocalAPI", dependencies: [.product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion")]),
-    .target(name: "AwesoMuxCore", dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxLocalAPI", "SecureFileIO", "UnicodeHygiene", .product(name: "Markdown", package: "swift-markdown")], linkerSettings: [.linkedLibrary("sqlite3")]),
-    .executableTarget(name: "StaleHostnameProof", dependencies: ["AwesoMuxCore"])
-])
+    dependencies: [.package(path: "awesomux")],
+    targets: [.executableTarget(name: "StaleHostnameProof",
+                                dependencies: [.product(name: "AwesoMuxCore", package: "awesomux")])])
 '''
 
 
@@ -184,8 +180,7 @@ def main():
         package = Path(directory)
         sources = package / "Sources"
         sources.mkdir()
-        for name in ["AwesoMuxCore", "AwesoMuxBridgeProtocol", "AwesoMuxLocalAPI", "UnicodeHygiene", "SecureFileIO"]:
-            (sources / name).symlink_to(root / "Sources" / name)
+        (package / "awesomux").symlink_to(root)
         proof = sources / "StaleHostnameProof"
         proof.mkdir()
         probe = root / "Sources/awesoMux/Services/ProcessLivenessProbe.swift"
