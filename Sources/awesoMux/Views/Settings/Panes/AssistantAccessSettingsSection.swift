@@ -33,12 +33,33 @@ struct AssistantAccessSettingsSection: View {
             )
         ) {
             SettingsField(
+                label: String(localized: "Allow outside apps", comment: "Outside app access toggle label."),
+                hint: String(
+                    localized:
+                        "Only add apps you trust. Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using.",
+                    comment: "Outside app access same-user boundary disclosure."),
+                isFirst: true,
+                forwardsAccessibilityToControl: true
+            ) {
+                Toggle(
+                    String(localized: "Allow outside apps", comment: "Outside app access toggle accessibility label."),
+                    isOn: Binding(
+                        get: { accessStore.state.globallyEnabled },
+                        set: setGloballyEnabled
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(!accessStore.ownsAuthority || accessStore.loadFailure != nil || isWorking)
+            }
+
+            SettingsField(
                 label: String(localized: "Apps", comment: "Outside app access app list label."),
                 hint: String(
                     localized: "Each app gets its own key. Removing one doesn't affect the others.",
                     comment: "Outside app access app list hint."
                 ),
-                isFirst: true
+                isFirst: false
             ) {
                 VStack(alignment: .leading, spacing: 12) {
                     if outsideAppConnections.isEmpty {
@@ -56,40 +77,6 @@ struct AssistantAccessSettingsSection: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canMutate)
                 }
-            }
-
-            SettingsField(
-                label: String(localized: "Allow outside apps", comment: "Outside app access toggle label."),
-                hint: accessStore.state.globallyEnabled
-                    ? String(localized: "On — apps can see what's listed above.", comment: "Outside app access toggle state.")
-                    : String(localized: "Off — no app can see anything.", comment: "Outside app access toggle state."),
-                forwardsAccessibilityToControl: true
-            ) {
-                Toggle(
-                    String(localized: "Allow outside apps", comment: "Outside app access toggle accessibility label."),
-                    isOn: Binding(
-                        get: { accessStore.state.globallyEnabled },
-                        set: setGloballyEnabled
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .disabled(!accessStore.ownsAuthority || accessStore.loadFailure != nil || isWorking)
-            }
-
-            SettingsField(
-                label: String(localized: "Only add apps you trust", comment: "Outside app access safety label.")
-            ) {
-                Text(
-                    String(
-                        localized:
-                            "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using.",
-                        comment: "Outside app access same-user boundary disclosure."
-                    )
-                )
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
-                .fixedSize(horizontal: false, vertical: true)
             }
 
             if let visibleErrorMessage {
