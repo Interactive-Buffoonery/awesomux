@@ -641,6 +641,9 @@
     "A program on %arg wants to open this page in your default browser." : {
       "comment" : "Remote browser confirmation explanation; argument is the configured SSH destination"
     },
+    "A session may stop when its terminal closes." : {
+      "comment" : "Codex --no-daemon tradeoff."
+    },
     "About" : {
       "comment" : "Advanced settings title."
     },
@@ -790,6 +793,9 @@
     },
     "Alert for the focused workspace too" : {
       "comment" : "Notification settings label."
+    },
+    "Alias copied." : {
+      "comment" : "Codex alias copy success announcement."
     },
     "Alias from ~/.ssh/config" : {
       "comment" : "Placeholder requesting an OpenSSH config alias, not SSH command flags"
@@ -1527,6 +1533,9 @@
     "Closing this group removes its SSH creation default %arg. Its panes are local." : {
       "comment" : "SSH-default loss line for closing a populated group whose panes are all local."
     },
+    "Codex now runs agents in one shared background server, so awesoMux can't always tell which pane an update came from. Panes on the shared server still show status from what's on screen, just less precisely." : {
+      "comment" : "Explains Codex shared-server pane status limitations."
+    },
     "Collapse All" : {
       "comment" : "Send-bar button on a branch changes tab that folds every file section"
     },
@@ -1703,6 +1712,9 @@
     "Copy" : {
       "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
     },
+    "Copy Alias" : {
+      "comment" : "Button that copies the codex --no-daemon shell alias."
+    },
     "Copy Branch" : {
 
     },
@@ -1742,6 +1754,9 @@
     "Copy mode enabled. Selecting text will not create comments." : {
       "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
     },
+    "Copy the Codex no-daemon alias to the clipboard." : {
+      "comment" : "Copy Alias button hint. Keep Codex and no-daemon untranslated."
+    },
     "Copy the draft before closing." : {
       "comment" : "Document note recovery message when only copying is safe\nNew annotation recovery message when only copying is safe"
     },
@@ -1768,6 +1783,9 @@
     },
     "Could not connect to %arg, or the connection ended." : {
       "comment" : "Description under the SSH connection failed overlay title, naming the remote host"
+    },
+    "Could not copy the alias." : {
+      "comment" : "Codex alias copy failure announcement."
     },
     "Could not copy the remote path." : {
       "comment" : "Accessibility announcement when Copy Path cannot write the remote directory to the clipboard"
@@ -2571,6 +2589,9 @@
     },
     "For more details, try ssh %arg in a local workspace." : {
       "comment" : "Safe ordinary SSH diagnostic shown after a managed SSH connection fails"
+    },
+    "For the most accurate status in each pane, start Codex with `codex --no-daemon`." : {
+      "comment" : "Codex pane status advice. Preserve the command in backticks."
     },
     "FreeType License" : {
       "comment" : "Button opening the FreeType License text"
@@ -5938,6 +5959,9 @@
     "Turn on “Notify when my turn is done” to enable this." : {
 
     },
+    "Turning off auto-start in Codex's config isn't enough on its own." : {
+      "comment" : "Codex --no-daemon tradeoff: disabling app-server auto-start alone does not help."
+    },
     "Type" : {
       "comment" : "Diagnostics process table column"
     },
@@ -6167,6 +6191,9 @@
     "Why remove? (optional)" : {
       "comment" : "Placeholder for an optional deletion rationale"
     },
+    "Why this matters" : {
+      "comment" : "Codex shared-server explanation disclosure."
+    },
     "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running." : {
       "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
     },
@@ -6250,6 +6277,9 @@
     },
     "Your config file has an error, so this choice can’t be saved. Fix it in Settings › Advanced, then try again." : {
       "comment" : "Error shown when a managed SSH preference cannot persist because the config file on disk is invalid"
+    },
+    "`codex agents` and remote control need the shared server. With the alias, start them with `command codex`." : {
+      "comment" : "Codex --no-daemon tradeoff. Preserve the commands in backticks."
     },
     "a running shell process" : {
       "comment" : "Activity noun in the quit dialog body when only shell processes are at risk."
