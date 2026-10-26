@@ -579,7 +579,9 @@ extension GhosttySurfaceNSView {
             sessionID: sessionID,
             paneID: paneID,
             title: title,
-            localShellOwnsTerminal: localShellOwnsTerminal(sample: foregroundProcessSample())
+            localShellOwnsTerminal: localShellOwnsTerminal(
+                sample: foregroundProcessSample(includeLibprocSample: false)
+            )
         )
         if let current = sessionStore.session(id: sessionID)?.layout.pane(id: paneID) {
             synchronizeRemotePwdGeneration(sessionID: sessionID, current: current)
