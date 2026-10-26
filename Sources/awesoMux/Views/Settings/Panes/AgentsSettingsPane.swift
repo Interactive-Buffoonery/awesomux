@@ -121,38 +121,9 @@ struct AgentsSettingsPane: View {
                     .onAppear { keepsOutsideAppAccess = true }
             }
 
-            SettingsSection(
-                index: showsOutsideAppAccess ? 4 : 3,
-                title: String(localized: "Permissions", comment: "Agents settings title."),
-                subtitle: String(
-                    localized: "How awesoMux handles tool-use prompts from coding agents.", comment: "Agents settings subtitle.")
-            ) {
-                SettingsField(
-                    label: String(localized: "Permission posture", comment: "Agents settings label."),
-                    hint: String(localized: "Applies to new agent sessions.", comment: "Agents settings hint."),
-                    isFirst: true
-                ) {
-                    SettingsSegmented(
-                        options: postureOptions,
-                        selection: appSettingsStore.agents.binding(\.permissionPosture)
-                    )
-                }
-
-                SettingsField(
-                    label: String(localized: "Remember allowed tools", comment: "Agents settings label."),
-                    hint: String(
-                        localized: "Cache trust decisions per workspace once you have approved them.", comment: "Agents settings hint."),
-                    forwardsAccessibilityToControl: true
-                ) {
-                    Toggle("Remember allowed tools", isOn: appSettingsStore.agents.binding(\.rememberToolTrust))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-            }
-
             #if DEBUG
                 SettingsSection(
-                    index: 99,
+                    index: showsOutsideAppAccess ? 4 : 3,
                     title: String(localized: "Debug", comment: "Agents settings title."),
                     subtitle: String(
                         localized: "Debug builds only. Forces the diagnostics disclosure with a sample payload.",
@@ -476,26 +447,6 @@ struct AgentsSettingsPane: View {
             return nil
         }
         return trimmed
-    }
-
-    private var postureOptions: [SettingsSegmented<AgentConfig.PermissionPosture>.Option] {
-        [
-            .init(
-                value: .askEveryTime,
-                label: "Ask each time",
-                accessibilityLabel: String(localized: "Ask before every agent tool use")
-            ),
-            .init(
-                value: .rememberPerWorkspace,
-                label: "Per workspace",
-                accessibilityLabel: String(localized: "Remember approvals per workspace")
-            ),
-            .init(
-                value: .trustKnownTools,
-                label: "Trust known",
-                accessibilityLabel: String(localized: "Trust known tools without asking")
-            ),
-        ]
     }
 
     private func setup(for provider: AgentIntegrationInstallProvider) -> AgentIntegrationSetup {
