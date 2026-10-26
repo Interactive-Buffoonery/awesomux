@@ -260,6 +260,7 @@ struct AgentOutputDetectorTests {
             detector.detectedOutput(in: "› Summarize recent commits\n\n  100% context left", liveAgentKind: .codex)
                 == AgentOutputDetection(state: .waiting, agentKind: .codex))
         #expect(detector.detectedOutput(in: "› Summarize recent commits", liveAgentKind: .shell) == nil)
+        #expect(detector.detectedOutput(in: "• Ran swift test\n  └ 42 tests passed", liveAgentKind: .codex) == nil)
 
         // Quoted prompt text and completion prose in the transcript are not
         // live approval or turn-end UI; that pane may have no hook to correct it.

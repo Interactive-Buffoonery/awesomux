@@ -141,8 +141,12 @@ public struct AgentOutputDetector: Sendable {
             hasGrokIdentity: hasGrokIdentity,
             hasStrongHermesIdentity: hasStrongHermesIdentity
         )
+        // A bannerless Codex viewport counts as idle only at its composer, so
+        // a transcript overlay or pager mid-turn cannot clear thinking.
+        let hasCodexComposer =
+            liveKindIsCodex && lines.contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("›") }
         let agentKind =
-            inferredKind ?? (liveAgentKind == .hermes || liveKindIsCodex ? liveAgentKind : nil)
+            inferredKind ?? (liveAgentKind == .hermes || hasCodexComposer ? liveAgentKind : nil)
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
         }
