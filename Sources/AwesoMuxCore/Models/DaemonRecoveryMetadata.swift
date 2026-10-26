@@ -5,6 +5,11 @@ public struct DaemonRecoveryMetadata: Hashable, Sendable {
     public static let labelPrefix = "awesomux."
     public static let maximumDecodedFieldBytes = 4 * 1024
 
+    public static let remoteCarrier = Self(
+        workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
+        groupRemote: nil, agentKind: nil, isRemoteCarrier: true)
+
+    public let isRemoteCarrier: Bool
     public let workspaceTitle: String?
     public let paneTitle: String?
     public let groupID: UUID?
@@ -18,8 +23,10 @@ public struct DaemonRecoveryMetadata: Hashable, Sendable {
         groupID: UUID?,
         groupName: String?,
         groupRemote: RemoteTarget?,
-        agentKind: AgentKind?
+        agentKind: AgentKind?,
+        isRemoteCarrier: Bool = false
     ) {
+        self.isRemoteCarrier = isRemoteCarrier
         self.workspaceTitle = Self.nonempty(workspaceTitle)
         self.paneTitle = Self.nonempty(paneTitle)
         self.groupID = groupID
@@ -29,7 +36,7 @@ public struct DaemonRecoveryMetadata: Hashable, Sendable {
     }
 
     public var encodedLabelAssignments: [String: String] {
-        [
+        var labels = [
             Self.labelPrefix + "workspace-title": Self.encode(workspaceTitle),
             Self.labelPrefix + "pane-title": Self.encode(paneTitle),
             Self.labelPrefix + "group-id": Self.encode(groupID?.uuidString.lowercased()),
@@ -37,6 +44,8 @@ public struct DaemonRecoveryMetadata: Hashable, Sendable {
             Self.labelPrefix + "group-remote": Self.encode(groupRemote),
             Self.labelPrefix + "agent-kind": Self.encode(agentKind?.rawValue),
         ]
+        if isRemoteCarrier { labels[Self.labelPrefix + "remote-carrier"] = Self.encode("1") }
+        return labels
     }
 
     public static func decode(fields: [String: String]) -> Self {
@@ -51,7 +60,8 @@ public struct DaemonRecoveryMetadata: Hashable, Sendable {
             groupID: groupID,
             groupName: decodeString(fields[labelPrefix + "group-name"]),
             groupRemote: remote,
-            agentKind: agent
+            agentKind: agent,
+            isRemoteCarrier: !(fields[labelPrefix + "remote-carrier"] ?? "").isEmpty
         )
     }
 

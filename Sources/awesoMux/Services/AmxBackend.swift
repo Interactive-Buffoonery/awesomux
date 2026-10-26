@@ -530,13 +530,10 @@ enum AmxBackend {
         tokens += [shellQuote(executablePath), "attach"]
         switch mode {
         case .createOrAttach(let metadata):
-            // Recovery labels describe locally owned shells, not the remote
-            // execution plan. Do not advertise a carrier as one of those shells.
-            if remoteSessionName == nil {
-                let labels = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
-                    .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-                tokens += ["--labels", shellQuote(labels)]
-            }
+            let labels = (remoteSessionName == nil ? metadata : .remoteCarrier)
+                .encodedLabelAssignments.sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+            tokens += ["--labels", shellQuote(labels)]
         case .existingOnly:
             tokens += ["--existing"]
         }
@@ -545,7 +542,9 @@ enum AmxBackend {
             if let remoteSessionName {
                 // Status belongs to the attach client, never the SSH child.
                 // Every recreate receives this same command instead of a shell.
-                tokens += [shellQuote(envExecutablePath)] + environmentScrubTokens(remote: remote)
+                tokens +=
+                    [shellQuote(envExecutablePath), "-u", "ZMX_DIR", "-u", "ZMX_DIR_MODE"]
+                    + environmentScrubTokens(remote: remote)
                 tokens += sshTailTokens(
                     for: remote,
                     remoteCommand: remoteBackendDiscoveryCommand(sessionName: remoteSessionName)

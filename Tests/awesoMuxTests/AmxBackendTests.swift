@@ -482,6 +482,10 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
             #expect(command.contains("'AMX_STATUS_TOKEN=carrier-token'"))
             #expect(command.contains("'remote-carrier' '/usr/bin/env' -u"))
             #expect(command.contains("-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN"))
+            #expect(command.contains("-u ZMX_DIR -u ZMX_DIR_MODE"))
+            if case .createOrAttach = mode {
+                #expect(command.contains("awesomux.remote-carrier=MQ"))
+            }
             for key in AgentRuntimeEnvironmentKey.paneScopedKeys {
                 #expect(command.contains("-u " + key))
             }
