@@ -2,12 +2,13 @@
 
 ## Backend diagnostic
 
-`script/verify-stale-hostname-title.py` compiles the checkout's real Core sources
-and `ProcessLivenessProbe` in a disposable SwiftPM executable. It drives a real
-interactive zsh on a PTY, a local command, and an actual OpenSSH client using a
-local sleep ProxyCommand. No SSH server, credentials, DNS lookup, or remote
-write is required. Temporary packages go to Trash; the fixture cleans up its
-own processes before returning.
+`script/verify-stale-hostname-title.py` builds the checkout's `AwesoMuxCore`
+product and a copy of `ProcessLivenessProbe` in a disposable SwiftPM executable.
+It drives a real interactive zsh on a PTY, a local command, and an actual
+OpenSSH client using a local sleep ProxyCommand. The SSH case needs no SSH
+server, credentials, DNS lookup, or remote write. The SwiftPM build resolves the
+package's dependencies and may need network access. Temporary packages go to
+Trash; the fixture cleans up its own processes before returning.
 
 This is backend integration evidence, **not native UI E2E proof**. The `codex`
 title is injected while a local `sleep` process owns the PTY; the diagnostic
@@ -28,19 +29,14 @@ records commit, source digest, observations, and the PTY transcript. A dirty
 checkout is identified by its source digest; record `git diff` separately.
 The log contains local paths and hostnames, so keep it out of the repository.
 
-## Coordinator-owned native verification
+## Native verification
 
-Run the entire build, launch, interaction, capture, and cleanup workflow while
-holding one `build_slot.py` invocation. If native automation needs multiple tool
-calls, the coordinator must hold that slot until cleanup completes. Never start
-a GUI workflow outside that ownership. Use this worktree's development bundle,
-profile, and amx namespace; refuse to launch if its exact executable is already
-running. Do not terminate or relaunch another app instance.
+Use a development build from this checkout (`./script/build_and_run.sh`) with
+its own bundle and runtime profile. Do not terminate or relaunch another
+awesoMux instance.
 
-1. Record `git rev-parse HEAD`, the worktree path, and the staged executable's
-   hash. Build/stage using the repository entrypoint and identify the exact
-   worktree-specific bundle ID and runtime profile (see `runtime-profile.sh`).
-   Launch only that bundle and record its executable path and PID.
+1. Record `git rev-parse HEAD`, the checkout path, and the launched bundle's
+   executable path and PID.
 2. In a fresh local terminal, record `pwd`, `hostname`, and the pane's
    `ZMX_SESSION`. Use a stale test hostname absent from the current hostname.
    Install a local zsh `precmd` function that emits the same title at every
@@ -67,9 +63,8 @@ running. Do not terminate or relaunch another app instance.
    throttling and foreground-process races.
 6. Capture screenshots and an interaction log tied to the exact commit and
    bundle. Remove the fixture's `precmd` function, close its panes/daemons,
-   and terminate only the process created by this run. Verify those processes
-   exited before releasing the slot. Keep screenshots, logs, and incomplete
-   cases with the coordinator's report.
+   and terminate only the process created by this run. Keep screenshots, logs,
+   and incomplete cases with the review.
 
 Native rendering, VoiceOver, the existing Swift suites, and full preflight are
 separate results. Do not infer one from another.
