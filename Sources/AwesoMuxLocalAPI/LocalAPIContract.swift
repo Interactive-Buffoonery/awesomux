@@ -95,6 +95,7 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case paneExited = "pane_exited"
     case paneDisconnected = "pane_disconnected"
     case terminalUnavailable = "terminal_unavailable"
+    case remoteWorkspaceUnsupported = "remote_workspace_unsupported"
     case transportFailure = "transport_failure"
     case contextUnavailable = "context_unavailable"
     case noSessionIdentity = "no_session_identity"

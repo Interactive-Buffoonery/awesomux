@@ -261,31 +261,39 @@ final class LocalAPIService {
         certificateFingerprint: Data, deadline: ContinuousClock.Instant
     ) async throws -> LocalAPITerminalWatchTarget {
         guard let store, let runtime else { throw LocalAPIError.appUnavailable }
-        let target = try CompanionTerminalOpen.prepare(
+        let spawnAuthority = CompanionTerminalOpen.SpawnAuthority(
             paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
-            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline
-        ) { workspace, pane in
-            guard runtime.isReady, runtime.isCommandBridgeEnabled else { throw LocalAPIError.terminalUnavailable }
-            let integrations = settings?.agentIntegrations.value ?? .defaultValue
-            let surface = runtime.surfaceView(
-                sessionStore: store, session: workspace, pane: pane,
-                enabledAgentRuntimeFileDropSources: AgentRuntimeConsent.enabledFileDropSources(from: integrations),
-                grokIconEnabled: integrations.grok.enabled)
-            // Use the same launch/preflight path as a native mount without
-            // selecting the workspace or moving the Mac's first responder.
-            surface.createSurfaceIfNeeded()
-            guard !surface.commandBridgeEnactor.errorLatched else { throw LocalAPIError.paneDisconnected }
-            guard surface.surface != nil || surface.commandBridgeEnactor.bridgePreflightInFlight else {
-                throw LocalAPIError.terminalUnavailable
+            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
+        return try await withTaskCancellationHandler {
+            defer { spawnAuthority.cancel() }
+            let target = try CompanionTerminalOpen.prepare(
+                paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+                certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline
+            ) { workspace, pane in
+                guard runtime.isReady, runtime.isCommandBridgeEnabled else { throw LocalAPIError.terminalUnavailable }
+                let integrations = settings?.agentIntegrations.value ?? .defaultValue
+                let surface = runtime.surfaceView(
+                    sessionStore: store, session: workspace, pane: pane,
+                    enabledAgentRuntimeFileDropSources: AgentRuntimeConsent.enabledFileDropSources(from: integrations),
+                    grokIconEnabled: integrations.grok.enabled)
+                // Use the same launch/preflight path as a native mount without
+                // selecting the workspace or moving the Mac's first responder.
+                surface.createSurfaceIfNeeded(companionAuthority: spawnAuthority)
+                guard !surface.commandBridgeEnactor.errorLatched else { throw LocalAPIError.paneDisconnected }
+                guard surface.surface != nil || surface.commandBridgeEnactor.bridgePreflightInFlight else {
+                    throw LocalAPIError.terminalUnavailable
+                }
             }
+            guard let sessionName = target.localSessionName else { throw LocalAPIError.terminalUnavailable }
+            try await CompanionTerminalOpen.waitForSocket(
+                at: AmxBackend.sessionSocketDirectory() + "/" + sessionName, deadline: deadline)
+            return try CompanionTerminalOpen.prepare(
+                paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+                certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline,
+                hydrate: { _, _ in })
+        } onCancel: {
+            spawnAuthority.cancel()
         }
-        guard let sessionName = target.localSessionName else { throw LocalAPIError.terminalUnavailable }
-        try await CompanionTerminalOpen.waitForSocket(
-            at: AmxBackend.sessionSocketDirectory() + "/" + sessionName, deadline: deadline)
-        return try CompanionTerminalOpen.prepare(
-            paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
-            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline,
-            hydrate: { _, _ in })
     }
 
     func companionDecisions(

@@ -46,6 +46,51 @@ struct CompanionTerminalCreateTests {
         }
     }
 
+    @Test func mismatchedCertificateCannotCreate() {
+        let (store, authority, lease) = fixture()
+        #expect(throws: LocalAPIError.permissionDenied) {
+            try CompanionTerminalCreate.apply(
+                request: .init(workspaceID: nil), store: store, defaultGroup: "Default",
+                authority: authority, certificateFingerprint: Data(repeating: 8, count: 32),
+                lease: lease, deadline: .now.advanced(by: .seconds(5)))
+        }
+        #expect(store.groups.isEmpty)
+    }
+
+    @Test func replacedRevisionOnSameConnectionCannotCreate() throws {
+        let (store, authority, lease) = fixture()
+        var state = LocalAPIAccessState(profile: "development")
+        state.connections = [
+            LocalAPIConnectionGrant(
+                id: lease.connectionID, label: "Phone", createdAt: Date(), credentialVerifier: Data(), revision: UUID(),
+                statusScope: lease.statusScope, kind: .companion,
+                companion: .init(
+                    certificateFingerprint: fingerprint, transport: .lan, pairedAt: Date(), port: 1234,
+                    terminalWatchScope: lease.terminalWatchScope, terminalInputAllowed: lease.terminalInputAllowed))
+        ]
+        authority.replace(with: state)
+        #expect(throws: LocalAPIError.permissionDenied) { try create(store, authority, lease) }
+        #expect(store.groups.isEmpty)
+        let currentLease = try authority.authorizeCompanion(
+            connectionID: lease.connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        _ = try create(store, authority, currentLease)
+        #expect(store.groups.flatMap(\.sessions).count == 1)
+    }
+
+    @Test func remoteOwnedWorkspaceCannotCreateOrDuplicateAttachment() throws {
+        let (store, authority, lease) = fixture()
+        let host = try #require(RemoteTarget(parsing: "example.test"))
+        let name = try #require(RemoteSessionName(rawValue: "work"))
+        let remotePane = TerminalPane(
+            title: "Remote", workingDirectory: "~", executionPlan: .ssh(SSHExecution(target: host, remoteSessionName: name)))
+        let session = TerminalSession(title: "Remote", workingDirectory: "~", layout: .pane(remotePane))
+        store.insertSession(session, groupName: "Remote")
+        let before = store.snapshot()
+        #expect(throws: LocalAPIError.remoteWorkspaceUnsupported) { try create(store, authority, lease, workspaceID: session.id) }
+        #expect(store.snapshot() == before)
+    }
+
     @Test func workspaceOutsideGrantCannotSplitOrCreateWorkspace() throws {
         let allowed = UUID()
         let (store, authority, lease) = fixture(scope: .persistentWorkspaces([allowed]))
@@ -77,13 +122,21 @@ struct CompanionTerminalCreateTests {
     @Test func splitInSSHWorkspaceInheritsExecutionLocation() throws {
         let (store, authority, lease) = fixture()
         let host = try #require(RemoteTarget(parsing: "example.test"))
-        let pane = TerminalPane(title: "Remote", workingDirectory: "/srv/work", executionPlan: .ssh(SSHExecution(target: host)))
-        let session = TerminalSession(title: "Remote", workingDirectory: "/srv/work", layout: .pane(pane))
+        var pane = TerminalPane(title: "Remote", workingDirectory: "/local/launch", executionPlan: .ssh(SSHExecution(target: host)))
+        pane.remoteWorkingDirectory = "/srv/work"
+        let session = TerminalSession(title: "Remote", workingDirectory: pane.workingDirectory, layout: .pane(pane))
         store.insertSession(session, groupName: "Remote")
         let result = try create(store, authority, lease, workspaceID: session.id)
         let split = try #require(store.session(id: session.id)?.layout.pane(id: result.paneID))
         #expect(split.executionPlan == pane.executionPlan)
         #expect(split.workingDirectory == pane.workingDirectory)
+        #expect(split.remoteWorkingDirectory == nil)
+        let nativeStore = SessionStore(groups: [SessionGroup(name: "Remote", sessions: [session])], selectedSessionID: session.id)
+        let nativeID = try #require(nativeStore.splitActivePane(orientation: .vertical))
+        let nativeSplit = try #require(nativeStore.session(id: session.id)?.layout.pane(id: nativeID))
+        #expect(split.executionPlan == nativeSplit.executionPlan)
+        #expect(split.workingDirectory == nativeSplit.workingDirectory)
+        #expect(split.remoteWorkingDirectory == nativeSplit.remoteWorkingDirectory)
         #expect(split.id != pane.id)
         #expect(store.session(id: session.id)?.panes.count == 2)
     }
@@ -212,6 +265,20 @@ struct CompanionTerminalCreateTests {
         }
         waiting.cancel()
         await #expect(throws: CancellationError.self) { try await waiting.value }
+    }
+
+    @Test func expiredHydrationAuthorityCannotSpawn() throws {
+        let (store, authority, lease) = fixture()
+        let workspaceID = store.addSession()
+        let pane = try #require(store.session(id: workspaceID)?.activePane)
+        let target = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
+        let request = CompanionTerminalOpen.SpawnAuthority(
+            paneID: pane.id, targetVersion: target.targetVersion, store: store,
+            authority: authority, certificateFingerprint: fingerprint, lease: lease,
+            deadline: .now.advanced(by: .seconds(-1)))
+        #expect(throws: LocalAPIError.timeout) {
+            try request.perform { Issue.record("Expired hydration spawned a surface") }
+        }
     }
 
     @Test func unauthorizedWatchDoesNotHydrate() throws {

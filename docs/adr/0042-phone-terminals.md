@@ -49,7 +49,11 @@ cached native surface creation and SSH preflight used when selecting a pane
 on the Mac, without selecting it, changing focus or acknowledging attention.
 It waits on filesystem events within the request deadline for the local daemon
 socket before starting the relay. Concurrent opens reuse the cached surface and preflight.
-Input is not required to hydrate a Watch pane.
+Input is not required to hydrate a Watch pane. Phone-initiated SSH preflight
+retains the original certificate, lease revision, target, cancellation and
+deadline, and rechecks them under the authority lock immediately before spawning.
+Losing that authority prevents a phone-only hydration from spawning; a native
+Mac mount or another authorized phone can still need the shared preflight.
 
 An exited pane returns `pane_exited`; a disconnected or reconnecting bridge
 returns `pane_disconnected`. A remote-owned zmx pane, disabled command bridge
@@ -81,8 +85,12 @@ commands, titles, SSH destinations and split direction are rejected.
   defaults. An SSH group default cannot turn this into a remote workspace.
 - With a workspace ID, use `SessionStore.splitActivePane` with the native
   right-split orientation. The new shell inherits the active terminal's
-  execution plan and working directory, including SSH host and persistence
-  ownership. No execution location is accepted from the phone.
+  execution plan and local launch directory, including its SSH host for
+  local-amx SSH panes. Like native Cmd-D, it does not inherit the reported remote
+  working directory; SSH starts with the host's normal login directory behavior.
+  A workspace containing a remote-owned (`.remoteZmx`) pane returns
+  `remote_workspace_unsupported` before any mutation; remote session creation
+  is unsupported. No execution location is accepted from the phone.
 - Both require Terminal authority covering the whole target workspace and
   Input on. A new workspace requires `allWorkspaces`; a workspace-scoped grant
   can split only its own workspaces. A pane-only grant cannot authorize a new
@@ -135,6 +143,7 @@ outside this change. The phone must implement the opening policy, openable row
 condition and creation UI separately (awesomux-companion #61).
 
 Focused isolation tests cover Input off, missing/out-of-scope Terminal grants,
-SSH split inheritance, local creation, stale/revoked/expired requests, versioned
+native SSH split parity, remote-owned workspace rejection, certificate/revision
+checks, local creation, stale/revoked/expired requests, versioned
 restored panes and denial before hydration. Native runtime and physical-phone
 verification remain separate from those tests.

@@ -13,7 +13,10 @@ public extension SessionStore {
         let workspaceID: UUID
         let paneID: UUID
         if let existingID = requestedWorkspaceID {
-            guard session(id: existingID) != nil else { throw LocalAPIError.staleTarget }
+            guard let workspace = session(id: existingID) else { throw LocalAPIError.staleTarget }
+            guard !workspace.panes.contains(where: { $0.executionPlan.remoteOwnedExecution != nil }) else {
+                throw LocalAPIError.remoteWorkspaceUnsupported
+            }
             guard let createdID = splitActivePane(orientation: .vertical, in: existingID) else {
                 throw LocalAPIError.nonterminalTarget
             }

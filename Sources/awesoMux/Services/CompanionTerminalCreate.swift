@@ -3,6 +3,7 @@ import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import Foundation
 import Darwin
+import os
 
 struct CompanionTerminalCreateRequest: Decodable, Sendable {
     let workspaceID: UUID?
@@ -60,6 +61,39 @@ enum CompanionTerminalCreate {
 
 @MainActor
 enum CompanionTerminalOpen {
+    /// The preflight task outlives the request task, so cancellation must follow
+    /// the original request rather than the task that eventually spawns.
+    @MainActor
+    final class SpawnAuthority {
+        private nonisolated let cancelled = OSAllocatedUnfairLock(initialState: false)
+        private let authorize: (() throws -> Void) throws -> Void
+
+        init(
+            paneID: UUID, targetVersion: UUID, store: SessionStore,
+            authority: LocalAPIRuntimeAuthority, certificateFingerprint: Data,
+            lease: LocalAPIAuthorizationLease, deadline: ContinuousClock.Instant
+        ) {
+            authorize = { body in
+                _ = try CompanionTerminalOpen.prepare(
+                    paneID: paneID, targetVersion: targetVersion, store: store,
+                    authority: authority, certificateFingerprint: certificateFingerprint,
+                    lease: lease, deadline: deadline
+                ) { _, _ in try body() }
+            }
+        }
+
+        nonisolated func cancel() {
+            cancelled.withLock { $0 = true }
+        }
+
+        func perform(_ body: () throws -> Void) throws {
+            try authorize {
+                guard !cancelled.withLock({ $0 }) else { throw LocalAPIError.cancelled }
+                try body()
+            }
+        }
+    }
+
     static func waitForSocket(at path: String, deadline: ContinuousClock.Instant) async throws {
         guard ContinuousClock.now < deadline else { throw LocalAPIError.timeout }
         let directory = (path as NSString).deletingLastPathComponent

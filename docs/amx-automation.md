@@ -317,7 +317,10 @@ silently failing.
 
 Companion-only `create_terminal` accepts an optional `workspaceID`: omit it for
 a local shell in the configured default group, or pass it to split that
-workspace's active terminal with its existing execution location and directory.
+workspace's active terminal with its existing execution location and local
+launch directory. As with native Cmd-D, local-amx SSH splits do not carry over
+the reported remote working directory. A workspace containing a remote-owned
+zmx pane returns `remote_workspace_unsupported` before any mutation.
 It requires Input and a Terminal grant covering the workspace; new workspaces
 require all-workspaces Terminal access. The response's `createdTerminal`
 contains `workspaceID`, `paneID` and `targetVersion` for `watch_terminal`.

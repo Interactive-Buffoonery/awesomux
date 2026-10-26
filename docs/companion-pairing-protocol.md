@@ -254,6 +254,10 @@ Only these operations are accepted:
   authority covering the workspace and Input on. The success envelope's
   `createdTerminal` contains UUID strings `workspaceID`, `paneID` and
   `targetVersion`. New workspaces require all-workspaces Terminal authority.
+  A workspace containing a remote-owned (`.remoteZmx`) pane returns
+  `remote_workspace_unsupported` before any mutation. Local-amx SSH splits use
+  native Cmd-D behavior: they inherit the execution plan and local launch
+  directory, but do not carry over the reported remote working directory.
   See [ADR-0042](adr/0042-phone-terminals.md) for exact request/response shapes,
   authorization, hydration and lost-reply behavior. Like `rename_pane`, this
   Mac-only decoder does not require a shared protocol package change.
