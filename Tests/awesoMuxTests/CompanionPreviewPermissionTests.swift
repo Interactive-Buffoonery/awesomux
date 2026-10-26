@@ -119,7 +119,7 @@ struct CompanionPreviewPermissionTests {
         connections[0]["companion"] = metadata
         root["connections"] = connections
         try JSONSerialization.data(withJSONObject: root).write(to: file)
-        let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let restored = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         if value == "absent" || value == "true" {
             #expect(restored.loadFailure == nil)
             #expect(try lease(restored, phone.id).terminalPreviewAllowed == (value == "true"))

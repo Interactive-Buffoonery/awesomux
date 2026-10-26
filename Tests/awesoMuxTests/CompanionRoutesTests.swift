@@ -68,7 +68,7 @@ struct CompanionRoutesTests {
         let before = store.state
         try store.retryPersistence()
         store.relinquishAuthority()
-        let reloaded = LocalAPIAccessStore(profile: before.profile, supportDirectoryURL: directory)
+        let reloaded = LocalAPIAccessStore.reopened(profile: before.profile, supportDirectoryURL: directory)
         #expect(reloaded.loadFailure == nil)
         #expect(reloaded.state == before)
         #expect(reloaded.state.connections.first { $0.id == legacy.id }?.companion?.allows(.tailscale) == false)

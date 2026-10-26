@@ -68,7 +68,7 @@ struct CompanionTerminalWatchTests {
         object["connections"] = connections
         access = nil
         try JSONSerialization.data(withJSONObject: object).write(to: file)
-        let migrated = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let migrated = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         let expected: LocalAPITargetScope? = scope == nil ? nil : .allWorkspaces
         #expect(migrated.loadFailure == nil)
         #expect(migrated.state.connections.first?.companion?.terminalWatchScope == expected)

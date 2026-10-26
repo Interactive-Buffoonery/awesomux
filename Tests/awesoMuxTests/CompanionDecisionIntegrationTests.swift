@@ -44,7 +44,7 @@ import Testing
                 metadata["decisionsAllowed"] = true
             }
         }
-        let migrated = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let migrated = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: root)
         #expect(migrated.loadFailure == nil)
         #expect(migrated.state.connections.first { $0.id == phone.id }?.companion?.decisionsAllowed == enabled)
         let saved = try LocalAPIContract.decoder().decode(LocalAPIAccessState.self, from: Data(contentsOf: file))
@@ -67,7 +67,7 @@ import Testing
             let workspace = UUID().uuidString
             metadata["decideWorkspaceIDs"] = [workspace.uppercased(), workspace.lowercased()]
         }
-        let denied = LocalAPIAccessStore(profile: "development", supportDirectoryURL: root)
+        let denied = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: root)
         #expect(denied.loadFailure == .preservedInvalidState)
         #expect(denied.state.connections.isEmpty)
         #expect(try Data(contentsOf: file) == legacy)
@@ -90,7 +90,7 @@ import Testing
             metadata["decideWorkspaceIDs"] = [UUID().uuidString]
         }
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
-        let migrated = LocalAPIAccessStore(
+        let migrated = LocalAPIAccessStore.reopened(
             profile: "development", supportDirectoryURL: root, fileManager: MigrationReadOnlyFileManager())
         #expect(migrated.loadFailure == nil)
         #expect(migrated.state.connections.count == 2)
