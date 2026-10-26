@@ -140,8 +140,8 @@ A pane may instead declare `PersistenceOwner.remoteZmx`, naming a validated
 session on the remote host. For such a pane, the remote host's backend owns
 persistence: opening it runs `ssh <host> '<backend> attach <name>'` inside a
 local `amx attach <terminalSessionID> <ssh command>` carrier when bundled amx
-is available, regardless of the command-bridge toggle. Without amx it runs SSH
-directly. Neither path has a local agent-signaling side channel (§4 does not
+and a status channel are available, regardless of the command-bridge toggle.
+Without either it runs SSH directly. Neither path has a local agent-signaling side channel (§4 does not
 apply), and no bridge preflight. Installation and recovery steps live in
 [`docs/remote-session-persistence.md`](../remote-session-persistence.md).
 
@@ -233,8 +233,16 @@ Neither launch path installs bridge helpers, agent signaling, browser routing,
 path-bar cwd polling or remote liveness probes. Carrier creation preserves
 remote agent chrome because it does not prove the remote shell was recreated.
 Carrier metadata is distinct from locally owned shell metadata; it does not
-publish local-shell recovery labels. Local daemon GC retains carrier IDs while
-their panes exist, and daemon-backed work remains quit-safe.
+publish local-shell recovery labels. Carriers have an explicit recovery label;
+Session Manager refuses to recover an orphan carrier as a workspace but still
+allows killing it. The recovery reducer rejects carrier labels, and metadata
+synchronization excludes remote-owned panes.
+
+Closing a pane, workspace, or group stops its local carriers and SSH connections;
+the remote sessions keep running. App quit preserves carriers. Local daemon GC
+retains carriers while their panes exist, including across relaunch, and reaps
+unattached orphan carriers even when SSH is busy or a reopen entry remains.
+The usual UUID, creation-time and fresh-inventory checks still apply.
 
 ## Amendment: unmanaged Markdown file reads
 

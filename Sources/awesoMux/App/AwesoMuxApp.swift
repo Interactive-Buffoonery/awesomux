@@ -815,7 +815,12 @@ struct AwesoMuxApp: App {
 
             let rootContentAfterGroupsWatch =
                 rootContentAfterSaveStatus
-            .onChange(of: sessionStore.groups) { _, _ in
+                .onChange(of: sessionStore.groups) { previous, current in
+                    let liveIDs = Set(current.flatMap(\.sessions).flatMap(\.panes).map(\.terminalSessionID))
+                    let closedCarriers = previous.flatMap(\.sessions).flatMap(\.panes)
+                        .filter { $0.executionPlan.remoteOwnedExecution != nil && !liveIDs.contains($0.terminalSessionID) }
+                        .map(\.terminalSessionID)
+                    AmxBackend.killSessionsDetached(closedCarriers, context: "remote-carrier-close")
                 saveSessionIfRestoreEnabled()
                     Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)

@@ -6,7 +6,8 @@ import Foundation
 import os
 
 /// Launch-time orphan daemon GC (INT-570 / ADR-0011). Reaps `amx` daemons that
-/// no pane and no reopen entry can reach AND that are idle and unattached;
+/// no pane and no reopen entry can reach AND that are idle and unattached.
+/// Carrier daemons only require no live pane and no attached client;
 /// spares busy/attached daemons for the future session-manager UI. The only
 /// main-actor work is snapshotting the owned set; everything else runs off-main.
 @MainActor
@@ -44,11 +45,12 @@ enum DaemonGarbageCollector {
         else { return }
         // Snapshot the owned set on the main actor from the SAME store state that
         // drives restore, BEFORE any restore attach can create new daemons.
-        let owned = DaemonGCPlan.reachableSessionIDs(
+        let reach = DaemonGCPlan.reachability(
             groups: store.groups,
             recentlyClosed: store.recentlyClosed,
             lastClosedTransient: store.lastClosedTransient
         )
+        let owned = reach.livePane.union(reach.restorable)
         // Fire-and-forget: bounded internally (BoundedCommandRunner timeouts), safe
         // to abandon on quit — a partial sweep just re-runs next launch, and the
         // pre-kill revalidation keeps it correct. No handle/cancellation needed
@@ -56,6 +58,7 @@ enum DaemonGarbageCollector {
         Task.detached(priority: .utility) {
             await sweep(
                 owned: owned,
+                livePane: reach.livePane,
                 pinned: pinned,
                 capThresholdSeconds: configuration.capThresholdSeconds
             )
@@ -79,6 +82,7 @@ enum DaemonGarbageCollector {
     /// cooperative pool, not back on the main actor between subprocess awaits.
     nonisolated static func sweep(
         owned: Set<TerminalSessionID>,
+        livePane: Set<TerminalSessionID>,
         pinned: Set<TerminalSessionID>,
         capThresholdSeconds: Int?
     ) async {
@@ -138,7 +142,7 @@ enum DaemonGarbageCollector {
         var idleByID: [TerminalSessionID: Bool] = [:]
         for daemon in live { idleByID[daemon.id] = AmxBackend.isIdle(daemon, snapshot: snapshot) }
 
-        let orphanPlan = DaemonGCPlan.reapable(live: live, owned: owned, busy: busy, gcStart: gcStart)
+        let orphanPlan = DaemonGCPlan.reapable(live: live, owned: owned, busy: busy, gcStart: gcStart, livePane: livePane)
         let expiredPlan = DaemonGCPlan.expiredReapable(
             live: live, owned: owned, busy: busy, pinned: pinned, idleByID: idleByID,
             capThresholdSeconds: capThresholdSeconds, now: Int(Date().timeIntervalSince1970), gcStart: gcStart

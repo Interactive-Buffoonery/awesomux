@@ -400,15 +400,17 @@ public enum DaemonGCPlan {
         live: [LiveDaemon],
         owned: Set<TerminalSessionID>,
         busy: Set<TerminalSessionID>,
-        gcStart: Int
+        gcStart: Int,
+        livePane: Set<TerminalSessionID>
     ) -> [LiveDaemon] {
         var result: [LiveDaemon] = []
         var seen = Set<TerminalSessionID>()
         for daemon in live where !seen.contains(daemon.id) {
             guard isUUIDShaped(daemon.id.rawValue),
                 daemon.clients == 0,  // never reap a daemon in active use
-                !owned.contains(daemon.id),
-                !busy.contains(daemon.id),
+                daemon.recoveryMetadata?.isRemoteCarrier == true
+                    ? !livePane.contains(daemon.id)
+                    : !owned.contains(daemon.id) && !busy.contains(daemon.id),
                 daemon.createdEpoch < gcStart
             else { continue }
             seen.insert(daemon.id)

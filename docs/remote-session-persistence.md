@@ -219,15 +219,21 @@ automatically.
 The session may not survive a remote host restart. An incompatible `zmx`
 upgrade can also end existing sessions.
 
-When bundled `amx` is available, a local carrier keeps the SSH connection open
-after app quit. Reopening joins the live carrier; if it ended, a new carrier
+When bundled `amx` and a local status channel are available, a local carrier
+keeps the SSH connection open after app quit. Reopening joins the live carrier; if it ended, a new carrier
 runs SSH to reattach to the same remote session. Companion can watch and type
 through that carrier when authorized. Local `amx send` and `amx history` reach
 the carrier; its history starts at carrier creation, while the remote session
 retains the full history.
 
-Without bundled `amx`, the pane uses direct SSH and Companion reports
-`remote_pane`. Neither path uses the Linux bridge helper, reads remote agent
+Closing a pane, workspace, or group stops its local carrier and SSH connection,
+while the remote session keeps running. App quit keeps live panes' carriers.
+Launch GC removes unattached carrier-labeled sessions with no live pane, even
+when SSH is busy or the workspace is in Reopen Closed Workspace. Session Manager
+can kill an orphan carrier but cannot recover it as a local workspace.
+
+Without bundled `amx` or a status channel, the pane uses direct SSH and
+Companion reports `remote_pane`. Neither path uses the Linux bridge helper, reads remote agent
 state, polls path-bar cwd, or checks remote command liveness before closing.
 A clean SSH exit closes the pane; failures show Reconnect without retrying.
 
