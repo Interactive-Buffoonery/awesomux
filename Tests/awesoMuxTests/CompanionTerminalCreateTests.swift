@@ -294,4 +294,19 @@ struct CompanionTerminalCreateTests {
             ) { _, _ in Issue.record("Denied phone hydrated a pane") }
         }
     }
+
+    @Test func statusCreateHintsFollowInputAndTerminalScope() {
+        let cases: [(Bool, LocalAPITargetScope?, workspace: Bool, pane: Bool)] = [
+            (true, .allWorkspaces, true, true),
+            (true, .persistentWorkspaces([UUID()]), false, true),
+            (true, .persistentPanes([UUID()]), false, false),
+            (true, nil, false, false),
+            (false, .allWorkspaces, false, false),
+        ]
+        for (input, scope, workspace, pane) in cases {
+            let lease = fixture(input: input, scope: scope).2
+            #expect(lease.companionCanCreateWorkspace == workspace)
+            #expect(lease.companionCanCreatePane == pane)
+        }
+    }
 }

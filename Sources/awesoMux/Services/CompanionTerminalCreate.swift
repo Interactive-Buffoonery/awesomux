@@ -150,3 +150,19 @@ enum CompanionTerminalOpen {
         }
     }
 }
+
+/// Status hints for the phone's create buttons; mirrors
+/// `LocalAPIRuntimeAuthority.performCompanionTerminalOperation`, which stays authoritative.
+extension LocalAPIAuthorizationLease {
+    var companionCanCreateWorkspace: Bool {
+        companionCanCreatePane && terminalWatchScope == .allWorkspaces
+    }
+
+    var companionCanCreatePane: Bool {
+        guard terminalInputAllowed, statusScope == .allWorkspaces, contextGrant == nil else { return false }
+        switch terminalWatchScope {
+        case .allWorkspaces, .persistentWorkspaces: return true
+        case .persistentPanes, .exactTarget, nil: return false
+        }
+    }
+}
