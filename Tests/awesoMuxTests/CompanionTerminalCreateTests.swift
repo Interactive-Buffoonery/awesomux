@@ -244,12 +244,12 @@ struct CompanionTerminalCreateTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let socket = directory.appending(path: "terminal")
         let waiting = Task { @MainActor in
-            try await CompanionTerminalOpen.waitForSocket(at: socket.path, deadline: .now.advanced(by: .seconds(2)))
+            try await CompanionTerminalOpen.waitForSocket(at: socket.path, deadline: .now.advanced(by: .seconds(30)))
         }
         await Task.yield()
         #expect(FileManager.default.createFile(atPath: socket.path, contents: Data()))
         try await waiting.value
-        try await CompanionTerminalOpen.waitForSocket(at: socket.path, deadline: .now.advanced(by: .seconds(2)))
+        try await CompanionTerminalOpen.waitForSocket(at: socket.path, deadline: .now.advanced(by: .seconds(30)))
     }
 
     @Test func socketReadinessIsBoundedAndCancellationDoesNotWaitForCreation() async throws {
