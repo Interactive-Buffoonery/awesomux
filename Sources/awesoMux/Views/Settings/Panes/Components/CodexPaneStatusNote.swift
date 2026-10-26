@@ -51,8 +51,9 @@ struct CodexPaneStatusNote: View {
                 }
                 bullet(
                     String(
-                        localized: "`codex agents` and remote control need the shared server.",
-                        comment: "Codex --no-daemon tradeoff. Preserve the command in backticks."))
+                        localized:
+                            "`codex agents` and remote control need the shared server. With the alias, start them with `command codex`.",
+                        comment: "Codex --no-daemon tradeoff. Preserve the commands in backticks."))
                 bullet(
                     String(
                         localized: "A session may stop when its terminal closes.",

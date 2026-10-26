@@ -6278,8 +6278,8 @@
     "Your config file has an error, so this choice can’t be saved. Fix it in Settings › Advanced, then try again." : {
       "comment" : "Error shown when a managed SSH preference cannot persist because the config file on disk is invalid"
     },
-    "`codex agents` and remote control need the shared server." : {
-      "comment" : "Codex --no-daemon tradeoff. Preserve the command in backticks."
+    "`codex agents` and remote control need the shared server. With the alias, start them with `command codex`." : {
+      "comment" : "Codex --no-daemon tradeoff. Preserve the commands in backticks."
     },
     "a running shell process" : {
       "comment" : "Activity noun in the quit dialog body when only shell processes are at risk."
