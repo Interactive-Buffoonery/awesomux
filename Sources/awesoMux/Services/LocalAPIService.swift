@@ -341,8 +341,8 @@ final class LocalAPIService {
     }
 
     func terminalWatchTarget(paneID: UUID) -> LocalAPITerminalWatchTarget? {
-        guard let store, let target = store.localAPITerminalWatchTarget(paneID: paneID) else { return nil }
-        return try? store.companionTerminalToOpen(paneID: paneID, targetVersion: target.targetVersion).2
+        // Live-stream identity only; open-time health refusals stay in `prepareCompanionTerminal`.
+        store?.localAPITerminalWatchTarget(paneID: paneID)
     }
 
     func companionResponse(
