@@ -5,6 +5,15 @@ import Testing
 
 @Suite("Daemon recovery metadata")
 struct DaemonRecoveryMetadataTests {
+    @Test("carrier marker accepts only the launcher's exact encoded value")
+    func carrierMarker() {
+        let fields = DaemonRecoveryMetadata.remoteCarrier.encodedLabelAssignments
+        #expect(DaemonRecoveryMetadata.decode(fields: fields).isRemoteCarrier)
+        for value in ["", "1", "MA", "Mg", "MQ==", "garbage"] {
+            #expect(!DaemonRecoveryMetadata.decode(fields: ["awesomux.remote-carrier": value]).isRemoteCarrier)
+        }
+    }
+
     @Test("all fields round-trip through deterministic URL-safe labels")
     func roundTrip() throws {
         let remote = try #require(RemoteTarget(user: "eD", host: "dev.example"))

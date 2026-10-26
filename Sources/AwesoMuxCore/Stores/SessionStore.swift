@@ -42,6 +42,9 @@ public final class SessionStore {
     nonisolated public static let shellActivityBusyDebounceInterval: TimeInterval = 0.25
     nonisolated public static let shellActivityIdleDebounceInterval: TimeInterval = 0.10
 
+    @ObservationIgnored public var remoteCarrierCloseHandler: (([TerminalSessionID]) -> Void)?
+    @ObservationIgnored var remoteCarrierSessionIDs: Set<TerminalSessionID> = []
+
     @ObservationIgnored private var groupStorage: [SessionGroup]
 
     // Hand-written stand-in for what @Observable synthesizes for a stored

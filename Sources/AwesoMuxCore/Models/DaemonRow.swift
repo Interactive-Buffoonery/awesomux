@@ -32,6 +32,7 @@ public struct DaemonRow: Identifiable, Equatable, Sendable {
     public let directory: String?
     public let groupName: String?
     public let agentKind: AgentKind?
+    public let isRemoteCarrier: Bool
     public let shortID: String
 
     public init(
@@ -39,12 +40,13 @@ public struct DaemonRow: Identifiable, Equatable, Sendable {
         createdEpoch: Int, clients: Int,
         lifecycle: DaemonLifecycle, activity: DaemonActivity, pinned: Bool, owner: String?,
         label: String? = nil, directory: String? = nil, groupName: String? = nil,
-        agentKind: AgentKind? = nil, shortID: String? = nil
+        agentKind: AgentKind? = nil, shortID: String? = nil, isRemoteCarrier: Bool = false
     ) {
         self.id = id; self.pid = pid; self.daemonPID = daemonPID
         self.createdEpoch = createdEpoch; self.clients = clients
         self.lifecycle = lifecycle; self.activity = activity; self.pinned = pinned; self.owner = owner
         self.label = label ?? id.rawValue
+        self.isRemoteCarrier = isRemoteCarrier
         self.directory = directory
         self.groupName = groupName
         self.agentKind = agentKind

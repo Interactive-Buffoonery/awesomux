@@ -16,14 +16,15 @@ enum DaemonGarbageCollector {
 
     struct LaunchSweepConfiguration: Equatable {
         let capThresholdSeconds: Int?
+        let carriersOnly: Bool
     }
 
     /// - Parameters:
     ///   - isRestoreEnabled: when workspace restore is off, `store` is empty and
-    ///     every daemon would look orphaned — so GC must not run.
+    ///     every daemon would look orphaned — only disposable carriers are reaped.
     ///   - hasUnresolvedRecoveryWarning: a corrupt/sanitized snapshot may have
     ///     dropped panes, so their surviving daemons would be misclassified as
-    ///     orphans and reaped (data loss). Skip GC until the state is trusted.
+    ///     orphans and reaped (data loss). Restrict GC to carriers until trusted.
     ///   - pinned: daemon IDs the user has pinned as "forever" — exempt from the
     ///     age cap (INT-573). Read from `DaemonPolicyStore.pinnedIDs`.
     ///   - terminalSettings: supplies the optional idle-cap threshold. Current
@@ -36,13 +37,11 @@ enum DaemonGarbageCollector {
         hasUnresolvedRecoveryWarning: Bool,
         pinned: Set<TerminalSessionID>
     ) {
-        guard
-            let configuration = launchSweepConfiguration(
-                terminalSettings: terminalSettings,
-                isRestoreEnabled: isRestoreEnabled,
-                hasUnresolvedRecoveryWarning: hasUnresolvedRecoveryWarning
-            )
-        else { return }
+        let configuration = launchSweepConfiguration(
+            terminalSettings: terminalSettings,
+            isRestoreEnabled: isRestoreEnabled,
+            hasUnresolvedRecoveryWarning: hasUnresolvedRecoveryWarning
+        )
         // Snapshot the owned set on the main actor from the SAME store state that
         // drives restore, BEFORE any restore attach can create new daemons.
         let reach = DaemonGCPlan.reachability(
@@ -60,7 +59,8 @@ enum DaemonGarbageCollector {
                 owned: owned,
                 livePane: reach.livePane,
                 pinned: pinned,
-                capThresholdSeconds: configuration.capThresholdSeconds
+                capThresholdSeconds: configuration.capThresholdSeconds,
+                carriersOnly: configuration.carriersOnly
             )
         }
     }
@@ -69,12 +69,13 @@ enum DaemonGarbageCollector {
         terminalSettings: TerminalConfig,
         isRestoreEnabled: Bool,
         hasUnresolvedRecoveryWarning: Bool
-    ) -> LaunchSweepConfiguration? {
-        guard isRestoreEnabled, !hasUnresolvedRecoveryWarning else { return nil }
+    ) -> LaunchSweepConfiguration {
+        let carriersOnly = !isRestoreEnabled || hasUnresolvedRecoveryWarning
         return LaunchSweepConfiguration(
-            capThresholdSeconds: terminalSettings.daemonIdleCapEnabled
+            capThresholdSeconds: !carriersOnly && terminalSettings.daemonIdleCapEnabled
                 ? terminalSettings.daemonIdleCapMinutes * 60
-                : nil
+                : nil,
+            carriersOnly: carriersOnly
         )
     }
 
@@ -84,7 +85,8 @@ enum DaemonGarbageCollector {
         owned: Set<TerminalSessionID>,
         livePane: Set<TerminalSessionID>,
         pinned: Set<TerminalSessionID>,
-        capThresholdSeconds: Int?
+        capThresholdSeconds: Int?,
+        carriersOnly: Bool = false
     ) async {
         // Sample gcStart AFTER the owned snapshot (taken in sweepIfEnabled) and
         // before the first list, so any daemon a restore-attach creates has
@@ -96,7 +98,9 @@ enum DaemonGarbageCollector {
             log.error("daemon GC aborted: session list unavailable")
             return
         }
-        let live = DaemonGCPlan.parseAmxList(listOutput)
+        let live = DaemonGCPlan.parseAmxList(listOutput).filter {
+            !carriersOnly || $0.recoveryMetadata?.isRemoteCarrier == true
+        }
 
         // Runs even with zero live daemons — that is exactly the state in
         // which every leaked status file is orphaned. Files for daemons
@@ -105,23 +109,31 @@ enum DaemonGarbageCollector {
         // the sweep nil (abort) on any format drift the tolerant parser
         // would silently skip — a dropped live row must not read as
         // "no attached client, delete its file".
-        let strictLive = DaemonGCPlan.parseAmxListStrict(listOutput)
-        sweepStaleStatusFiles(live: strictLive, gcStart: gcStart)
-        // Logs (unlike status files) reuse one path per session NAME, so a dead
-        // session's log can be reopened by a daemon restore recreates for the
-        // SAME id between the list snapshot and unlink. `owned` (captured
-        // pre-restore in sweepIfEnabled) is exactly that recreation set, so
-        // sparing it closes the resurrection window without a second list.
-        sweepSessionLogs(live: strictLive, owned: owned, gcStart: gcStart)
+        if !carriersOnly {
+            let strictLive = DaemonGCPlan.parseAmxListStrict(listOutput)
+            sweepStaleStatusFiles(live: strictLive, gcStart: gcStart)
+            // Logs (unlike status files) reuse one path per session NAME, so a dead
+            // session's log can be reopened by a daemon restore recreates for the
+            // SAME id between the list snapshot and unlink. `owned` (captured
+            // pre-restore in sweepIfEnabled) is exactly that recreation set, so
+            // sparing it closes the resurrection window without a second list.
+            sweepSessionLogs(live: strictLive, owned: owned, gcStart: gcStart)
+        }
 
         guard !live.isEmpty else { return }
 
         // A nil snapshot means `ps` failed — we cannot prove anything is idle, so
         // abort rather than treat every daemon as childless-and-idle (which would
         // reap live work, exactly when the machine is busiest).
-        guard let snapshot = await AmxBackend.currentProcessSnapshot() else {
-            log.error("daemon GC aborted: process snapshot unavailable")
-            return
+        let snapshot: [ProcEntry]
+        if carriersOnly {
+            snapshot = []
+        } else {
+            guard let current = await AmxBackend.currentProcessSnapshot() else {
+                log.error("daemon GC aborted: process snapshot unavailable")
+                return
+            }
+            snapshot = current
         }
 
         // Independent of the daemon-reap plan below on purpose: the primary
@@ -131,7 +143,9 @@ enum DaemonGarbageCollector {
         // behind either of those guards' early returns would make the orphan
         // cleanup unreachable in exactly the case it exists to fix — caught
         // in review before shipping, not discovered live.
-        await reapOrphanAttachClients(live: live, snapshot: snapshot)
+        if !carriersOnly {
+            await reapOrphanAttachClients(live: live, snapshot: snapshot)
+        }
 
         var busy = Set<TerminalSessionID>()
         for daemon in live where !AmxBackend.isIdle(daemon, snapshot: snapshot) {

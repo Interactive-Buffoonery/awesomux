@@ -112,14 +112,10 @@ final class DaemonRecoveryMetadataSynchronizer {
         groups.flatMap { group in
             group.sessions.flatMap { session in
                 session.panes.compactMap { pane in
-                    // Carrier metadata stays excluded: these labels cannot
-                    // reconstruct a remote-owned execution plan.
-                    guard pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata else {
-                        return nil
-                    }
-                    if case .ssh(let execution) = pane.executionPlan,
-                        execution.persistenceOwner == .remoteZmx
-                    {
+                    let isRemoteCarrier =
+                        pane.executionPlan.remoteOwnedExecution != nil
+                        && pane.terminalBackendMetadata == .amxRemoteCarrier
+                    guard isRemoteCarrier || pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata else {
                         return nil
                     }
                     return (
@@ -130,7 +126,8 @@ final class DaemonRecoveryMetadataSynchronizer {
                             groupID: group.id,
                             groupName: group.name,
                             groupRemote: group.remote,
-                            agentKind: pane.agentKind
+                            agentKind: pane.agentKind,
+                            isRemoteCarrier: isRemoteCarrier
                         )
                     )
                 }

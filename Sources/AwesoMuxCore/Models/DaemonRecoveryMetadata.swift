@@ -61,7 +61,7 @@ public struct DaemonRecoveryMetadata: Hashable, Sendable {
             groupName: decodeString(fields[labelPrefix + "group-name"]),
             groupRemote: remote,
             agentKind: agent,
-            isRemoteCarrier: !(fields[labelPrefix + "remote-carrier"] ?? "").isEmpty
+            isRemoteCarrier: fields[labelPrefix + "remote-carrier"] == Self.encode("1")
         )
     }
 

@@ -504,7 +504,8 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             let preservedDaemonIdentity: Bool
             let daemonIDWasSeen =
                 !seenTerminalSessionIDs.insert(pane.terminalSessionID).inserted
-            if preservedPaneID, !daemonIDWasSeen {
+            // Closing remote-owned panes always kills their disposable SSH carrier.
+            if preservedPaneID, !daemonIDWasSeen, pane.executionPlan.remoteOwnedExecution == nil {
                 terminalSessionID = pane.terminalSessionID
                 terminalBackendMetadata = pane.terminalBackendMetadata
                 preservedDaemonIdentity = true

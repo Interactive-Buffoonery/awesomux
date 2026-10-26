@@ -229,7 +229,10 @@ retains the full history.
 Closing a pane, workspace, or group stops its local carrier and SSH connection,
 while the remote session keeps running. App quit keeps live panes' carriers.
 Launch GC removes unattached carrier-labeled sessions with no live pane, even
-when SSH is busy or the workspace is in Reopen Closed Workspace. Session Manager
+when SSH is busy or the workspace is in Reopen Closed Workspace. When workspace
+restore is off or a recovery warning is unresolved, launch GC still removes these
+orphan carriers, while leaving ordinary local daemons alone. Reopening a closed
+remote workspace starts a fresh carrier for the same remote session. Session Manager
 can kill an orphan carrier but cannot recover it as a local workspace.
 
 Without bundled `amx` or a status channel, the pane uses direct SSH and

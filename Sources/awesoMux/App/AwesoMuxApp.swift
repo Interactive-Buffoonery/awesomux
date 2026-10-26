@@ -365,6 +365,9 @@ struct AwesoMuxApp: App {
         RemoteMarkdownReadRouting.appSettingsStore = appSettingsStore
         _localAPIAccessStore = State(initialValue: localAPIAccessStore)
         _companionPairingCoordinator = State(initialValue: companionPairingCoordinator)
+        loadResult.store.remoteCarrierCloseHandler = {
+            AmxBackend.killSessionsDetached($0, context: "remote-carrier-close")
+        }
         _sessionStore = State(initialValue: loadResult.store)
         _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
         if let warning = loadResult.recoveryWarning {
@@ -815,13 +818,8 @@ struct AwesoMuxApp: App {
 
             let rootContentAfterGroupsWatch =
                 rootContentAfterSaveStatus
-                .onChange(of: sessionStore.groups) { previous, current in
-                    let liveIDs = Set(current.flatMap(\.sessions).flatMap(\.panes).map(\.terminalSessionID))
-                    let closedCarriers = previous.flatMap(\.sessions).flatMap(\.panes)
-                        .filter { $0.executionPlan.remoteOwnedExecution != nil && !liveIDs.contains($0.terminalSessionID) }
-                        .map(\.terminalSessionID)
-                    AmxBackend.killSessionsDetached(closedCarriers, context: "remote-carrier-close")
-                saveSessionIfRestoreEnabled()
+                .onChange(of: sessionStore.groups) { _, _ in
+                    saveSessionIfRestoreEnabled()
                     Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()

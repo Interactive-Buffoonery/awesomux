@@ -60,7 +60,8 @@ enum SessionManagerPrimaryAction: Equatable { case open, restore, recover }
 
 extension DaemonRow {
     var primaryAction: SessionManagerPrimaryAction? {
-        switch lifecycle {
+        guard !isRemoteCarrier else { return nil }
+        return switch lifecycle {
         case .owned: .open
         case .detachedRestorable: .restore
         case .abandoned, .expired: .recover
@@ -493,22 +494,24 @@ struct SessionManagerPanel: View {
                     )
                     .help(primaryAction.label)
                 }
-                Button {
-                    model.setPinned(!row.pinned, for: row.id)
-                } label: {
-                    Image(systemName: row.pinned ? "pin.fill" : "pin")
-                        .font(.system(size: 12))
-                        .foregroundStyle(row.pinned ? Color.aw.accent : Color.aw.textFaint)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            row.pinned ? Color.aw.accentSoft : Color.clear,
-                            in: RoundedRectangle(cornerRadius: AwRadius.button)
-                        )
+                if !row.isRemoteCarrier {
+                    Button {
+                        model.setPinned(!row.pinned, for: row.id)
+                    } label: {
+                        Image(systemName: row.pinned ? "pin.fill" : "pin")
+                            .font(.system(size: 12))
+                            .foregroundStyle(row.pinned ? Color.aw.accent : Color.aw.textFaint)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                row.pinned ? Color.aw.accentSoft : Color.clear,
+                                in: RoundedRectangle(cornerRadius: AwRadius.button)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.activatingID != nil)
+                    .accessibilityLabel(row.pinned ? "Unpin session" : "Pin session")
+                    .accessibilityHint("Pinned sessions are exempt from auto-cleanup.")
                 }
-                .buttonStyle(.plain)
-                .disabled(model.activatingID != nil)
-                .accessibilityLabel(row.pinned ? "Unpin session" : "Pin session")
-                .accessibilityHint("Pinned sessions are exempt from auto-cleanup.")
 
                 Button {
                     confirmOrReap(row)
