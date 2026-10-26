@@ -144,8 +144,9 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   `reply` frame it forwards, extending the recheck ADR-0040 requires before
   every frame the Mac writes. A phone-sent `grid` is applied only with that
   phone's next accepted `input` or `claim` (ADR-0040). Remote-owned panes
-  (`PersistenceOwner.remoteZmx`) have no local daemon and are not typeable
-  from a device in this version; the handshake reports `remote_pane`.
+  (`PersistenceOwner.remoteZmx`) are typeable through their local amx carrier.
+  Carrier launch metadata selects the local source; amx availability alone
+  grants nothing. Direct-SSH fallback reports `remote_pane`.
 
 ### Safe paste
 
@@ -371,7 +372,7 @@ draining an in-progress batch on close remain zmx follow-ups. An acknowledgement
 means written to the daemon socket, not daemon acceptance or PTY delivery; a
 close may truncate a started paste, even after acknowledgement.
 
-Remote-owned panes receive the Watch role with `remote_pane`; without a local
-zmx source their stream then ends with `pane_unavailable`. Remote terminal
-stream transport remains follow-up work. Local-amx SSH panes use their local
-daemon and remain eligible for Input.
+Carried remote-owned panes and local-amx SSH panes use their local daemon:
+Input on grants Interactive, Input off grants Watch/`input_off`, and revoking
+Terminal access ends the stream. Only direct-SSH fallback receives
+Watch/`remote_pane` followed by `pane_unavailable`.

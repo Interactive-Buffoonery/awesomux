@@ -155,7 +155,8 @@ public enum DaemonStateResolver {
                     label: live?.label ?? snapshot?.label ?? metadataLabel ?? daemon.id.rawValue,
                     directory: live?.directory ?? snapshot?.directory ?? daemon.cwd,
                     groupName: live?.groupName ?? snapshot?.groupName ?? metadata?.groupName,
-                    agentKind: live?.agentKind ?? snapshot?.agentKind ?? metadata?.agentKind
+                    agentKind: live?.agentKind ?? snapshot?.agentKind ?? metadata?.agentKind,
+                    isRemoteCarrier: metadata?.isRemoteCarrier == true
             ))
         }
         return rows

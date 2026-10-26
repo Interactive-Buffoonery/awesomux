@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 import Testing
 @testable import AwesoMuxCore
@@ -68,6 +69,60 @@ struct SessionStoreCloseGroupTests {
         #expect(store.session(id: leaves.id) != nil)
         let destination = store.groups.first(where: { $0.id == other.id })
         #expect(destination?.sessions.contains(where: { $0.id == leaves.id }) == true)
+    }
+
+    // Close dispatch must survive a missing primary window and delayed kills.
+    @Test("carrier close plan spares local and moved panes and selects closed or recycled remote panes")
+    func carrierClosePlan() throws {
+        let target = try #require(RemoteTarget(user: "example", host: "example.com"))
+        let execution = try #require(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx,
+                sessionName: RemoteSessionName(rawValue: "work")))
+        let remote = TerminalPane(title: "remote", workingDirectory: "~", executionPlan: .ssh(execution))
+        let local = TerminalPane(title: "local", workingDirectory: "~", executionPlan: .local)
+        func groups(_ panes: [TerminalPane]) -> [SessionGroup] {
+            [
+                SessionGroup(
+                    name: "main",
+                    sessions: panes.map {
+                        TerminalSession(title: $0.title, workingDirectory: "~", layout: .pane($0))
+                    })
+            ]
+        }
+        let previous = DaemonGCPlan.remoteCarrierSessionIDs(in: groups([local, remote]))
+        #expect(previous == [remote.terminalSessionID])
+        #expect(DaemonGCPlan.closedRemoteCarrierSessionIDs(previous: previous, groups: []) == [remote.terminalSessionID])
+        let moved = [SessionGroup(name: "other", sessions: groups([remote])[0].sessions)]
+        #expect(DaemonGCPlan.closedRemoteCarrierSessionIDs(previous: previous, groups: moved).isEmpty)
+        var recycled = remote
+        recycled.terminalSessionID = .generate()
+        #expect(DaemonGCPlan.closedRemoteCarrierSessionIDs(previous: previous, groups: groups([recycled])) == [remote.terminalSessionID])
+        #expect(DaemonGCPlan.closedRemoteCarrierSessionIDs(previous: previous, groups: groups([local, remote])).isEmpty)
+    }
+
+    @Test("store dispatches remote carrier close without a mounted window")
+    func carrierCloseDispatchWithoutWindow() throws {
+        let target = try #require(RemoteTarget(user: "example", host: "example.com"))
+        let execution = try #require(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx,
+                sessionName: RemoteSessionName(rawValue: "work")))
+        let pane = TerminalPane(title: "remote", workingDirectory: "~", executionPlan: .ssh(execution))
+        let session = TerminalSession(title: "remote", workingDirectory: "~", layout: .pane(pane))
+        let local = makeSession("local")
+        let group = SessionGroup(name: "main", sessions: [session, local])
+        let store = SessionStore(groups: [group])
+        var dispatched: [TerminalSessionID] = []
+        store.remoteCarrierCloseHandler = { dispatched += $0 }
+        #expect(store.closeGroup(id: group.id))
+        #expect(dispatched == [pane.terminalSessionID])
+        let entry = try #require(store.recentlyClosed.first { $0.sessionID == session.id })
+        let reopenedID = try #require(store.reopen(entry))
+        let reopened = try #require(store.session(id: reopenedID)?.panes.first)
+        #expect(reopened.terminalSessionID != pane.terminalSessionID)
+        #expect(reopened.terminalBackendMetadata == .empty)
+        #expect(dispatched == [pane.terminalSessionID])
     }
 
     private func makeSession(

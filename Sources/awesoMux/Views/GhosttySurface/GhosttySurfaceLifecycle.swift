@@ -212,9 +212,8 @@ extension GhosttySurfaceNSView {
 
         // INT-698 D4: a local-amx remote pane takes the
         // async make-before-break bridge preflight instead of the synchronous
-        // spawn. Every other pane (local, remote-owned, or bridge chrome off) is
-        // byte-identical to today — the sync `finishSurfaceCreation` below is
-        // the untouched path.
+        // spawn. Local panes, remote-owned carriers and direct-SSH fallback
+        // use synchronous surface creation without managed bridge helpers.
         let shouldRunBridgePreflight = BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
             executionPlan: pane.executionPlan,
@@ -320,6 +319,15 @@ extension GhosttySurfaceNSView {
             guard pane.terminalBackendMetadata.amxAttachDisposition != .existingOnly else {
                 return
             }
+            if pane.executionPlan.remoteOwnedExecution != nil {
+                // Keep carrier reachability separate from established shell
+                // metadata: amx cwd here would be the LOCAL ssh client's cwd.
+                sessionStore.updateTerminalBackendMetadata(
+                    sessionID: sessionID, paneID: paneID, metadata: .amxRemoteCarrier
+                )
+                commandBridgeEnactor.confirmRemoteOwnedAttach()
+                return
+            }
             // Records a successful surface spawn, not a confirmed daemon attach.
             // The next launch uses the pre-spawn value to distinguish a saved
             // pane from its first creation when the status reports a fresh shell.
@@ -329,18 +337,11 @@ extension GhosttySurfaceNSView {
                 metadata: AmxBackend.establishedSessionMetadata
             )
         case .remoteOwnedAttach:
-            // Deliberately neither of the other two. NOT `established`: that
-            // metadata names a LOCAL amx session, and stamping it would point
-            // the Path Bar's periodic `amx cwd` refresh (and
-            // `recoverAttachedRuntimeDeathIfNeeded`) at an id no local daemon
-            // has. NOT a chrome reset either: this is a reattach to a session
-            // that survives on the far host, so a live agent's identity must
-            // survive with it, exactly as a bridge reattach preserves it.
-            //
-            // Ceiling: if the remote session was gone and zmx created a fresh
-            // one, restored chrome stays stale until the pane produces new
-            // agent output — there is no `created` signal to read without a
-            // remote status channel. Revisit if remote-owned grows one.
+            // Direct SSH has no local daemon. Clear any saved carrier marker,
+            // while preserving the remote session's agent chrome.
+            sessionStore.updateTerminalBackendMetadata(
+                sessionID: sessionID, paneID: paneID, metadata: .empty
+            )
             commandBridgeEnactor.confirmRemoteOwnedAttach()
         case .localShell:
             // Fresh local shell, no bridge reattach: any restored `.waiting`

@@ -356,6 +356,12 @@ public extension TerminalPane {
     static let staleAgentActivityThreshold: TimeInterval = 60
     static let remoteLivenessFreshnessThreshold: TimeInterval = 8
 
+    /// Remote-owned panes expose a local stream only after a carrier was spawned.
+    var localTerminalSessionName: String? {
+        executionPlan.remoteOwnedExecution == nil || terminalBackendMetadata == .amxRemoteCarrier
+            ? terminalSessionID.rawValue : nil
+    }
+
     /// Whether this pane would lose work if the app quit right now. Delegates to
     /// the pure `QuitRiskPolicy`: process liveness is primary, OSC-133
     /// away-from-prompt corroborates, agent-execution freshness is the fallback.

@@ -455,6 +455,7 @@ enum AmxBackend {
         for sessionID: TerminalSessionID,
         status: AmxStatusChannel? = nil,
         remote: RemoteTarget? = nil,
+        remoteSessionName: RemoteSessionName? = nil,
         mode: AmxAttachMode = .createOrAttach(
             metadata: .init(
                 workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
@@ -470,6 +471,7 @@ enum AmxBackend {
             socketDirectory: sessionSocketDirectory(),
             status: status,
             remote: remote,
+            remoteSessionName: remoteSessionName,
             mode: mode,
             ghosttyResourcesDir: inputs.ghosttyResourcesDir,
             inheritedZDOTDIR: inputs.inheritedZDOTDIR,
@@ -491,6 +493,7 @@ enum AmxBackend {
         socketDirectory: String,
         status: AmxStatusChannel? = nil,
         remote: RemoteTarget? = nil,
+        remoteSessionName: RemoteSessionName? = nil,
         mode: AmxAttachMode = .createOrAttach(
             metadata: .init(
                 workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
@@ -527,7 +530,8 @@ enum AmxBackend {
         tokens += [shellQuote(executablePath), "attach"]
         switch mode {
         case .createOrAttach(let metadata):
-            let labels = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
+            let labels = (remoteSessionName == nil ? metadata : .remoteCarrier)
+                .encodedLabelAssignments.sorted { $0.key < $1.key }
                 .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
             tokens += ["--labels", shellQuote(labels)]
         case .existingOnly:
@@ -535,7 +539,19 @@ enum AmxBackend {
         }
         tokens += [shellQuote(sessionID.rawValue)]
         if let remote {
-            tokens += sshTailTokens(for: remote).map(shellQuote)
+            if let remoteSessionName {
+                // Status belongs to the attach client, never the SSH child.
+                // Every recreate receives this same command instead of a shell.
+                tokens +=
+                    [shellQuote(envExecutablePath), "-u", "ZMX_DIR", "-u", "ZMX_DIR_MODE"]
+                    + environmentScrubTokens(remote: remote)
+                tokens += sshTailTokens(
+                    for: remote,
+                    remoteCommand: remoteBackendDiscoveryCommand(sessionName: remoteSessionName)
+                ).map(shellQuote)
+            } else {
+                tokens += sshTailTokens(for: remote).map(shellQuote)
+            }
         }
         return tokens.joined(separator: " ")
     }
@@ -923,9 +939,8 @@ enum AmxBackend {
     }
 
     /// Pure assembly of the ssh command for a pane whose persistence the REMOTE
-    /// host owns: the far side's `zmx` holds the session, so this command
-    /// bypasses the local `amx` daemon entirely — there is no local session to
-    /// attach to and nothing for the command bridge to wrap.
+    /// host owns. Used only as the direct-SSH fallback without bundled amx;
+    /// normally attachCommand carries this SSH connection in a local daemon.
     ///
     /// That is why none of the local-daemon apparatus appears here. `ZMX_DIR` /
     /// `ZMX_DIR_MODE` pin the LOCAL socket directory and are meaningless to a
@@ -974,7 +989,7 @@ enum AmxBackend {
     /// A file, deliberately, and not an in-band terminal report. The pane's exit
     /// status has no other source — libghostty spawns through `/usr/bin/login`,
     /// which swallows the child's status (verified: `login -flpq $USER /bin/sh
-    /// -c 'exit 7'` returns 0), and a remote-owned pane has no `amx` status
+    /// -c 'exit 7'` returns 0), and a direct-SSH pane has no `amx` status
     /// channel — but an OSC 133 report cannot be read back safely:
     ///
     /// - **Ordering.** A `write` completes before the writer exits, so the file

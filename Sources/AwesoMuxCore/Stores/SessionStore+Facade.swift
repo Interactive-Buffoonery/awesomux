@@ -776,6 +776,7 @@ extension SessionStore {
         }
 
         _groups[position.groupIndex].sessions[position.sessionIndex].layout = layout
+        reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
         return true
     }
 
@@ -1452,6 +1453,12 @@ extension SessionStore {
         #endif
 
         if effect.needsFullRebuild {
+            let closedCarriers = DaemonGCPlan.closedRemoteCarrierSessionIDs(
+                previous: remoteCarrierSessionIDs, groups: _groups)
+            remoteCarrierSessionIDs = DaemonGCPlan.remoteCarrierSessionIDs(in: _groups)
+            if !closedCarriers.isEmpty {
+                remoteCarrierCloseHandler?(Array(closedCarriers))
+            }
             reconcileLocalAPIAssignments()
             rebuildDerivedState(now: now)
         } else {

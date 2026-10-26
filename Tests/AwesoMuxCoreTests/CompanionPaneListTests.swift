@@ -6,7 +6,7 @@ import Testing
 @MainActor
 @Suite("Companion pane list")
 struct CompanionPaneListTests {
-    @Test func terminalStreamUsesLocalDaemonForLocalAmxSSHOnly() throws {
+    @Test func terminalStreamUsesCarrierOnlyAfterSpawn() throws {
         let remote = try #require(RemoteTarget(parsing: "example.test"))
         let remoteName = try #require(RemoteSessionName(rawValue: "example"))
         for plan: PaneExecutionPlan in [
@@ -17,6 +17,16 @@ struct CompanionPaneListTests {
             let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
             let target = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
             #expect(target.localSessionName == (plan.remoteOwnedExecution == nil ? pane.terminalSessionID.rawValue : nil))
+            if plan.remoteOwnedExecution != nil {
+                store.updateTerminalBackendMetadata(sessionID: session.id, paneID: pane.id, metadata: .amxRemoteCarrier)
+                let carried = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
+                #expect(carried.localSessionName == pane.terminalSessionID.rawValue)
+                #expect(carried.targetVersion != target.targetVersion)
+                store.updateTerminalBackendMetadata(sessionID: session.id, paneID: pane.id, metadata: .empty)
+                let fallback = try #require(store.localAPITerminalWatchTarget(paneID: pane.id))
+                #expect(fallback.localSessionName == nil)
+                #expect(fallback.targetVersion != carried.targetVersion)
+            }
         }
     }
 

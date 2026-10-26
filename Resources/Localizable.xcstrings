@@ -3743,7 +3743,7 @@
     "Pane: %arg" : {
       "comment" : "VoiceOver label for a local terminal pane title."
     },
-    "Panes on %arg only disconnect; the remote host keeps their sessions running." : {
+    "Panes on %arg disconnect and stop their local SSH connections; the remote host keeps their sessions running." : {
       "comment" : "Close-confirmation line for panes whose zmx session the remote host owns. The argument is a list of SSH destinations."
     },
     "Parent folder" : {

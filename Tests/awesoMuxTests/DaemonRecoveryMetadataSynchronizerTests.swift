@@ -8,6 +8,38 @@ import Testing
 @Suite("Daemon recovery metadata synchronization")
 struct DaemonRecoveryMetadataSynchronizerTests {
 
+    @Test("carrier presentation labels preserve the nonrecoverable marker")
+    func carrierLabels() async throws {
+        let target = try #require(RemoteTarget(user: "example", host: "example.com"))
+        let execution = try #require(
+            SSHExecution(
+                target: target, persistenceOwner: .remoteZmx,
+                sessionName: RemoteSessionName(rawValue: "work")))
+        let id = TerminalSessionID.generate()
+        var written: DaemonRecoveryMetadata?
+        let synchronizer = DaemonRecoveryMetadataSynchronizer(writer: { _, metadata in
+            written = metadata
+            return true
+        })
+        await synchronizer.synchronize(groups: [
+            fixture(id: id, metadata: .amxRemoteCarrier, executionPlan: .ssh(execution))
+        ])
+        let metadata = try #require(written)
+        #expect(metadata.workspaceTitle == "Workspace")
+        #expect(metadata.paneTitle == "Pane")
+        #expect(DaemonRecoveryMetadata.decode(fields: metadata.encodedLabelAssignments).isRemoteCarrier)
+        let row = try #require(
+            DaemonStateResolver.resolve(
+                .init(
+                    live: [LiveDaemon(id: id, pid: 10, createdEpoch: 20, clients: 0, recoveryMetadata: metadata)],
+                    idleByID: [:], ownedByLivePane: [], restorable: [], owners: [:], pinned: [],
+                    capThresholdSeconds: nil, now: 30)
+            ).first)
+        #expect(row.label == "Workspace")
+        #expect(row.isRemoteCarrier)
+        #expect(row.primaryAction == nil)
+    }
+
     @Test("cooldown flushes the latest skipped metadata without another mutation")
     func flushesLatestSkippedUpdate() async throws {
         let id = try #require(TerminalSessionID(rawValue: "sync-deferred"))
