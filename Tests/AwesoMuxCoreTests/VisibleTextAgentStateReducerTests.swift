@@ -116,6 +116,41 @@ struct VisibleTextAgentStateReducerTests {
         ))
     }
 
+    @Test("codex pane without delivered hooks keeps the visible-text fallback")
+    func codexWithoutDeliveredHooksKeepsVisibleTextFallback() {
+        // A Codex pane on a shared app-server never receives hooks (the helper
+        // drops them), so blocking scraped attention, done, and waiting would
+        // strand it in thinking and hide permission prompts.
+        for detectedState in [AgentState.needsAttention, .done, .waiting] {
+            #expect(
+                reducer.shouldApplyVisibleTextState(
+                    detectedState: detectedState,
+                    liveAgentKind: .codex,
+                    liveAgentHooksDelivered: false,
+                    liveExecutionState: .thinking,
+                    liveDisplayState: .thinking
+                ))
+            #expect(
+                !reducer.shouldApplyVisibleTextState(
+                    detectedState: detectedState,
+                    liveAgentKind: .codex,
+                    liveAgentHooksDelivered: true,
+                    liveExecutionState: .thinking,
+                    liveDisplayState: .thinking
+                ))
+        }
+
+        // Other hook providers do not drop hooks, so delivery is not required.
+        #expect(
+            !reducer.shouldApplyVisibleTextState(
+                detectedState: .needsAttention,
+                liveAgentKind: .claudeCode,
+                liveAgentHooksDelivered: false,
+                liveExecutionState: .thinking,
+                liveDisplayState: .thinking
+            ))
+    }
+
     @Test("active visible agent activity acknowledges stale unread attention")
     func activeVisibleAgentActivityAcknowledgesStaleUnreadAttention() {
         let active = reducer.visibleTextDecision(
