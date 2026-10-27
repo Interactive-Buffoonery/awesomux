@@ -640,7 +640,7 @@ enum CompanionTerminalWatchRelay {
         let writer = Task {
             await write(
                 data, send: send, delay: delay, timeout: min(writeTimeout, remaining ?? writeTimeout),
-                timeoutReason: remaining == nil ? .closed : .overflow)
+                timeoutReason: remaining == nil ? .closed : .overflow, diagnostics: buffer.diagnostics)
         }
         buffer.installWriter(writer)
         defer { buffer.clearWriter() }
@@ -655,7 +655,8 @@ enum CompanionTerminalWatchRelay {
     /// finish. Cancelling an in-flight send closes its possibly partial frame.
     static func write(
         _ data: Data, send: @escaping @MainActor @Sendable (Data) async throws -> Void,
-        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed
+        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed,
+        diagnostics: CompanionDiagnostics? = nil
     ) async -> WriteFailure? {
         await withTaskGroup(of: WriteFailure?.self) { group in
             group.addTask {
@@ -674,6 +675,12 @@ enum CompanionTerminalWatchRelay {
             }
             group.addTask {
                 try? await delay(timeout)
+                if !Task.isCancelled {
+                    diagnostics?.close(origin: "transport", phase: "write_timeout", reason: timeoutReason.rawValue)
+                    CompanionDiagnostics.transport.notice(
+                        "write_timeout watch_id=\(diagnostics?.id.uuidString ?? "none", privacy: .public) limit_ms=\(CompanionDiagnostics.milliseconds(timeout))"
+                    )
+                }
                 return WriteFailure(reason: timeoutReason, atFrameBoundary: false)
             }
             let first = await group.next() ?? WriteFailure(reason: .closed, atFrameBoundary: false)
