@@ -68,7 +68,7 @@ final class CompanionDiagnostics: Sendable {
         return "unclassified"
     }
 
-    static func networkError(_ error: NWError, phase: String) {
+    static func networkError(_ error: NWError, phase: String, id: UUID? = nil) {
         let kind: String
         let code: Int32
         switch error {
@@ -77,6 +77,8 @@ final class CompanionDiagnostics: Sendable {
         case .tls(let value): kind = "tls"; code = value
         @unknown default: kind = "unknown"; code = 0
         }
-        transport.error("network_error phase=\(phase, privacy: .public) kind=\(kind, privacy: .public) code=\(code)")
+        transport.error(
+            "network_error watch_id=\(id?.uuidString ?? "none", privacy: .public) phase=\(phase, privacy: .public) kind=\(kind, privacy: .public) code=\(code)"
+        )
     }
 }

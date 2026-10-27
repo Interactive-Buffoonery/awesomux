@@ -608,6 +608,7 @@ enum CompanionTerminalWatchRelay {
     @MainActor
     static func writeChunks(
         _ frame: Data,
+        diagnostics: CompanionDiagnostics? = nil,
         validate: @escaping @MainActor () throws -> Void,
         submit: @MainActor (Data, @escaping @MainActor () throws -> Void) async throws -> Void,
         close: @MainActor () -> Void
@@ -622,6 +623,7 @@ enum CompanionTerminalWatchRelay {
                     submitted = true
                 }
             } catch {
+                diagnostics?.close(origin: "transport", phase: "write", reason: CompanionDiagnostics.reason(error))
                 let atFrameBoundary = offset == 0 && !submitted && !(error is CancellationError)
                 if !atFrameBoundary { close() }
                 throw ChunkWriteFailure(underlying: error, atFrameBoundary: atFrameBoundary)

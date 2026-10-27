@@ -1015,6 +1015,7 @@ private final class CompanionNetworkServer {
         let deadline = Task { [delay] in
             try? await delay(.seconds(LocalAPIContract.timeout))
             guard !Task.isCancelled else { return }
+            CompanionDiagnostics.listener.notice("deadline_expired connection_id=\(id, privacy: .public) phase=api_reply")
             connection.cancel()
         }
         defer { deadline.cancel() }
@@ -1276,93 +1277,94 @@ private final class CompanionNetworkServer {
             )
         }
         do {
-        let grid = try CompanionTerminalWatchRequest.grid(object)
-        guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
-        if case .cancelled = connection.state { throw LocalAPIError.cancelled }
-        let target = try await prepareTerminalWatch(paneID, targetVersion, lease, fingerprint, mutationDeadline)
-        let acceptedRole = CompanionTerminalAuthorization.accepted(
-            inputAllowed: lease.terminalInputAllowed, local: target.localSessionName != nil)
-        let authorization = CompanionTerminalAuthorization(lease: lease, accepted: acceptedRole, local: target.localSessionName != nil)
-        let currentLease: @MainActor @Sendable () throws -> LocalAPIAuthorizationLease = { [self] in
-            let current: LocalAPIAuthorizationLease
-            do {
-                current = try self.authority.authorizeCompanion(
-                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
-                ).get()
-            } catch { throw Stream.EndReason.revoked }
-            try authorization.validate(current, targetIsCurrent: self.terminalWatchTarget(paneID) == target)
-            return current
-        }
+            let grid = try CompanionTerminalWatchRequest.grid(object)
+            guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
+            if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+            let target = try await prepareTerminalWatch(paneID, targetVersion, lease, fingerprint, mutationDeadline)
+            let acceptedRole = CompanionTerminalAuthorization.accepted(
+                inputAllowed: lease.terminalInputAllowed, local: target.localSessionName != nil)
+            let authorization = CompanionTerminalAuthorization(lease: lease, accepted: acceptedRole, local: target.localSessionName != nil)
+            let currentLease: @MainActor @Sendable () throws -> LocalAPIAuthorizationLease = { [self] in
+                let current: LocalAPIAuthorizationLease
+                do {
+                    current = try self.authority.authorizeCompanion(
+                        connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                    ).get()
+                } catch { throw Stream.EndReason.revoked }
+                try authorization.validate(current, targetIsCurrent: self.terminalWatchTarget(paneID) == target)
+                return current
+            }
             CompanionDiagnostics.watch.notice(
                 "watch_role watch_id=\(id, privacy: .public) role=\(acceptedRole.role.rawValue, privacy: .public) rows=\(grid.rows) cols=\(grid.cols)"
             )
             let buffer = CompanionTerminalWatchRelay.Buffer(diagnostics: diagnostic)
-        try await terminalWatchRegistry.reserve(
-            id: id, connectionID: connectionID, paneID: paneID, stop: { buffer.stop($0) })
-        connections[id]?.terminalWatch = buffer
-        connections[id]?.terminalWatchLease = currentLease
-        var streamStarted = false
-        defer {
-            if streamStarted { connection.cancel() }
-            connections[id]?.terminalWatch = nil
-            connections[id]?.terminalWatchLease = nil
-            CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
-            terminalWatchRegistry.release(id)
-        }
-        // A replacement may have waited for another listener's cleanup. Recheck
-        // the target and lease before acknowledging this new attachment.
-        guard terminalWatchTarget(paneID) == target else { throw LocalAPIError.staleTarget }
-        let accepted = CompanionAPIResponse(
-            requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date(),
-            terminalStreamAccepted: acceptedRole)
-        try await sendAuthorizedFrame(
-            try CompanionProtocol.encoder().encode(accepted), connection: connection,
-            connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress,
-            currentLease: currentLease)
-        requestDeadline.cancel()
-        streamStarted = true
-        markSeen(connectionID)
-        guard let sessionName = target.localSessionName else {
-            // Remote-owned panes have no local terminal socket in this version.
-            try await Self.sendFrame(try Stream.encode(.end(.init(reason: .paneUnavailable)), generation: 0), connection: connection)
-            return
-        }
+            try await terminalWatchRegistry.reserve(
+                id: id, connectionID: connectionID, paneID: paneID, stop: { buffer.stop($0) })
+            connections[id]?.terminalWatch = buffer
+            connections[id]?.terminalWatchLease = currentLease
+            var streamStarted = false
+            defer {
+                if streamStarted { connection.cancel() }
+                connections[id]?.terminalWatch = nil
+                connections[id]?.terminalWatchLease = nil
+                CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
+                terminalWatchRegistry.release(id)
+            }
+            // A replacement may have waited for another listener's cleanup. Recheck
+            // the target and lease before acknowledging this new attachment.
+            guard terminalWatchTarget(paneID) == target else { throw LocalAPIError.staleTarget }
+            let accepted = CompanionAPIResponse(
+                requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date(),
+                terminalStreamAccepted: acceptedRole)
+            try await sendAuthorizedFrame(
+                try CompanionProtocol.encoder().encode(accepted), connection: connection,
+                connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress,
+                diagnostics: diagnostic, currentLease: currentLease)
+            requestDeadline.cancel()
+            streamStarted = true
+            markSeen(connectionID)
+            guard let sessionName = target.localSessionName else {
+                // Remote-owned panes have no local terminal socket in this version.
+                diagnostic.close(origin: "watch", phase: "attach", reason: "pane_unavailable")
+                try await Self.sendFrame(try Stream.encode(.end(.init(reason: .paneUnavailable)), generation: 0), connection: connection)
+                return
+            }
             let relayReason = await CompanionTerminalWatchRelay.run(
-            socketPath: AmxBackend.sessionSocketDirectory() + "/" + sessionName,
-            paneID: paneID, targetVersion: targetVersion, grid: grid, role: acceptedRole.role,
-            validateInput: { _ = try currentLease() },
-            commitInput: { [self] submit in
-                let current = try currentLease()
-                _ = try self.authority.commitCompanion(
-                    connectionID: connectionID, certificateFingerprint: fingerprint, lease: current
-                ) {
-                    MainActor.assumeIsolated { submit() }
-                    return 0
-                }
-            },
-            attachmentChanged: { attachmentID in
-                if let attachmentID, acceptedRole.role == .interactive {
-                    CompanionTerminalDriving.shared.register(
-                        paneID: paneID, sessionName: sessionName, attachmentID: attachmentID, streamID: id,
-                        deviceName: self.pairedConnections().first { $0.id == connectionID }?.label
-                            ?? String(localized: "iPhone", comment: "Fallback paired device name in the terminal leadership banner."),
-                        disconnect: { buffer.stop(.closed) })
-                } else {
-                    CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
-                }
-            }, buffer: buffer,
-            phoneFrames: { try await Self.readFrame(connection, maximum: Stream.maximumFrameBytes) },
-            send: { [self] data in
-                try await self.sendAuthorizedFrame(
-                    data, connection: connection, connectionID: connectionID, fingerprint: fingerprint,
-                    lease: lease, responseProgress: responseProgress, currentLease: currentLease,
-                    revalidate: {
-                        if let reason = buffer.endReason { throw reason }
-                        guard self.terminalWatchTarget(paneID) == target else { throw Stream.EndReason.paneUnavailable }
-                    })
-            },
-            sendEnd: { data in try await Self.sendFrame(data, connection: connection) },
-            delay: delay)
+                socketPath: AmxBackend.sessionSocketDirectory() + "/" + sessionName,
+                paneID: paneID, targetVersion: targetVersion, grid: grid, role: acceptedRole.role,
+                validateInput: { _ = try currentLease() },
+                commitInput: { [self] submit in
+                    let current = try currentLease()
+                    _ = try self.authority.commitCompanion(
+                        connectionID: connectionID, certificateFingerprint: fingerprint, lease: current
+                    ) {
+                        MainActor.assumeIsolated { submit() }
+                        return 0
+                    }
+                },
+                attachmentChanged: { attachmentID in
+                    if let attachmentID, acceptedRole.role == .interactive {
+                        CompanionTerminalDriving.shared.register(
+                            paneID: paneID, sessionName: sessionName, attachmentID: attachmentID, streamID: id,
+                            deviceName: self.pairedConnections().first { $0.id == connectionID }?.label
+                                ?? String(localized: "iPhone", comment: "Fallback paired device name in the terminal leadership banner."),
+                            disconnect: { buffer.stop(.closed) })
+                    } else {
+                        CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
+                    }
+                }, buffer: buffer,
+                phoneFrames: { try await Self.readFrame(connection, maximum: Stream.maximumFrameBytes) },
+                send: { [self] data in
+                    try await self.sendAuthorizedFrame(
+                        data, connection: connection, connectionID: connectionID, fingerprint: fingerprint,
+                        lease: lease, responseProgress: responseProgress, diagnostics: diagnostic, currentLease: currentLease,
+                        revalidate: {
+                            if let reason = buffer.endReason { throw reason }
+                            guard self.terminalWatchTarget(paneID) == target else { throw Stream.EndReason.paneUnavailable }
+                        })
+                },
+                sendEnd: { data in try await Self.sendFrame(data, connection: connection) },
+                delay: delay)
             CompanionDiagnostics.watch.notice(
                 "relay_result watch_id=\(id, privacy: .public) reason=\(relayReason.rawValue, privacy: .public)")
         } catch {
@@ -1456,6 +1458,7 @@ private final class CompanionNetworkServer {
         fingerprint: Data,
         lease: LocalAPIAuthorizationLease,
         responseProgress: ResponseProgress,
+        diagnostics: CompanionDiagnostics? = nil,
         currentLease: (@MainActor @Sendable () throws -> LocalAPIAuthorizationLease)? = nil,
         validate: @escaping @MainActor () throws -> Void = {},
         revalidate: (@MainActor () throws -> Void)? = nil
@@ -1464,6 +1467,7 @@ private final class CompanionNetworkServer {
         do {
             try await CompanionTerminalWatchRelay.writeChunks(
                 frame,
+                diagnostics: diagnostics,
                 validate: {
                     try validate()
                     try revalidate?()
@@ -1482,7 +1486,13 @@ private final class CompanionNetworkServer {
                                 connection.send(
                                     content: chunk,
                                     completion: .contentProcessed { error in
-                                        if let error { operation.resolve(.failure(error)) } else { operation.resolve(.success(())) }
+                                        if let error {
+                                            CompanionDiagnostics.networkError(error, phase: "phone_send", id: diagnostics?.id)
+                                            diagnostics?.close(origin: "transport", phase: "send", reason: "network_error")
+                                            operation.resolve(.failure(error))
+                                        } else {
+                                            operation.resolve(.success(()))
+                                        }
                                     })
                                 return chunk.count
                             }
