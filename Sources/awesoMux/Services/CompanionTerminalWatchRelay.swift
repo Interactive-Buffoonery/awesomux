@@ -577,7 +577,8 @@ enum CompanionTerminalWatchRelay {
                 // A cancelled parent must still be able to send the final reason.
                 let finalReason = reason
                 await Task {
-                    let failure = await write(end, send: sendEnd, delay: delay, timeout: finalWriteTimeout)
+                    let failure = await write(
+                        end, send: sendEnd, delay: delay, timeout: finalWriteTimeout, diagnostics: buffer.diagnostics)
                     CompanionDiagnostics.watch.notice(
                         "final_end watch_id=\(buffer.diagnostics.id, privacy: .public) sent=\(failure == nil) reason=\(finalReason.rawValue, privacy: .public)"
                     )

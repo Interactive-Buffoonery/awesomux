@@ -1353,7 +1353,7 @@ private final class CompanionNetworkServer {
                         CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
                     }
                 }, buffer: buffer,
-                phoneFrames: { try await Self.readFrame(connection, maximum: Stream.maximumFrameBytes) },
+                phoneFrames: { try await Self.readFrame(connection, maximum: Stream.maximumFrameBytes, diagnostics: diagnostic) },
                 send: { [self] data in
                     try await self.sendAuthorizedFrame(
                         data, connection: connection, connectionID: connectionID, fingerprint: fingerprint,
@@ -1515,8 +1515,10 @@ private final class CompanionNetworkServer {
         }
     }
 
-    private static func readFrame(_ connection: NWConnection, maximum: Int) async throws -> Data {
-        let header = try await receive(connection, minimum: 4, maximum: 4)
+    private static func readFrame(
+        _ connection: NWConnection, maximum: Int, diagnostics: CompanionDiagnostics? = nil
+    ) async throws -> Data {
+        let header = try await receive(connection, minimum: 4, maximum: 4, diagnostics: diagnostics)
         guard header.count == 4 else {
             CompanionDiagnostics.transport.notice("partial_frame phase=header expected=4 actual=\(header.count)")
             throw CompanionPairingError.connectionClosed
@@ -1527,7 +1529,7 @@ private final class CompanionNetworkServer {
         } catch {
             throw LocalAPIError.requestTooLarge
         }
-        let body = try await receive(connection, minimum: Int(length), maximum: Int(length))
+        let body = try await receive(connection, minimum: Int(length), maximum: Int(length), diagnostics: diagnostics)
         guard body.count == Int(length) else {
             CompanionDiagnostics.transport.notice("partial_frame phase=body expected=\(length) actual=\(body.count)")
             throw CompanionPairingError.connectionClosed
@@ -1535,14 +1537,16 @@ private final class CompanionNetworkServer {
         return body
     }
 
-    private static func receive(_ connection: NWConnection, minimum: Int, maximum: Int) async throws -> Data {
+    private static func receive(
+        _ connection: NWConnection, minimum: Int, maximum: Int, diagnostics: CompanionDiagnostics? = nil
+    ) async throws -> Data {
         let operation = CompanionNetworkOperation<Data>()
         // A watch reader can be cancelled while the write half remains usable.
         // The connection owner closes TLS after the relay's final end attempt.
         return try await operation.wait {
             connection.receive(minimumIncompleteLength: minimum, maximumLength: maximum) { data, _, complete, error in
                 if let error {
-                    CompanionDiagnostics.networkError(error, phase: "phone_receive")
+                    CompanionDiagnostics.networkError(error, phase: "phone_receive", id: diagnostics?.id)
                     operation.resolve(.failure(error))
                 } else if complete, data == nil {
                     CompanionDiagnostics.transport.notice("phone_eof")
