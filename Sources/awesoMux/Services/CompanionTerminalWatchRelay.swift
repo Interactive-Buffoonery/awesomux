@@ -575,10 +575,11 @@ enum CompanionTerminalWatchRelay {
             await timer.value
             if atFrameBoundary, let end = try? Stream.encode(.end(.init(reason: reason)), generation: buffer.generation) {
                 // A cancelled parent must still be able to send the final reason.
+                let finalReason = reason
                 await Task {
                     let failure = await write(end, send: sendEnd, delay: delay, timeout: finalWriteTimeout)
                     CompanionDiagnostics.watch.notice(
-                        "final_end watch_id=\(buffer.diagnostics.id, privacy: .public) sent=\(failure == nil) reason=\(reason.rawValue, privacy: .public)"
+                        "final_end watch_id=\(buffer.diagnostics.id, privacy: .public) sent=\(failure == nil) reason=\(finalReason.rawValue, privacy: .public)"
                     )
                 }.value
             } else {
