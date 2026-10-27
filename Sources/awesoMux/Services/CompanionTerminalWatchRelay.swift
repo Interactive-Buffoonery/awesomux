@@ -230,6 +230,7 @@ enum CompanionTerminalWatchRelay {
             var capacityWaiters: [UUID: CompanionNetworkOperation<Void>] = [:]
         }
 
+        let diagnostics: CompanionDiagnostics
         private let state = OSAllocatedUnfairLock(initialState: State())
         private let maximumPendingBytes: Int
         private let now: @Sendable () -> ContinuousClock.Instant
@@ -238,8 +239,10 @@ enum CompanionTerminalWatchRelay {
 
         init(
             maximumPendingBytes: Int = Stream.maximumPendingBytes,
+            diagnostics: CompanionDiagnostics = CompanionDiagnostics(),
             now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
         ) {
+            self.diagnostics = diagnostics
             self.maximumPendingBytes = maximumPendingBytes
             self.now = now
             (wakes, wake) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -442,11 +445,13 @@ enum CompanionTerminalWatchRelay {
         }
 
         func finish(_ reason: Stream.EndReason) {
+            diagnostics.close(origin: "daemon", phase: "producer_end", reason: reason.rawValue)
             state.withLock { $0.sourceEnd = reason }
             wake.yield(())
         }
 
         func stop(_ reason: Stream.EndReason) {
+            diagnostics.close(origin: "relay", phase: "stop", reason: reason.rawValue)
             let (tasks, writer, waiters) = state.withLock { state in
                 if state.reason == nil { state.reason = reason }
                 state.frames.removeAll(keepingCapacity: false)
@@ -513,7 +518,10 @@ enum CompanionTerminalWatchRelay {
                         buffer.stop(reason)
                         return
                     } catch {
-                        if !Task.isCancelled { buffer.stop(.closed) }
+                        if !Task.isCancelled {
+                            buffer.diagnostics.close(origin: "phone", phase: "receive", reason: CompanionDiagnostics.reason(error))
+                            buffer.stop(.closed)
+                        }
                         return
                     }
                 }
@@ -529,10 +537,12 @@ enum CompanionTerminalWatchRelay {
                     if let failure = await writeBuffered(frame.data, buffer: buffer, send: send, delay: delay, now: now) {
                         // A failed write may have sent part of the frame. Never
                         // append end bytes to an indeterminate frame boundary.
+                        buffer.diagnostics.close(origin: "transport", phase: "write", reason: failure.reason.rawValue)
                         atFrameBoundary = failure.atFrameBoundary
                         reason = buffer.endReason ?? failure.reason
                         break loop
                     }
+                    buffer.diagnostics.wrote(bytes: frame.data.count)
                     buffer.didWrite(frame)
                     lastSend = now()
                 }
@@ -547,27 +557,40 @@ enum CompanionTerminalWatchRelay {
                     let heartbeat = buffer.takeHeartbeat()
                 {
                     if let failure = await writeBuffered(heartbeat.data, buffer: buffer, send: send, delay: delay, now: now) {
+                        buffer.diagnostics.close(origin: "transport", phase: "write", reason: failure.reason.rawValue)
                         atFrameBoundary = failure.atFrameBoundary
                         reason = buffer.endReason ?? failure.reason
                         break
                     }
+                    buffer.diagnostics.wrote(bytes: heartbeat.data.count, heartbeat: true)
                     buffer.didWrite(heartbeat)
                     lastSend = now()
                 }
             }
             reason = buffer.endReason ?? reason
+            buffer.diagnostics.close(origin: "relay", phase: "end", reason: reason.rawValue)
             buffer.stop(reason)
             await producer.value
             await reader.value
             await timer.value
             if atFrameBoundary, let end = try? Stream.encode(.end(.init(reason: reason)), generation: buffer.generation) {
                 // A cancelled parent must still be able to send the final reason.
+                let finalReason = reason
                 await Task {
-                    _ = await write(end, send: sendEnd, delay: delay, timeout: finalWriteTimeout)
+                    let failure = await write(
+                        end, send: sendEnd, delay: delay, timeout: finalWriteTimeout, diagnostics: buffer.diagnostics)
+                    CompanionDiagnostics.watch.notice(
+                        "final_end watch_id=\(buffer.diagnostics.id, privacy: .public) sent=\(failure == nil) reason=\(finalReason.rawValue, privacy: .public)"
+                    )
                 }.value
+            } else {
+                CompanionDiagnostics.watch.notice(
+                    "final_end_skipped watch_id=\(buffer.diagnostics.id, privacy: .public) reason=partial_frame_or_encoding")
             }
+            buffer.diagnostics.end(generation: buffer.generation, pendingBytes: buffer.pendingBytes)
             return reason
         } onCancel: {
+            buffer.diagnostics.close(origin: "task", phase: "cancel", reason: "cancelled")
             buffer.stop(.closed)
         }
     }
@@ -587,6 +610,7 @@ enum CompanionTerminalWatchRelay {
     @MainActor
     static func writeChunks(
         _ frame: Data,
+        diagnostics: CompanionDiagnostics? = nil,
         validate: @escaping @MainActor () throws -> Void,
         submit: @MainActor (Data, @escaping @MainActor () throws -> Void) async throws -> Void,
         close: @MainActor () -> Void
@@ -601,6 +625,7 @@ enum CompanionTerminalWatchRelay {
                     submitted = true
                 }
             } catch {
+                diagnostics?.close(origin: "transport", phase: "write", reason: CompanionDiagnostics.reason(error))
                 let atFrameBoundary = offset == 0 && !submitted && !(error is CancellationError)
                 if !atFrameBoundary { close() }
                 throw ChunkWriteFailure(underlying: error, atFrameBoundary: atFrameBoundary)
@@ -617,7 +642,7 @@ enum CompanionTerminalWatchRelay {
         let writer = Task {
             await write(
                 data, send: send, delay: delay, timeout: min(writeTimeout, remaining ?? writeTimeout),
-                timeoutReason: remaining == nil ? .closed : .overflow)
+                timeoutReason: remaining == nil ? .closed : .overflow, diagnostics: buffer.diagnostics)
         }
         buffer.installWriter(writer)
         defer { buffer.clearWriter() }
@@ -632,7 +657,8 @@ enum CompanionTerminalWatchRelay {
     /// finish. Cancelling an in-flight send closes its possibly partial frame.
     static func write(
         _ data: Data, send: @escaping @MainActor @Sendable (Data) async throws -> Void,
-        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed
+        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed,
+        diagnostics: CompanionDiagnostics? = nil
     ) async -> WriteFailure? {
         await withTaskGroup(of: WriteFailure?.self) { group in
             group.addTask {
@@ -651,6 +677,12 @@ enum CompanionTerminalWatchRelay {
             }
             group.addTask {
                 try? await delay(timeout)
+                if !Task.isCancelled {
+                    diagnostics?.close(origin: "transport", phase: "write_timeout", reason: timeoutReason.rawValue)
+                    CompanionDiagnostics.transport.notice(
+                        "write_timeout watch_id=\(diagnostics?.id.uuidString ?? "none", privacy: .public) limit_ms=\(CompanionDiagnostics.milliseconds(timeout))"
+                    )
+                }
                 return WriteFailure(reason: timeoutReason, atFrameBoundary: false)
             }
             let first = await group.next() ?? WriteFailure(reason: .closed, atFrameBoundary: false)
@@ -823,12 +855,14 @@ enum CompanionTerminalWatchRelay {
             group.addTask {
                 let operation = CompanionNetworkOperation<Data>()
                 return try? await operation.wait(cancel: { connection.cancel() }) {
-                    connection.receive(minimumIncompleteLength: 1, maximumLength: Stream.maximumDataBytes) { data, _, _, error in
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: Stream.maximumDataBytes) { data, _, complete, error in
                         if let error {
+                            CompanionDiagnostics.networkError(error, phase: "daemon_receive")
                             operation.resolve(.failure(error))
                         } else if let data, !data.isEmpty {
                             operation.resolve(.success(data))
                         } else {
+                            CompanionDiagnostics.transport.notice("daemon_eof complete=\(complete)")
                             operation.resolve(.failure(CancellationError()))
                         }
                     }

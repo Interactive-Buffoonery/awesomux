@@ -1,6 +1,7 @@
 import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import Foundation
+import os
 
 struct CompanionTerminalAuthorization {
     typealias Stream = CompanionTerminalStream
@@ -118,7 +119,11 @@ extension CompanionTerminalWatchRelay {
             let incoming = data.dropFirst().prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
             guard buffer.acceptsInput(generation: incoming) else { return }
             let decoded: (frame: Stream.Frame, generation: UInt32)
-            do { decoded = try Stream.decode(data) } catch { throw Stream.EndReason.protocolError }
+            do { decoded = try Stream.decode(data) } catch {
+                CompanionDiagnostics.watch.error(
+                    "input_rejected watch_id=\(self.buffer.diagnostics.id, privacy: .public) invariant=frame_decode")
+                throw Stream.EndReason.protocolError
+            }
             try validate()
             if case .end(let end) = decoded.frame, end.reason == .closed { throw Stream.EndReason.closed }
             switch decoded.frame {
@@ -139,6 +144,9 @@ extension CompanionTerminalWatchRelay {
                     guard generation == incoming, buffer.acceptsInput(generation: incoming) else { throw CancellationError() }
                 }
             } catch {
+                CompanionDiagnostics.watch.error(
+                    "input_send_failed watch_id=\(self.buffer.diagnostics.id, privacy: .public) generation=\(incoming) reason=\(CompanionDiagnostics.reason(error), privacy: .public)"
+                )
                 guard !Task.isCancelled, generation != incoming || !buffer.acceptsInput(generation: incoming) else {
                     throw error
                 }
