@@ -873,9 +873,11 @@ private final class CompanionNetworkServer {
             }
             if let watch = active.terminalWatch {
                 if connectionID == nil {
+                    watch.diagnostics.close(origin: "authorization", phase: "invalidate", reason: "global_invalidation")
                     watch.stop(.closed)
                 } else {
                     do { _ = try active.terminalWatchLease?() } catch {
+                        watch.diagnostics.close(origin: "authorization", phase: "invalidate", reason: CompanionDiagnostics.reason(error))
                         watch.stop((error as? CompanionTerminalStream.EndReason) ?? .revoked)
                     }
                 }
@@ -1245,6 +1247,9 @@ private final class CompanionNetworkServer {
             )
             markSeen(connectionID)
         } catch let error as LocalAPIError {
+            CompanionDiagnostics.listener.notice(
+                "request_rejected connection_id=\(id, privacy: .public) request_id=\(requestID?.uuidString ?? "none", privacy: .public) reason=\(error.rawValue, privacy: .public)"
+            )
             guard !responseProgress.started else { return }
             try? await Self.sendFrame(
                 try CompanionProtocol.encoder().encode(LocalAPIResponse(requestID: requestID, error: error).companionResponse),
@@ -1270,6 +1275,7 @@ private final class CompanionNetworkServer {
                 generation: connections[id]?.terminalWatch?.generation ?? 0, pendingBytes: connections[id]?.terminalWatch?.pendingBytes ?? 0
             )
         }
+        do {
         let grid = try CompanionTerminalWatchRequest.grid(object)
         guard let paneID = request.paneID, let targetVersion = request.targetVersion else { throw LocalAPIError.invalidRequest }
         if case .cancelled = connection.state { throw LocalAPIError.cancelled }
@@ -1287,10 +1293,10 @@ private final class CompanionNetworkServer {
             try authorization.validate(current, targetIsCurrent: self.terminalWatchTarget(paneID) == target)
             return current
         }
-        CompanionDiagnostics.watch.notice(
-            "watch_role watch_id=\(id, privacy: .public) role=\(acceptedRole.role.rawValue, privacy: .public) rows=\(grid.rows) cols=\(grid.cols)"
-        )
-        let buffer = CompanionTerminalWatchRelay.Buffer(diagnostics: diagnostic)
+            CompanionDiagnostics.watch.notice(
+                "watch_role watch_id=\(id, privacy: .public) role=\(acceptedRole.role.rawValue, privacy: .public) rows=\(grid.rows) cols=\(grid.cols)"
+            )
+            let buffer = CompanionTerminalWatchRelay.Buffer(diagnostics: diagnostic)
         try await terminalWatchRegistry.reserve(
             id: id, connectionID: connectionID, paneID: paneID, stop: { buffer.stop($0) })
         connections[id]?.terminalWatch = buffer
@@ -1321,7 +1327,7 @@ private final class CompanionNetworkServer {
             try await Self.sendFrame(try Stream.encode(.end(.init(reason: .paneUnavailable)), generation: 0), connection: connection)
             return
         }
-        let relayReason = await CompanionTerminalWatchRelay.run(
+            let relayReason = await CompanionTerminalWatchRelay.run(
             socketPath: AmxBackend.sessionSocketDirectory() + "/" + sessionName,
             paneID: paneID, targetVersion: targetVersion, grid: grid, role: acceptedRole.role,
             validateInput: { _ = try currentLease() },
@@ -1357,7 +1363,12 @@ private final class CompanionNetworkServer {
             },
             sendEnd: { data in try await Self.sendFrame(data, connection: connection) },
             delay: delay)
-        CompanionDiagnostics.watch.notice("relay_result watch_id=\(id, privacy: .public) reason=\(relayReason.rawValue, privacy: .public)")
+            CompanionDiagnostics.watch.notice(
+                "relay_result watch_id=\(id, privacy: .public) reason=\(relayReason.rawValue, privacy: .public)")
+        } catch {
+            diagnostic.close(origin: "watch", phase: "attach", reason: CompanionDiagnostics.reason(error))
+            throw error
+        }
     }
 
     private func servePairing(
