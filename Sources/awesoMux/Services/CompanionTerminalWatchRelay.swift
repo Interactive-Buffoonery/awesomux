@@ -149,15 +149,18 @@ enum CompanionTerminalWatchRelay {
 
         let paneID: UUID
         let targetVersion: UUID
+        let ownLeader: String?
         private(set) var phase: Phase = .awaitingAccept
         private(set) var sequence: UInt64 = 0
         private(set) var grid: Stream.Grid
         private(set) var leader: String?
+        private var ownAttachment: UInt64?
 
-        init(paneID: UUID, targetVersion: UUID, grid: Stream.Grid) {
+        init(paneID: UUID, targetVersion: UUID, grid: Stream.Grid, ownLeader: String? = nil) {
             self.paneID = paneID
             self.targetVersion = targetVersion
             self.grid = grid
+            self.ownLeader = ownLeader
         }
 
         var snapshotConstructed: Bool { phase == .streaming }
@@ -167,10 +170,11 @@ enum CompanionTerminalWatchRelay {
             case .attachAccepted:
                 guard phase == .awaitingAccept, message.payload.count == 16 else { return .frames([]) }
                 phase = .awaitingSnapshot
+                ownAttachment = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
                 return .frames([])
             case .authority:
                 guard let authority = Authority(message) else { return .frames([]) }
-                leader = authority.leader == 0 ? nil : String(authority.leader)
+                leader = label(authority.leader)
                 grid = authority.grid
                 return .frames(phase == .streaming ? [.leader(.init(leader: leader)), .grid(grid)] : [])
             case .output:
@@ -193,6 +197,14 @@ enum CompanionTerminalWatchRelay {
             case .attachRole, .userBatch, .takeOver, .none:
                 return .frames([])
             }
+        }
+
+        /// The phone knows itself by its paired connection ID and the Mac as `mac`.
+        private func label(_ attachment: UInt64) -> String? {
+            guard attachment != 0 else { return nil }
+            guard let ownLeader else { return String(attachment) }
+            // ponytail: another paired phone also reads as the Mac; look up CompanionTerminalDriving if two phones share a pane.
+            return attachment == ownAttachment ? ownLeader : "mac"
         }
 
         private mutating func chunks(_ bytes: Data, _ make: (UInt64, Data) -> Stream.Frame) -> [Stream.Frame] {
@@ -478,6 +490,7 @@ enum CompanionTerminalWatchRelay {
         validateInput: @escaping @MainActor @Sendable () throws -> Void = {},
         commitInput: @escaping @MainActor @Sendable (@MainActor @Sendable () -> Void) throws -> Void = { $0() },
         attachmentChanged: @escaping @MainActor @Sendable (UInt64?) -> Void = { _ in },
+        ownLeader: String? = nil,
         buffer: Buffer,
         phoneFrames: @escaping @Sendable () async throws -> Data,
         send: @escaping @MainActor @Sendable (Data) async throws -> Void,
@@ -496,7 +509,7 @@ enum CompanionTerminalWatchRelay {
                         await attachLoop(
                             socketPath: socketPath, paneID: paneID, targetVersion: targetVersion,
                             grid: grid, role: role, input: input, commitInput: commitInput,
-                            attachmentChanged: attachmentChanged, buffer: buffer, delay: delay))
+                            attachmentChanged: attachmentChanged, ownLeader: ownLeader, buffer: buffer, delay: delay))
                 }
             }
             let timer = Task {
@@ -695,12 +708,12 @@ enum CompanionTerminalWatchRelay {
         socketPath: String, paneID: UUID, targetVersion: UUID, grid: Stream.Grid,
         role: Stream.Role, input: InputForwarder,
         commitInput: @escaping @MainActor @Sendable (@MainActor @Sendable () -> Void) throws -> Void,
-        attachmentChanged: @escaping @MainActor @Sendable (UInt64?) -> Void,
+        attachmentChanged: @escaping @MainActor @Sendable (UInt64?) -> Void, ownLeader: String?,
         buffer: Buffer, delay: @escaping CompanionDelay
     ) async -> Stream.EndReason {
         while !Task.isCancelled {
             guard let generation = buffer.beginGeneration() else { return buffer.endReason ?? .closed }
-            var translator = Translator(paneID: paneID, targetVersion: targetVersion, grid: grid)
+            var translator = Translator(paneID: paneID, targetVersion: targetVersion, grid: grid, ownLeader: ownLeader)
             let outcome = await attach(
                 socketPath: socketPath, grid: grid, role: role, delay: delay,
                 accepted: { connection, payload in

@@ -1352,7 +1352,7 @@ private final class CompanionNetworkServer {
                     } else {
                         CompanionTerminalDriving.shared.remove(streamID: id, paneID: paneID)
                     }
-                }, buffer: buffer,
+                }, ownLeader: connectionID.uuidString.lowercased(), buffer: buffer,
                 phoneFrames: { try await Self.readFrame(connection, maximum: Stream.maximumFrameBytes, diagnostics: diagnostic) },
                 send: { [self] data in
                     try await self.sendAuthorizedFrame(
