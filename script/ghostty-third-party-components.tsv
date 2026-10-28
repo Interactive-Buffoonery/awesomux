@@ -22,3 +22,4 @@ glslang	14.2.0 / N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy	glslang_tab.o	
 SPIRV-Cross	13.1.1 / N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv	spirv_cross.o	SPIRV-Cross/LICENSE|SPIRV-Cross/KhronosFreeUse.txt
 Wuffs	7411f488fe2e2c205c3d3b3d28638b7356522930 / N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI	wuffs-v0.4.o	Wuffs/LICENSE|Wuffs/LICENSE-APACHE|Wuffs/LICENSE-MIT
 Zig compiler runtime	0.17.x compatible toolchain	compiler_rt.o	Zig/LICENSE
+z2d	0.13.0 / 40af3e84a4e15a9f31d126b3f281f23ce6a3dae5	ghostty_zcu.o	z2d/COPYING|z2d/LICENSE|z2d/SOURCE.txt

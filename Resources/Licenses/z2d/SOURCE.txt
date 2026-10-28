@@ -1,0 +1,9 @@
+z2d 0.13.0
+
+The unmodified z2d source used by this build is available at:
+https://github.com/vancluever/z2d/tree/40af3e84a4e15a9f31d126b3f281f23ce6a3dae5
+
+Source archive:
+https://deps.files.ghostty.org/z2d-40af3e84a4e15a9f31d126b3f281f23ce6a3dae5.tar.gz
+
+The source is covered by MPL-2.0; see COPYING and LICENSE in this directory.

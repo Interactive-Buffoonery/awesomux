@@ -259,6 +259,11 @@ struct AboutCredit: Identifiable {
                     resource: "LICENSE-MIT", ext: nil),
             ]),
         AboutCredit(
+            name: "z2d",
+            attribution: "2D rasterization — MPL-2.0",
+            resource: "COPYING", ext: nil, subdirectory: "z2d",
+            notice: (resource: "LICENSE", ext: nil)),
+        AboutCredit(
             name: "Zig compiler runtime",
             attribution: "Compiler support runtime — MIT",
             resource: "LICENSE", ext: nil, subdirectory: "Zig"),

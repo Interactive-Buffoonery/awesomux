@@ -35,6 +35,7 @@ named in the table:
 | glslang | 14.2.0 (`N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy`) | `glslang/LICENSE.txt` |
 | SPIRV-Cross | 13.1.1 (`N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv`) | `SPIRV-Cross/LICENSE`, `SPIRV-Cross/KhronosFreeUse.txt` |
 | Wuffs | `7411f488fe2e2c205c3d3b3d28638b7356522930` (`N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`) | `Wuffs/LICENSE`, `Wuffs/LICENSE-APACHE`, `Wuffs/LICENSE-MIT` |
+| z2d | 0.13.0 / `40af3e84a4e15a9f31d126b3f281f23ce6a3dae5` | `z2d/COPYING`, `z2d/LICENSE`, `z2d/SOURCE.txt` |
 | Zig compiler runtime | Compatible 0.17.x toolchain (exact artifact version stamped at build time; license matches 0.17.0) | `Zig/LICENSE` |
 
 When a dependency pin changes, refresh its corresponding files from that exact
@@ -83,3 +84,7 @@ the producing archive and Ghostty's exact pinned package source, and refresh
 the component row, license copies, bundle staging, About actions, and notices
 together. Finish with `./script/check_ghostty_third_party_licenses.sh` before
 the full preflight.
+
+The z2d row covers Zig rasterization code compiled into `ghostty_zcu.o`. Its
+MPL-2.0 terms and upstream notices are bundled unchanged. `z2d/SOURCE.txt` links
+the exact unmodified source and archive used by this pin.
