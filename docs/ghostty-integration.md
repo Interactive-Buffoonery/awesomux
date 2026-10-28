@@ -4,20 +4,18 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `8ef0ec1238220a5a714be452ed2844f0691fcf83` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `6ba144158577d033ccb6ed4b574e4013957c9161` (untagged `origin/main`, post-`v1.4.0`)
 - License: MIT
 
-> This pin moves Ghostty to Zig 0.17 and includes upstream fixes for
-> [Kitty graphics cancellation](https://github.com/ghostty-org/ghostty/pull/14812)
-> and [control-sequence continuation](https://github.com/ghostty-org/ghostty/pull/14814).
-> These changes affect the terminal engine embedded in awesoMux.
+> This pin includes upstream's [Kitty history cleanup](https://github.com/ghostty-org/ghostty/pull/14832)
+> and [color-scheme report fix](https://github.com/ghostty-org/ghostty/pull/14834).
+> awesoMux now uses upstream's history cleanup and retains its no-scrollback
+> resize hook and regression checks. Color-scheme reports are sent directly
+> during configuration changes, avoiding a write back to the I/O thread's own
+> mailbox. This pin also fixes stale scrollback pins, cursor style and hyperlinks
+> after history pruning, and malformed UTF-8 configuration handling. Shell
+> integration escapes directory names before writing terminal control sequences.
 > The public embedded C header and bundled Ghostty license are unchanged.
->
-> The native extension regressions pass with Zig 0.17.0. The ReleaseFast
-> archive still contains 277 members. Zig renames `libghostty_zcu.o` and
-> `libhighway_zcu.o` to `ghostty_zcu.o` and `highway_zcu.o`; all other member
-> names are unchanged. The audited inventory digest is
-> `f52ec83b0da3b43ad0ee55c9eb1a20dd8249d8aaf0e7c49de764c5ee61b0e5b8`.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -271,10 +269,11 @@ and placements in retained history are preserved; relative children of removed
 placements are cleaned up through upstream orphan handling. Image data remains
 available for later placements under the existing storage limit.
 
-`native/ghostty/kitty-clear.zig.inc` is inserted into image storage and called
-before `Screen.eraseHistory` mutates page coordinates. The vendor pin and source
-remain unchanged. All three insertion anchors fail closed on missing or duplicate
-matches, and the fragments participate in artifact fingerprinting. Native builds
+Ghostty now provides history-image cleanup in `Screen.eraseHistory` and image
+storage. Generated source routes no-scrollback resize through that same cleanup.
+The upstream call, storage function and resize anchors fail closed on missing or
+duplicate matches. The resize hook and regression fragments participate in
+artifact fingerprinting. Native builds
 run `awesomux-kitty-clear` renderer and storage regressions, including partial
 history erasure and histories spanning multiple pages. No-scrollback resize
 uses the same cleanup before discarding history, including on the alternate

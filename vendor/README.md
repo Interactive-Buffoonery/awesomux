@@ -4,7 +4,7 @@ Third-party code lives here, all MIT/Apache-2.0/BSD/permissive only. Never anyth
 
 ## Dependencies
 
-- `vendor/ghostty/` — git submodule of `ghostty-org/ghostty` (MIT), pinned to `8ef0ec1238220a5a714be452ed2844f0691fcf83` (untagged `origin/main`, post-`v1.3.1`; see docs/ghostty-integration.md for pin provenance).
+- `vendor/ghostty/` — git submodule of `ghostty-org/ghostty` (MIT), pinned to `6ba144158577d033ccb6ed4b574e4013957c9161` (untagged `origin/main`, post-`v1.4.0`; see docs/ghostty-integration.md for pin provenance).
 
 The initial plan is to build Ghostty's Darwin `GhosttyKit.xcframework` from the
 submodule with [`../script/build_ghostty_xcframework.sh`](../script/build_ghostty_xcframework.sh).
