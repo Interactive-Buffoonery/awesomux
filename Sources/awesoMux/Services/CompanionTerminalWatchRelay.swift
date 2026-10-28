@@ -202,7 +202,7 @@ enum CompanionTerminalWatchRelay {
         /// The phone knows itself by its paired connection ID and the Mac as `mac`.
         private func label(_ attachment: UInt64) -> String? {
             guard attachment != 0 else { return nil }
-            guard let ownLeader else { return String(attachment) }
+            guard let ownLeader, let ownAttachment else { return String(attachment) }
             // ponytail: another paired phone also reads as the Mac; look up CompanionTerminalDriving if two phones share a pane.
             return attachment == ownAttachment ? ownLeader : "mac"
         }
