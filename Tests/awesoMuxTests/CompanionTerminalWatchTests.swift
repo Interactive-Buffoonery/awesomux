@@ -154,9 +154,13 @@ struct CompanionTerminalWatchTests {
     @Test func translatorEmitsSnapshotThenOutputAndEnds() throws {
         let paneID = UUID()
         let targetVersion = UUID()
-        var translator = Relay.Translator(paneID: paneID, targetVersion: targetVersion, grid: .init(rows: 24, cols: 80))
+        let phone = UUID().uuidString.lowercased()
+        var translator = Relay.Translator(
+            paneID: paneID, targetVersion: targetVersion, grid: .init(rows: 24, cols: 80), ownLeader: phone)
         #expect(translator.translate(.init(tag: 1, payload: Data("early".utf8))) == .frames([]))
-        #expect(translator.translate(.init(tag: 27, payload: Data(count: 16))) == .frames([]))
+        var accepted = Data(withUnsafeBytes(of: UInt64(7).littleEndian) { Data($0) })
+        accepted.append(Data(count: 8))
+        #expect(translator.translate(.init(tag: 27, payload: accepted)) == .frames([]))
         var authority = Data()
         authority.append(contentsOf: withUnsafeBytes(of: UInt64(7).littleEndian) { Data($0) })
         authority.append(contentsOf: withUnsafeBytes(of: UInt64(1).littleEndian) { Data($0) })
@@ -167,7 +171,7 @@ struct CompanionTerminalWatchTests {
         let snapshot = Data(repeating: 0x41, count: Stream.maximumDataBytes + 1)
         let begin = Stream.SnapshotBegin(
             paneID: paneID.uuidString.lowercased(), targetVersion: targetVersion.uuidString.lowercased(),
-            grid: .init(rows: 40, cols: 100), leader: "7", scrollbackBound: Stream.maximumSnapshotBytes)
+            grid: .init(rows: 40, cols: 100), leader: phone, scrollbackBound: Stream.maximumSnapshotBytes)
         #expect(
             translator.translate(.init(tag: 1, payload: snapshot))
                 == .frames([
@@ -178,9 +182,10 @@ struct CompanionTerminalWatchTests {
                 ]))
         #expect(translator.snapshotConstructed)
         #expect(translator.translate(.init(tag: 1, payload: Data("hi".utf8))) == .frames([.output(sequence: 2, bytes: Data("hi".utf8))]))
+        authority.replaceSubrange(0..<8, with: withUnsafeBytes(of: UInt64(9).littleEndian) { Data($0) })
         #expect(
             translator.translate(.init(tag: 28, payload: authority))
-                == .frames([.leader(.init(leader: "7")), .grid(.init(rows: 40, cols: 100))]))
+                == .frames([.leader(.init(leader: "mac")), .grid(.init(rows: 40, cols: 100))]))
         #expect(translator.translate(.init(tag: 14, payload: Data([1]))) == .end(.sessionEnded))
     }
 }
