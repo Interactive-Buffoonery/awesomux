@@ -13,6 +13,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             if let surface {
                 ghostty_surface_set_focus(surface, true)
             }
+            nudgeAmxAttachAttention()
             // Route focus activation through `setActivePane`, which re-arms the
             // selection dwell for the now-active pane. Acknowledging directly
             // here bypassed the dwell's 500ms read guard and unread-growth check,
