@@ -163,7 +163,7 @@ existing session retains the current grid without electing a leader.
 Disconnecting the leader clears authority while retaining that grid. A Mac
 pane's attach, resize or focus reclaims a leaderless session at the pane's
 size, and the Mac pane that most recently did so is elected when another
-client leaves; a dropped typed leader first gets 5 seconds to reconnect
+client leaves; a dropped phone or iPad leader first gets 5 seconds to reconnect
 (ADR-0036 amendment, 2026-10-29). Otherwise the next accepted interactive
 user batch or explicit typed takeover applies its validated dimensions before
 its bytes. Automation does neither. The existing Mac `attach` stream still uses

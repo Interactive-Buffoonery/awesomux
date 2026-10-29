@@ -244,8 +244,8 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   the leader, invalidates its queued replies and
   retains the grid (ADR-0036). If the phone was leading, the pane stays
   leaderless at the phone's grid for 5 seconds in case it reconnects, and
-  then the Mac pane last focused or resized leads again at its own size
-  (ADR-0036 amendment, 2026-10-29). Meanwhile the banner reads "No one has
+  then the Mac pane last attached, focused or resized leads again at its own
+  size (ADR-0036 amendment, 2026-10-29). Meanwhile the banner reads "No one has
   control · 40×24 · type a letter, arrow or Return to take back" (same
   Escape caveat as above), with no Disconnect action; focusing or resizing
   the pane also takes back. If the Mac had already taken back, nothing
@@ -263,8 +263,8 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 - **Disconnect** on the Mac banner is not a revocation: it ends only that
   device's current stream to that pane with `closed` (ADR-0040) and changes
   no grant. The daemon-side effect is the same as any close: if that device
-  was still leading, the Mac pane last focused or resized leads again at
-  its own size after the 5-second reconnect wait; otherwise
+  was still leading, the Mac pane last attached, focused or resized leads
+  again at its own size after the 5-second reconnect wait; otherwise
   the current leader and grid are unchanged. The phone shows
   "Disconnected from the Mac" with a Reconnect control; reconnecting is a
   new attach as a follower, so the device cannot resume driving without
@@ -308,8 +308,8 @@ limitation: a lone Escape on the Mac does not take back control while a
 device drives. Type a letter, arrow or Return to reclaim instead.
 CPR/DSR replies from a non-leading legacy Mac client remain limited too.
 A variant of D shipped on 2026-10-29: a Mac pane claims at its own size
-rather than the retained grid, and the pane last focused or resized is
-elected when the phone leaves. B and C remain follow-ups. B does not
+rather than the retained grid, and the pane last attached, focused or
+resized is elected when the phone leaves. B and C remain follow-ups. B does not
 elect a leader or resize; it only removes the ambiguity, so ADR-0036's no-guessing rule holds.
 Do not add a timeout or heuristic to elect on ESC. B and C each need their
 own issue; #788 covers device input and the banner.
@@ -330,8 +330,8 @@ turns the switch off or unpairs it. Banner Disconnect ending only the
 stream means the Mac user has to open Settings to stop a device for good.
 The phone owns paste encoding and confirmation because it is the emulator; the
 Mac owns the limits because it is the trust boundary. A revoked or
-disconnected driver hands the Mac pane last focused or resized back its
-own size, after a 5-second reconnect wait that is visible on the Mac
+disconnected driver hands the Mac pane last attached, focused or resized
+back its own size, after a 5-second reconnect wait that is visible on the Mac
 banner. Three zmx fork
 follow-ups are named and not required: a per-batch receipt, a
 per-attachment queue cap, and draining a started batch on close. Option B

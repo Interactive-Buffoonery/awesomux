@@ -195,7 +195,8 @@ panes lack a local stream source and report Watch/`remote_pane` followed by
   stream. The Mac learns of the drop from the socket or the heartbeat deadline
   and detaches the old zmx client; a reconnect before that detach supersedes it.
   If the device was leading, the daemon waits 5 seconds before handing the
-  grid to a Mac pane, so a reconnect that claims again reflows only once
+  grid to a Mac pane, so a reconnect that claims within that wait reflows
+  only once. A Mac keystroke, resize or focus ends the wait early
   (ADR-0036 amendment).
 - Reconnect never restores leadership. A device that led before the drop
   attaches as a follower until a fresh accepted input or claim. ADR-0042's

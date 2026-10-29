@@ -146,7 +146,9 @@ Code over SSH.
   does not reflow the grid twice. A Mac pane's keystroke, resize or focus
   ends the wait at once.
 - A reattaching Mac pane's claim is applied before its snapshot is built,
-  so the snapshot is laid out at the pane's own grid.
+  so the snapshot is laid out at the pane's own grid. If the daemon's queue
+  is backed up, the snapshot uses the current grid, and the pane takes its
+  size once the claim applies or on its next resize or focus.
 - A phone or iPad, a watcher and automation never recover leadership on
   attach or resize; they still claim only by typing or Take over.
 
