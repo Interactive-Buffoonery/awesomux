@@ -695,6 +695,9 @@
     "Actions only mode" : {
 
     },
+    "Activity indicators" : {
+      "comment" : "Appearance settings section title"
+    },
     "Actual host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated real host that NSWorkspace would open."
     },
@@ -941,6 +944,9 @@
     },
     "Always show jump numbers" : {
       "comment" : "Settings field label for the sidebar jump numbers toggle"
+    },
+    "Animate activity indicators" : {
+      "comment" : "Settings field label for the agent spinner toggle"
     },
     "Annotation added" : {
       "comment" : "VoiceOver announcement after adding a new annotation"
@@ -4556,7 +4562,7 @@
     "Reset to Terminal Title" : {
       "comment" : "Pane title-bar context-menu and VoiceOver action that restores the terminal title."
     },
-    "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
+    "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, activity indicators, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
     "Resolved" : {
@@ -5922,6 +5928,9 @@
     },
     "Turn On" : {
 
+    },
+    "Turn off to stop the spinning activity circles." : {
+      "comment" : "Settings field hint for the agent spinner toggle"
     },
     "Turn on Dock bouncing?" : {
 
