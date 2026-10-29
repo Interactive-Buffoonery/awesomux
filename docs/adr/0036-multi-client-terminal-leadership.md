@@ -1,6 +1,6 @@
 # 0036 — Many terminal clients, last typer leads
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-29: a Mac pane recovers a leaderless session — see Amendment)
 - **Date:** 2026-10-20
 - **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
 - **Deciders:** Sarah
@@ -50,7 +50,7 @@ assumption that the current zmx Init/leader behavior already satisfies it.
   session is its first leader and supplies the initial grid. It retains that
   authority until another client claims, it disconnects, or it returns to Watch.
   Attaching to an existing session never claims leadership and preserves its
-  current grid.
+  current grid (narrowed for Mac panes by the 2026-10-29 amendment).
 - Only the leader's resize changes the PTY. Followers retain their requested
   dimensions for their next claim. A watch client cannot send input, claim,
   resize or send terminal-generated replies to the PTY. Enforce this in the
@@ -64,7 +64,8 @@ assumption that the current zmx Init/leader behavior already satisfies it.
   sequences; links never open automatically.
 - On leader disconnect, revocation, or return to Watch, clear leadership and
   retain the last grid. Do not elect a watcher or resize to another client.
-  The next eligible user input or explicit claim selects a leader. With no
+  The next eligible user input or explicit claim selects a leader (narrowed
+  for Mac panes by the 2026-10-29 amendment). With no
   clients, the daemon and process survive under existing lifecycle policy.
   Reconnect is a new attachment, never restoration of a previous claim.
 - Watch uses the authoritative grid with scaling and panning. Rotation changes
@@ -95,7 +96,8 @@ These are future acceptance checks, not results of this documentation change.
 Keeping the last size avoids disruptive fallback resizes but may leave a
 phone-sized grid after its disconnect. Even a sole Mac reattachment retains
 the old grid until input or Take over; this intentionally differs from current
-reattach resizing and has Sarah's explicit approval (question 2 below). "Mac-sized Watch" is the
+reattach resizing and has Sarah's explicit approval (question 2 below). The
+2026-10-29 amendment reverses this for Mac panes. "Mac-sized Watch" is the
 M1 case; after takeover, Watch follows the last authoritative grid. Concurrent
 typers share one input stream;
 this is not collaborative editing. The Mac must show when another client leads.
@@ -112,7 +114,8 @@ Answered by Sarah on 2026-10-20; the recommendation is accepted as written.
    the next input/claim, including sole-Mac restore, rather than reverting to
    the Mac's size? This qualifies the plan's "Mac-sized Watch" wording after M2.
    **Decision:** yes. Keep the last grid after the leader disconnects; no
-   automatic fallback resize.
+   automatic fallback resize. (Narrowed for Mac panes by the 2026-10-29
+   amendment.)
 3. Accept concurrent input in daemon order with a visible leader indicator, or
    require an exclusive handoff before the input milestone? Alternating typers
    can repeatedly resize a TUI. Confirm Mac-approved per-device Watch access
@@ -120,3 +123,29 @@ Answered by Sarah on 2026-10-20; the recommendation is accepted as written.
    **Decision:** concurrent input in daemon order with a leader indicator; no
    exclusive handoff. Watch is Mac-approved per device and defaults on grant;
    input is a separate grant.
+
+## Amendment (2026-10-29): a Mac pane recovers a leaderless session
+
+Question 2 is narrowed for the Mac's own panes. Keeping the old grid left a
+Mac pane stuck at a phone-sized or stale grid after the phone left or after
+a reattach, and resizing the pane did nothing until a keystroke. Every
+resize then reflowed at the wrong width, which garbled TUIs such as Claude
+Code over SSH.
+
+- A leaderless session is claimed by a Mac pane's attach or resize. The
+  claim is an ordered operation that is checked again when it runs, so an
+  earlier Take over or keystroke still wins.
+- When any client leaves a leaderless session, or the leader disconnects or
+  returns to Watch, and exactly one Mac pane remains attached, that pane
+  becomes leader at its own size.
+- With two or more Mac panes and no leader, a departure elects no one. The
+  session stays leaderless until a Mac pane attaches, types or resizes, so
+  two windows never fight over the grid.
+- A phone or iPad, a watcher and automation never recover leadership on
+  attach or resize; they still claim only by typing or Take over.
+
+Recovery keys on the Mac pane's legacy `attach` stream. A connection that
+sends `Send` or `Run` before it attaches counts as automation, not a Mac
+pane, and never recovers leadership. If ADR-0041 option B moves the Mac pane
+to the typed seam, that client needs an explicit "recovers leadership" flag
+in the handshake instead.

@@ -242,9 +242,11 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   relay's zmx client and drops its queued bytes. The daemon's
   close-connection cleanup clears that client's leadership only if it was
   the leader, invalidates its queued replies and
-  retains the grid (ADR-0036). If the phone was leading, the pane is then
-  leaderless at the phone's grid until the next Mac keystroke or Take over
-  and the banner reads "No one has control · 40×24 · type a letter, arrow or
+  retains the grid (ADR-0036). If the phone was leading and one Mac pane is
+  attached, that pane leads again at its own size (ADR-0036 amendment,
+  2026-10-29). With two or more Mac panes, the pane stays leaderless at the
+  phone's grid until a Mac pane types or resizes, and the banner
+  reads "No one has control · 40×24 · type a letter, arrow or
   Return to take back" (same Escape caveat as above), with no Disconnect
   action; if the Mac had already taken back, nothing changes.
   The same leaderless banner applies to lock, dismissal and a dropped
@@ -261,9 +263,9 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 - **Disconnect** on the Mac banner is not a revocation: it ends only that
   device's current stream to that pane with `closed` (ADR-0040) and changes
   no grant. The daemon-side effect is the same as any close: if that device
-  was still leading, the pane is leaderless at its retained grid until the
-  Mac types; otherwise the current leader and grid are unchanged. The phone
-  shows
+  was still leading, a sole Mac pane leads again at its own size and
+  several Mac panes stay leaderless until one types or resizes; otherwise
+  the current leader and grid are unchanged. The phone shows
   "Disconnected from the Mac" with a Reconnect control; reconnecting is a
   new attach as a follower, so the device cannot resume driving without
   another Take over or keystroke. Taking leadership back without ending the
@@ -287,8 +289,9 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 `attach` stream, where a standalone `ESC` from a non-leader is ambiguous
 with a terminal reply prefix, so the daemon drops it and answers only DA
 queries while no typed leader exists (LEADERSHIP.md). This applies whenever
-the Mac pane is not the leader: while a phone drives, after the phone
-leaves and the pane is leaderless, and after a leaderless reattach. In
+the Mac pane is not the leader: while a phone drives, and while two or more
+Mac panes share a leaderless session. A sole Mac pane leads again when the
+phone leaves and on reattach (ADR-0036 amendment, 2026-10-29). In
 practice, Sarah presses Escape in vim on the Mac to take back from the phone
 and the key is lost. A paired device is unaffected: its `input` and `reply`
 frames carry provenance, so a phone `ESC` is user input and claims.
@@ -298,14 +301,15 @@ frames carry provenance, so a phone `ESC` is user input and claims.
 | A. Keep the limitation | Document it; a C0 control other than ESC, DEL, a printable key, arrow, Shift-Tab or Home/End claims | Lone ESC and CPR/DSR replies lost until then; vim and TUIs misbehave on every handback |
 | B. Typed seam for the Mac client (chosen) | The Mac pane attaches with `AttachRole` interactive and sends `UserBatch`/`TerminalReply`, so ESC is unambiguous and a reply is a reply | Native input seam in the Mac client; LEADERSHIP.md already names it as the missing piece |
 | C. Daemon answers from its own model while leaderless | Extend the DA fallback to CPR, DSR and mode reports the daemon can compute | zmx fork change; color and clipboard queries still need a real client |
-| D. Sole Mac client claims on reattach with the retained grid | `TakeOver` using the current rows and columns restores reply authority without a resize | Later Mac window resizes then apply, which bends the ADR-0036 keep-last-grid decision |
+| D. Sole Mac client claims on reattach with the retained grid (a variant shipped, see below) | `TakeOver` using the current rows and columns restores reply authority without a resize | Later Mac window resizes then apply, which bends the ADR-0036 keep-last-grid decision |
 
 Sarah deferred B for #788 on 2026-10-23. Device input ships with option A's
-limitation: a lone Escape on the Mac does not take back control, including
-after the device leaves. Type a letter, arrow or Return to reclaim instead.
+limitation: a lone Escape on the Mac does not take back control while a
+device drives. Type a letter, arrow or Return to reclaim instead.
 CPR/DSR replies from a non-leading legacy Mac client remain limited too.
-B and C remain follow-ups. B does not elect a leader or resize; it only
-removes the ambiguity, so ADR-0036's no-guessing rule holds.
+A variant of D shipped on 2026-10-29: a sole Mac pane claims at its own
+size rather than the retained grid. B and C remain follow-ups. B does not
+elect a leader or resize; it only removes the ambiguity, so ADR-0036's no-guessing rule holds.
 Do not add a timeout or heuristic to elect on ESC. B and C each need their
 own issue; #788 covers device input and the banner.
 
@@ -325,8 +329,9 @@ turns the switch off or unpairs it. Banner Disconnect ending only the
 stream means the Mac user has to open Settings to stop a device for good.
 The phone owns paste encoding and confirmation because it is the emulator; the
 Mac owns the limits because it is the trust boundary. A revoked or
-disconnected driver leaves the pane at the phone's grid, which is the
-ADR-0036 trade-off and is visible on the Mac banner. Three zmx fork
+disconnected driver hands a sole Mac pane back its own size; with several
+Mac panes it leaves the phone's grid, which is the ADR-0036 trade-off and is
+visible on the Mac banner. Three zmx fork
 follow-ups are named and not required: a per-batch receipt, a
 per-attachment queue cap, and draining a started batch on close. Option B
 adds a native input seam to the Mac client before the Escape gap closes.
