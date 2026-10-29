@@ -136,11 +136,19 @@ Code over SSH.
   claim is an ordered operation that is checked again when it runs, so an
   earlier Take over or keystroke still wins.
 - When any client leaves a leaderless session, or the leader disconnects or
-  returns to Watch, and exactly one Mac pane remains attached, that pane
-  becomes leader at its own size.
-- With two or more Mac panes and no leader, a departure elects no one. The
-  session stays leaderless until a Mac pane attaches, types or resizes, so
-  two windows never fight over the grid.
+  returns to Watch, the Mac pane that most recently attached, resized or
+  gained focus becomes leader at its own size. awesoMux reports focus by
+  sending the pane's attach client SIGWINCH, so the daemon sees a resize.
+  The election runs only on these departures or when the 5-second wait
+  below ends, so two windows never fight over the grid while someone leads.
+- When a phone or iPad that was leading drops its connection, the session
+  stays leaderless for 5 seconds before the election, so a quick reconnect
+  does not reflow the grid twice. A Mac pane's keystroke, resize or focus
+  ends the wait at once.
+- A reattaching Mac pane's claim is applied before its snapshot is built,
+  so the snapshot is laid out at the pane's own grid. If the daemon's queue
+  is backed up, the snapshot uses the current grid, and the pane takes its
+  size once the claim applies or on its next resize or focus.
 - A phone or iPad, a watcher and automation never recover leadership on
   attach or resize; they still claim only by typing or Take over.
 
