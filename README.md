@@ -31,6 +31,13 @@ Full target diagram, persistence, and agent/notification model: [`docs/architect
 
 Managed SSH programs that honor `BROWSER` can open web links in your Mac’s default browser after confirmation. Setup, permissions, and limits: [Remote browser forwarding](docs/remote-browser-forwarding.md).
 
+## Activity indicators
+
+To stop the spinning activity circles, turn off **Settings > Appearance >
+Animate activity indicators**. Status icons and counts stay visible. The setting
+applies immediately, is remembered after relaunch, and still respects macOS
+Reduce Motion when enabled.
+
 ## Named agent setups
 
 Settings > Agents lets you save multiple named launch setups for each provider.

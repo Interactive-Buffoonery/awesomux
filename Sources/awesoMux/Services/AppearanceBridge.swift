@@ -48,6 +48,7 @@ struct AppearanceBridge: ViewModifier {
         content
             .environment(\.awAccent, AwAccentResolver(accent: accent))
             .environment(\.awGlowStrength, appearance.glowStrength)
+            .environment(\.awAnimateAgentSpinners, appearance.animateAgentSpinners)
             // Resolve the configured UI font family into the environment so the
             // `awFont` modifier renders it, falling back safely when it's
             // "system", not installed, or not proportional (INT-367).
