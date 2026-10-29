@@ -138,12 +138,14 @@ Code over SSH.
 - When any client leaves a leaderless session, or the leader disconnects or
   returns to Watch, and exactly one Mac pane remains attached, that pane
   becomes leader at its own size.
-- With two or more Mac panes and no leader, the session stays leaderless
-  until one of them types or resizes, so two windows never fight over the
-  grid.
+- With two or more Mac panes and no leader, a departure elects no one. The
+  session stays leaderless until a Mac pane attaches, types or resizes, so
+  two windows never fight over the grid.
 - A phone or iPad, a watcher and automation never recover leadership on
   attach or resize; they still claim only by typing or Take over.
 
-Recovery keys on the Mac pane's legacy `attach` stream. If ADR-0041 option B
-moves the Mac pane to the typed seam, that client needs an explicit
-"recovers leadership" flag in the handshake instead.
+Recovery keys on the Mac pane's legacy `attach` stream. A connection that
+sends `Send` or `Run` before it attaches counts as automation, not a Mac
+pane, and never recovers leadership. If ADR-0041 option B moves the Mac pane
+to the typed seam, that client needs an explicit "recovers leadership" flag
+in the handshake instead.
