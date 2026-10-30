@@ -602,6 +602,9 @@
     "1h" : {
       "comment" : "Compact Diagnostics history window"
     },
+    "2D rasterization — MPL-2.0" : {
+      "comment" : "About credit for the z2d rasterization library and its license"
+    },
     "30 minutes" : {
       "comment" : "VoiceOver Diagnostics history window"
     },
@@ -2739,6 +2742,12 @@
     },
     "Idle threshold in days" : {
 
+    },
+    "Image decoding — MIT or public domain" : {
+      "comment" : "About credit for the stb_image library and its license choices"
+    },
+    "Image resizing — MIT or public domain" : {
+      "comment" : "About credit for the stb_image_resize library and its license choices"
     },
     "Immediately resets all appearance settings on this page to their shipped defaults. This cannot be undone." : {
 

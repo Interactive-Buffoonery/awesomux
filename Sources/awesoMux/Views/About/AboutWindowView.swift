@@ -213,11 +213,15 @@ struct AboutCredit: Identifiable {
             resource: "LICENSE", ext: nil, subdirectory: "MPack"),
         AboutCredit(
             name: "stb_image",
-            attribution: "Image decoding — MIT or public domain",
+            attribution: String(
+                localized: "Image decoding — MIT or public domain",
+                comment: "About credit for the stb_image library and its license choices"),
             resource: "LICENSE", ext: nil, subdirectory: "stb-image"),
         AboutCredit(
             name: "stb_image_resize",
-            attribution: "Image resizing — MIT or public domain",
+            attribution: String(
+                localized: "Image resizing — MIT or public domain",
+                comment: "About credit for the stb_image_resize library and its license choices"),
             resource: "LICENSE", ext: nil, subdirectory: "stb-image-resize"),
         AboutCredit(
             name: "Google Breakpad",
@@ -264,7 +268,8 @@ struct AboutCredit: Identifiable {
             ]),
         AboutCredit(
             name: "z2d",
-            attribution: "2D rasterization — MPL-2.0",
+            attribution: String(
+                localized: "2D rasterization — MPL-2.0", comment: "About credit for the z2d rasterization library and its license"),
             resource: "COPYING", ext: nil, subdirectory: "z2d",
             notice: (resource: "LICENSE", ext: nil)),
         AboutCredit(
