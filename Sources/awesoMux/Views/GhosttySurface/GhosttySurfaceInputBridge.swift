@@ -45,11 +45,79 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             ghostty_surface_set_focus(surface, false)
         }
         if didResign {
+            clearPendingSurfaceKeyEvents()
             setAccessibilityFocused(false)
             runtime.setSecureInputFocused(false, for: paneID)
         }
 
         return didResign
+    }
+
+    func clearPendingSurfaceKeyEvents() {
+        inputState.pendingSurfaceKeyEventGeneration &+= 1
+        inputState.pendingSurfaceKeyEvents.removeAll()
+        inputState.pendingSurfaceKeyWindow = nil
+        inputState.pendingSurfaceKeyEventsOverflowed = false
+    }
+
+    /// Keep the cold-start geometry wait without losing keys already addressed
+    /// to this view. The queue belongs to one uninterrupted focus interval.
+    private func deferKeyEventUntilSurfaceCreation(_ event: NSEvent) -> Bool {
+        guard surface == nil,
+            (lifecycleState.pendingSurfaceCreationWorkItem != nil || lifecycleState.bridgePreflightTask != nil),
+            terminalIsFocused,
+            sessionStore.selectedSessionID == sessionID,
+            sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil
+        else { return false }
+
+        guard !inputState.pendingSurfaceKeyEventsOverflowed else { return true }
+        // Do not deliver a partial command after a long attach or an overflow.
+        let firstEvent = inputState.pendingSurfaceKeyEvents.first ?? event
+        guard inputState.pendingSurfaceKeyEvents.count < 256,
+            ProcessInfo.processInfo.systemUptime - firstEvent.timestamp <= 2
+        else {
+            inputState.pendingSurfaceKeyEvents.removeAll()
+            inputState.pendingSurfaceKeyEventsOverflowed = true
+            NSSound.beep()
+            return true
+        }
+        inputState.pendingSurfaceKeyWindow = window
+        inputState.pendingSurfaceKeyEvents.append(event)
+        return true
+    }
+
+    func deliverPendingSurfaceKeyEvents() {
+        let events = inputState.pendingSurfaceKeyEvents
+        let targetWindow = inputState.pendingSurfaceKeyWindow
+        clearPendingSurfaceKeyEvents()
+        let generation = inputState.pendingSurfaceKeyEventGeneration
+        if let firstEvent = events.first,
+            ProcessInfo.processInfo.systemUptime - firstEvent.timestamp > 2
+        {
+            NSSound.beep()
+            return
+        }
+        guard let expectedSurface = surface,
+            targetWindow === window,
+            terminalIsFocused,
+            sessionStore.selectedSessionID == sessionID,
+            sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil
+        else { return }
+
+        for event in events {
+            // A binding can close the pane or move focus during replay.
+            guard inputState.pendingSurfaceKeyEventGeneration == generation,
+                surface == expectedSurface, terminalIsFocused,
+                sessionStore.selectedSessionID == sessionID,
+                sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil
+            else { return }
+            switch event.type {
+            case .keyDown: keyDown(with: event)
+            case .keyUp: keyUp(with: event)
+            case .flagsChanged: flagsChanged(with: event)
+            default: break
+            }
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -60,6 +128,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         {
             return
         }
+        if deferKeyEventUntilSurfaceCreation(event) { return }
         guard let surface else {
             interpretKeyEvents([event])
             return
@@ -212,6 +281,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func keyUp(with event: NSEvent) {
+        if deferKeyEventUntilSurfaceCreation(event) { return }
         guard Self.terminalKeyUpDispatchValidation(
             hasSurface: surface != nil,
             isFirstResponder: window?.firstResponder === self
@@ -231,6 +301,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if deferKeyEventUntilSurfaceCreation(event) { return }
         guard let surface else {
             return
         }

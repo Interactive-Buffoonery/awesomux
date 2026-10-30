@@ -61,6 +61,10 @@ final class GhosttySurfaceInputState {
     var terminalCursorVisible = true
     var markedText = NSMutableAttributedString()
     var keyTextAccumulator: [String]?
+    var pendingSurfaceKeyEvents: [NSEvent] = []
+    weak var pendingSurfaceKeyWindow: NSWindow?
+    var pendingSurfaceKeyEventsOverflowed = false
+    var pendingSurfaceKeyEventGeneration: UInt64 = 0
     var submittedSSHCommandBuffer = ""
     var submittedSSHCommandCaptureDisabled = false
 

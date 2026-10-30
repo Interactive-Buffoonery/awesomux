@@ -285,6 +285,11 @@ extension GhosttySurfaceNSView {
         runtime.refreshShellActivity(in: sessionStore)
         sizeDidChange(contentSize)
         needsDisplay = true
+        if createdSurface != nil {
+            deliverPendingSurfaceKeyEvents()
+        } else {
+            clearPendingSurfaceKeyEvents()
+        }
         return createdSurface != nil
     }
 
@@ -659,6 +664,9 @@ extension GhosttySurfaceNSView {
         // `createSurfaceIfNeeded` while `surface` is still nil (review R-4).
         defer {
             if lifecycleState.bridgePreflightGeneration == generation {
+                if surface == nil {
+                    clearPendingSurfaceKeyEvents()
+                }
                 lifecycleState.bridgePreflightTask = nil
                 lifecycleState.bridgePreflightNativeOwner = false
                 lifecycleState.bridgePreflightCompanionAuthorities = []
@@ -1154,6 +1162,9 @@ extension GhosttySurfaceNSView {
     }
 
     func updateWindowObservation() {
+        if lifecycleState.observedWindow !== window {
+            clearPendingSurfaceKeyEvents()
+        }
         // Scope removal to the previously-observed window so we don't sweep
         // away unrelated occlusion observers if any are added later.
         if let observedWindow = lifecycleState.observedWindow {
@@ -1165,6 +1176,11 @@ extension GhosttySurfaceNSView {
             NotificationCenter.default.removeObserver(
                 self,
                 name: NSWindow.didBecomeKeyNotification,
+                object: observedWindow
+            )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didResignKeyNotification,
                 object: observedWindow
             )
             NotificationCenter.default.removeObserver(
@@ -1200,6 +1216,12 @@ extension GhosttySurfaceNSView {
             self,
             selector: #selector(windowDidBecomeKey),
             name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResignKey),
+            name: NSWindow.didResignKeyNotification,
             object: window
         )
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -1271,6 +1293,10 @@ extension GhosttySurfaceNSView {
         } else if !isVisible, wasVisible {
             runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         }
+    }
+
+    @objc func windowDidResignKey(_ notification: Notification) {
+        clearPendingSurfaceKeyEvents()
     }
 
     @objc func windowDidBecomeKey(_ notification: Notification) {
