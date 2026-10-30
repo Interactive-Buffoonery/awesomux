@@ -1594,7 +1594,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
     @discardableResult
     func performBindingAction(_ action: String) -> Bool {
-        if inputState.surfaceInputDiscarded && Self.bindingActionDeliversUserText(action) {
+        if inputState.surfaceInputDiscarded
+            && (Self.bindingActionDeliversUserText(action) || action.hasPrefix("text:"))
+        {
             NSSound.beep()
             return false
         }
@@ -1628,18 +1630,21 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         if hasContent { markNeedsAttentionPromptAnswered() }
     }
 
-    func writeFromChrome(_ text: String) {
-        sendText(text)
+    @discardableResult
+    func writeFromChrome(_ text: String) -> Bool {
+        guard sendText(text) else { return false }
         window?.makeFirstResponder(self)
+        return true
     }
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
         guard !inputState.surfaceInputDiscarded else {
             NSSound.beep()
-            return
+            return false
         }
         guard let surface, !text.isEmpty else {
-            return
+            return false
         }
 
         inputState.disableSubmittedSSHCommandCapture()
@@ -1668,6 +1673,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         if shouldRefreshShellActivity {
             runtime.scheduleShellActivityRefreshAfterCommandSubmit(for: paneID, in: sessionStore)
         }
+        return true
     }
 
     func syncPreedit(clearIfNeeded: Bool = true) {

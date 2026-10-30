@@ -739,11 +739,10 @@ final class GhosttyRuntime {
     ) -> Bool {
         guard let surface = surfaceViews[paneID], surface.hasNativeSurface else { return false }
         if focusingSurface {
-            surface.writeFromChrome(text)
+            return surface.writeFromChrome(text)
         } else {
-            surface.sendText(text)
+            return surface.sendText(text)
         }
-        return true
     }
 
     @discardableResult
@@ -771,7 +770,7 @@ final class GhosttyRuntime {
         guard let surface = surfaceViews[paneID], surface.hasNativeSurface else { return false }
         let refreshShellActivity = surface.session.layout.pane(id: paneID)?.agentKind == .shell
         surface.prepareShellActivityCommandSubmit(shouldRefreshShellActivity: refreshShellActivity)
-        surface.sendText(command)
+        guard surface.sendText(command) else { return false }
         let accepted = surface.performBindingAction("text:\\r")
         surface.scheduleShellActivityRefreshIfCommandSubmitted(
             handled: accepted, shouldRefreshShellActivity: refreshShellActivity
