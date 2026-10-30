@@ -288,7 +288,7 @@ extension GhosttySurfaceNSView {
         if createdSurface != nil {
             deliverPendingSurfaceKeyEvents()
         } else {
-            clearPendingSurfaceKeyEvents()
+            discardPendingSurfaceKeyEvents()
         }
         return createdSurface != nil
     }
@@ -665,7 +665,7 @@ extension GhosttySurfaceNSView {
         defer {
             if lifecycleState.bridgePreflightGeneration == generation {
                 if surface == nil {
-                    clearPendingSurfaceKeyEvents()
+                    discardPendingSurfaceKeyEvents()
                 }
                 lifecycleState.bridgePreflightTask = nil
                 lifecycleState.bridgePreflightNativeOwner = false
@@ -1163,7 +1163,7 @@ extension GhosttySurfaceNSView {
 
     func updateWindowObservation() {
         if lifecycleState.observedWindow !== window {
-            clearPendingSurfaceKeyEvents()
+            resetPendingSurfaceKeyEvents()
         }
         // Scope removal to the previously-observed window so we don't sweep
         // away unrelated occlusion observers if any are added later.
@@ -1296,7 +1296,7 @@ extension GhosttySurfaceNSView {
     }
 
     @objc func windowDidResignKey(_ notification: Notification) {
-        clearPendingSurfaceKeyEvents()
+        resetPendingSurfaceKeyEvents()
     }
 
     @objc func windowDidBecomeKey(_ notification: Notification) {

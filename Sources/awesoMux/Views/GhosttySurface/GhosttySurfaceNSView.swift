@@ -292,7 +292,7 @@ final class GhosttySurfaceNSView: NSView {
 
     @MainActor
     func disposeNativeSurface(resetHostedLayer: Bool = false) {
-        clearPendingSurfaceKeyEvents()
+        discardPendingSurfaceKeyEvents()
         clearNativeRemotePwd()
         terminalEventState.nativeRemotePwdOrigin = nil
         terminalEventState.nativeRemotePwdSnapshot = nil
@@ -388,7 +388,7 @@ final class GhosttySurfaceNSView: NSView {
             || terminalSessionRepointed
             || bridgeExecutionPlanChanged
         if bridgePreflightIdentityChanged || self.sessionStore !== sessionStore {
-            clearPendingSurfaceKeyEvents()
+            resetPendingSurfaceKeyEvents()
         }
         if bridgePreflightIdentityChanged {
             clearNativeRemotePwd()
@@ -406,7 +406,7 @@ final class GhosttySurfaceNSView: NSView {
                 errorLatched: commandBridgeEnactor.errorLatched
             )
         if bridgePreflightPolicyInvalidated || bridgePolicyDisabled {
-            clearPendingSurfaceKeyEvents()
+            discardPendingSurfaceKeyEvents()
         }
         let fetchProgressIdentityChanged = sessionID != session.id || paneID != pane.id
         var shouldRestartBridgePreflight =

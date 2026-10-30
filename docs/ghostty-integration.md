@@ -597,3 +597,15 @@ git add vendor/ghostty
 ```
 
 After updating, rebuild the XCFramework and run the awesoMux test/build checks.
+
+## Input while a surface starts
+
+Local panes hold early key events during surface creation for up to two seconds
+and 256 events. If that input is discarded, further typing and paste are blocked
+to avoid submitting only the end of a command. Press Escape, or move focus away
+and back, before typing the full command again. Escape acknowledges the discarded
+input and is not sent to the shell.
+
+Remote panes discard early input instead of replaying it into an SSH client that
+may still be asking for credentials. This applies to both direct SSH and local
+amx carriers. A spawned process does not establish remote shell readiness.

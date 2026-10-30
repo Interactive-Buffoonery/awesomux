@@ -63,7 +63,8 @@ final class GhosttySurfaceInputState {
     var keyTextAccumulator: [String]?
     var pendingSurfaceKeyEvents: [NSEvent] = []
     weak var pendingSurfaceKeyWindow: NSWindow?
-    var pendingSurfaceKeyEventsOverflowed = false
+    // Survives surface creation; Escape or a focus/identity reset acknowledges it.
+    var surfaceInputDiscarded = false
     var pendingSurfaceKeyEventGeneration: UInt64 = 0
     var submittedSSHCommandBuffer = ""
     var submittedSSHCommandCaptureDisabled = false

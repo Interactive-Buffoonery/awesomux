@@ -45,7 +45,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             ghostty_surface_set_focus(surface, false)
         }
         if didResign {
-            clearPendingSurfaceKeyEvents()
+            resetPendingSurfaceKeyEvents()
             setAccessibilityFocused(false)
             runtime.setSecureInputFocused(false, for: paneID)
         }
@@ -57,7 +57,20 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         inputState.pendingSurfaceKeyEventGeneration &+= 1
         inputState.pendingSurfaceKeyEvents.removeAll()
         inputState.pendingSurfaceKeyWindow = nil
-        inputState.pendingSurfaceKeyEventsOverflowed = false
+    }
+
+    func resetPendingSurfaceKeyEvents() {
+        clearPendingSurfaceKeyEvents()
+        inputState.surfaceInputDiscarded = false
+    }
+
+    func discardPendingSurfaceKeyEvents() {
+        let hadPendingInput = !inputState.pendingSurfaceKeyEvents.isEmpty
+        clearPendingSurfaceKeyEvents()
+        if hadPendingInput && !inputState.surfaceInputDiscarded {
+            inputState.surfaceInputDiscarded = true
+            NSSound.beep()
+        }
     }
 
     /// Keep the cold-start geometry wait without losing keys already addressed
@@ -70,15 +83,13 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil
         else { return false }
 
-        guard !inputState.pendingSurfaceKeyEventsOverflowed else { return true }
+        guard !inputState.surfaceInputDiscarded else { return true }
         // Do not deliver a partial command after a long attach or an overflow.
         let firstEvent = inputState.pendingSurfaceKeyEvents.first ?? event
         guard inputState.pendingSurfaceKeyEvents.count < 256,
             ProcessInfo.processInfo.systemUptime - firstEvent.timestamp <= 2
         else {
-            inputState.pendingSurfaceKeyEvents.removeAll()
-            inputState.pendingSurfaceKeyEventsOverflowed = true
-            NSSound.beep()
+            discardPendingSurfaceKeyEvents()
             return true
         }
         inputState.pendingSurfaceKeyWindow = window
@@ -87,16 +98,23 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     func deliverPendingSurfaceKeyEvents() {
+        // A spawned SSH client may still be asking for credentials. Neither a
+        // direct attach nor a local amx carrier proves remote shell readiness.
+        if pane.executionPlan.remoteTarget != nil {
+            discardPendingSurfaceKeyEvents()
+            return
+        }
+        guard !inputState.surfaceInputDiscarded else { return }
         let events = inputState.pendingSurfaceKeyEvents
         let targetWindow = inputState.pendingSurfaceKeyWindow
-        clearPendingSurfaceKeyEvents()
-        let generation = inputState.pendingSurfaceKeyEventGeneration
         if let firstEvent = events.first,
             ProcessInfo.processInfo.systemUptime - firstEvent.timestamp > 2
         {
-            NSSound.beep()
+            discardPendingSurfaceKeyEvents()
             return
         }
+        clearPendingSurfaceKeyEvents()
+        let generation = inputState.pendingSurfaceKeyEventGeneration
         guard let expectedSurface = surface,
             targetWindow === window,
             terminalIsFocused,
@@ -126,6 +144,16 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
             DocumentKeyViewTraversal.handle(event, in: window, from: self)
         {
+            return
+        }
+        if inputState.surfaceInputDiscarded {
+            // Escape acknowledges the discarded command; it is not sent to
+            // the new shell. Focus changes also start a fresh input interval.
+            if event.keyCode == 0x35 && !event.isARepeat {
+                resetPendingSurfaceKeyEvents()
+            } else {
+                NSSound.beep()
+            }
             return
         }
         if deferKeyEventUntilSurfaceCreation(event) { return }
@@ -281,6 +309,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func keyUp(with event: NSEvent) {
+        guard !inputState.surfaceInputDiscarded else { return }
         if deferKeyEventUntilSurfaceCreation(event) { return }
         guard Self.terminalKeyUpDispatchValidation(
             hasSurface: surface != nil,
@@ -301,6 +330,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        guard !inputState.surfaceInputDiscarded else { return }
         if deferKeyEventUntilSurfaceCreation(event) { return }
         guard let surface else {
             return
@@ -1555,6 +1585,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
     @discardableResult
     func performBindingAction(_ action: String) -> Bool {
+        if inputState.surfaceInputDiscarded && Self.bindingActionDeliversUserText(action) {
+            NSSound.beep()
+            return false
+        }
         guard let surface else {
             return false
         }
@@ -1591,6 +1625,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     func sendText(_ text: String) {
+        guard !inputState.surfaceInputDiscarded else {
+            NSSound.beep()
+            return
+        }
         guard let surface, !text.isEmpty else {
             return
         }
