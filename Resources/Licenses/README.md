@@ -11,7 +11,7 @@ named in the table:
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
-| Ghostty | `6ba144158577d033ccb6ed4b574e4013957c9161` | `Ghostty/LICENSE` |
+| Ghostty | `cf0ab14aed55315a53de668bc1bbcf4a13ce0ddd` | `Ghostty/LICENSE` |
 | zmx / amx | `480fc5eae888d0dca7cefc80aff913efeb2eb88c` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
@@ -35,7 +35,7 @@ named in the table:
 | glslang | 14.2.0 (`N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy`) | `glslang/LICENSE.txt` |
 | SPIRV-Cross | 13.1.1 (`N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv`) | `SPIRV-Cross/LICENSE`, `SPIRV-Cross/KhronosFreeUse.txt` |
 | Wuffs | `7411f488fe2e2c205c3d3b3d28638b7356522930` (`N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`) | `Wuffs/LICENSE`, `Wuffs/LICENSE-APACHE`, `Wuffs/LICENSE-MIT` |
-| z2d | 0.13.0 / `40af3e84a4e15a9f31d126b3f281f23ce6a3dae5` | `z2d/COPYING`, `z2d/LICENSE`, `z2d/SOURCE.txt` |
+| z2d | 0.13.2 / `8787d71bac42d9aab00428ccb37a4fd453418761` | `z2d/COPYING`, `z2d/LICENSE`, `z2d/SOURCE.txt` |
 | Zig compiler runtime | Compatible 0.17.x toolchain (exact artifact version stamped at build time; license matches 0.17.0) | `Zig/LICENSE` |
 
 When a dependency pin changes, refresh its corresponding files from that exact

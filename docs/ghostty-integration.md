@@ -4,7 +4,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `6ba144158577d033ccb6ed4b574e4013957c9161` (untagged `origin/main`, post-`v1.4.0`)
+- Current pin: `cf0ab14aed55315a53de668bc1bbcf4a13ce0ddd` (untagged `origin/main`, post-`v1.4.0`)
 - License: MIT
 
 > This pin includes upstream's [Kitty history cleanup](https://github.com/ghostty-org/ghostty/pull/14832)
@@ -15,6 +15,9 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > mailbox. This pin also fixes stale scrollback pins, cursor style and hyperlinks
 > after history pruning, and malformed UTF-8 configuration handling. Shell
 > integration escapes directory names before writing terminal control sequences.
+> This revision adds DEC column operations, corrects VT formatter wrapping,
+> and rejects empty prefixed commands. It also updates embedded tmux control
+> handling and z2d rasterization to 0.13.2.
 > The public embedded C header and bundled Ghostty license are unchanged.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
