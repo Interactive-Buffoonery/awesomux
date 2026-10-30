@@ -160,6 +160,17 @@ extension GhosttySurfaceNSView {
         )
     }
 
+    /// `amx attach` re-sends its size on SIGWINCH. The daemon counts that as
+    /// the pane the user last looked at, so it leads when the phone lets go.
+    @MainActor
+    func nudgeAmxAttachAttention() {
+        guard NSApp.isActive, window?.isKeyWindow == true, commandBridgeSessionID != nil, let surface,
+            !ghostty_surface_process_exited(surface),
+            let processGroup = pid_t(exactly: ghostty_surface_foreground_pid(surface)), processGroup > 0
+        else { return }
+        killpg(processGroup, SIGWINCH)
+    }
+
     @MainActor
     func localAPIProcessSource() -> LocalAPIProcessSource? {
         if commandBridgeSessionID != nil {

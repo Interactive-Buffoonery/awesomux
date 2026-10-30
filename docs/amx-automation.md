@@ -158,9 +158,13 @@ The fork's `LEADERSHIP.md` specifies payloads and queue semantics.
 
 Under [ADR-0036](adr/0036-multi-client-terminal-leadership.md), the client that
 creates a new session is its first leader. Its resizes and terminal replies
-apply immediately, before its first keystroke. Attaching to an existing session
-retains the current grid without electing a leader. Disconnecting the leader
-clears authority while retaining that grid. The next accepted interactive
+apply immediately, before its first keystroke. A typed attachment to an
+existing session retains the current grid without electing a leader.
+Disconnecting the leader clears authority while retaining that grid. A Mac
+pane's attach, resize or focus reclaims a leaderless session at the pane's
+size, and the Mac pane that most recently did so is elected when another
+client leaves; a dropped phone or iPad leader first gets 5 seconds to reconnect
+(ADR-0036 amendment, 2026-10-29). Otherwise the next accepted interactive
 user batch or explicit typed takeover applies its validated dimensions before
 its bytes. Automation does neither. The existing Mac `attach` stream still uses
 a legacy heuristic to distinguish user input from replies; coalesced arbitrary
@@ -169,7 +173,7 @@ beginning with a C0 control (except ESC) or DEL can claim, as can ordinary CSI
 arrows, Shift-Tab and Home/End. Standalone ESC whenever the client is not the
 current leader remains an explicit legacy limitation; no timeout or guessing
 heuristic is used. The daemon answers DA queries while
-leaderless, including with legacy clients attached; other terminal queries may
+leaderless, such as during that reconnect wait; other terminal queries may
 remain unanswered until leadership is claimed. Unchanged-grid input from the
 same leader and size-only changes preserve pending typed replies; explicit
 takeover and actual leader changes invalidate them.

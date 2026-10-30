@@ -1315,6 +1315,8 @@ extension GhosttySurfaceNSView {
         updateSurfaceDisplayID()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
         replenishPendingSSHForegroundProbeBudget()
+        // Re-keying a window keeps its first responder, so focus is not re-sent.
+        if window?.firstResponder === self { nudgeAmxAttachAttention() }
     }
 
     @objc func activeSpaceDidChange(_ notification: Notification) {

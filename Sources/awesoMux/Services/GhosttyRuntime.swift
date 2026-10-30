@@ -1795,6 +1795,8 @@ final class GhosttyRuntime {
         }
 
         ghostty_app_set_focus(app, true)
+        // Returning to the Mac does not change the first responder.
+        (NSApp.keyWindow?.firstResponder as? GhosttySurfaceNSView)?.nudgeAmxAttachAttention()
     }
 
     private func applicationDidResignActive() {
