@@ -769,8 +769,8 @@ final class GhosttyRuntime {
     func submitCommand(_ command: String, toPane paneID: TerminalPane.ID) -> Bool {
         guard let surface = surfaceViews[paneID], surface.hasNativeSurface else { return false }
         let refreshShellActivity = surface.session.layout.pane(id: paneID)?.agentKind == .shell
-        surface.prepareShellActivityCommandSubmit(shouldRefreshShellActivity: refreshShellActivity)
         guard surface.sendText(command) else { return false }
+        surface.prepareShellActivityCommandSubmit(shouldRefreshShellActivity: refreshShellActivity)
         let accepted = surface.performBindingAction("text:\\r")
         surface.scheduleShellActivityRefreshIfCommandSubmitted(
             handled: accepted, shouldRefreshShellActivity: refreshShellActivity
