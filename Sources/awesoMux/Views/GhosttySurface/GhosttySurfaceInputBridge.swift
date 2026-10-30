@@ -64,13 +64,25 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         inputState.surfaceInputDiscarded = false
     }
 
-    func discardPendingSurfaceKeyEvents() {
-        let hadPendingInput = !inputState.pendingSurfaceKeyEvents.isEmpty
+    func discardPendingSurfaceKeyEvents(includingCurrentEvent: Bool = false) {
+        let hadPendingInput = includingCurrentEvent || !inputState.pendingSurfaceKeyEvents.isEmpty
         clearPendingSurfaceKeyEvents()
         if hadPendingInput && !inputState.surfaceInputDiscarded {
             inputState.surfaceInputDiscarded = true
             NSSound.beep()
         }
+    }
+
+    private func consumeDiscardedSurfaceKeyEvent(_ event: NSEvent) -> Bool {
+        guard inputState.surfaceInputDiscarded else { return false }
+        // Escape acknowledges the discarded command; it is not sent to the
+        // new shell. Focus changes also start a fresh input interval.
+        if event.keyCode == 0x35 && !event.isARepeat {
+            resetPendingSurfaceKeyEvents()
+        } else {
+            NSSound.beep()
+        }
+        return true
     }
 
     /// Keep the cold-start geometry wait without losing keys already addressed
@@ -89,7 +101,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         guard inputState.pendingSurfaceKeyEvents.count < 256,
             ProcessInfo.processInfo.systemUptime - firstEvent.timestamp <= 2
         else {
-            discardPendingSurfaceKeyEvents()
+            discardPendingSurfaceKeyEvents(includingCurrentEvent: true)
             return true
         }
         inputState.pendingSurfaceKeyWindow = window
@@ -146,16 +158,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         {
             return
         }
-        if inputState.surfaceInputDiscarded {
-            // Escape acknowledges the discarded command; it is not sent to
-            // the new shell. Focus changes also start a fresh input interval.
-            if event.keyCode == 0x35 && !event.isARepeat {
-                resetPendingSurfaceKeyEvents()
-            } else {
-                NSSound.beep()
-            }
-            return
-        }
+        if consumeDiscardedSurfaceKeyEvent(event) { return }
         if deferKeyEventUntilSurfaceCreation(event) { return }
         guard let surface else {
             interpretKeyEvents([event])
@@ -403,6 +406,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
         if Self.isApplicationCommandShortcut(event),
            NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            return true
+        }
+
+        if event.type == .keyDown, window?.firstResponder === self,
+            consumeDiscardedSurfaceKeyEvent(event)
+        {
             return true
         }
 
