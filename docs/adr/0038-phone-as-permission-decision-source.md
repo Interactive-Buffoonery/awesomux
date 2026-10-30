@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-20
 - **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
+- **Amended:** 2026-10-30 — deny with a note to Claude (see Amendment)
 - **Deciders:** Sarah
 - **Issue:** [#793](https://github.com/Interactive-Buffoonery/awesomux/issues/793)
 
@@ -12,6 +13,77 @@
 This supersedes workspace-selection requirements below. Separate default-off
 powers and all request identity, eligibility, expiry and release checks remain.
 Existing narrower Watch and rename grants widen to every workspace on load.
+
+## Amendment (2026-10-30): deny with a note to Claude
+
+**Status:** Accepted 2026-10-30. Sarah answered the questions at the end of
+this section.
+
+A bare deny from a phone usually leaves the agent stalled, because it doesn't
+know what to do instead. Claude's own prompt offers "No, and tell Claude what to
+do differently" for this. Claude's `PermissionRequest` hook supports the same
+thing: a `deny` decision may carry a `message` that tells Claude why the
+permission was denied. This amendment adds that choice to the phone. It narrows
+the deferred "free-text answers" in Consequences to this one case; session-wide
+rules stay deferred.
+
+### Choices
+
+- The phone offers **Allow**, **Deny**, and **Deny and tell Claude…**. All three
+  apply to this request only; the labels drop "once" because no wider choice
+  exists to contrast with.
+- A note is valid only with deny. Allow carries no text, and the phone never
+  sends `updatedInput`, `updatedPermissions` or `interrupt`.
+- Only providers and versions whose deny decision accepts a message offer the
+  choice, under the same per-provider/version enablement as the rest of this ADR.
+
+### The note
+
+- Plain text, up to 500 characters and 2 KiB of UTF-8. Line breaks and tabs are
+  allowed; other control characters, bidirectional overrides and invalid UTF-8
+  are rejected on the phone and again on the Mac. An over-limit or invalid note
+  is rejected, never truncated, since truncation can change its meaning.
+- The note is the device owner's instruction to the agent, not untrusted
+  provider content. Anything the agent does in response still goes through its
+  own permission prompts, so the note grants no tool authority.
+- The hook output is built with a JSON encoder, never string interpolation, so a
+  note can't change the decision object's structure. Both the bridge and the
+  file-pair fallback carry the note within the same size bound.
+
+### Ordering, retries and confirmation
+
+- The note is part of the answer. A retry ID binds the authenticated device,
+  request, choice and the exact note bytes; reusing it with a different note is
+  a retry conflict, like reusing it with a different choice.
+- Commit and race rules are unchanged: a deny with a note is a deny. Losing
+  contenders see the outcome and source, and the winning note is shown only to
+  the Mac and to the device that sent it.
+- The Mac card and receipts read "Denied on <device> with a note" and show the
+  note on the Mac, so the person at the Mac can see what Claude was told.
+
+### Authentication and privacy
+
+- Sending a note requires the same device authentication as any answer, after
+  the note is written. Lock-screen and notification actions never offer it;
+  writing a note opens the app.
+- The note lives only in the decision core's bounded outcome retention and the
+  hook output. Logs and diagnostics record only that a note was present and its
+  length. It is never sent to analytics, notifications or other devices.
+
+### Questions for Sarah
+
+1. Is the **Decide** grant enough to send a note, or should it also need the
+   terminal input grant ([ADR-0041](0041-paired-device-terminal-input.md)),
+   since a note steers the agent much like typing does? Recommendation: Decide
+   only, because every action the note leads to still needs its own permission.
+   **Decision (2026-10-30):** Decide only.
+2. Is 500 characters the right limit? Recommendation: yes; it fits a
+   redirection, and longer instructions belong in the terminal.
+   **Decision (2026-10-30):** 500 characters.
+3. Should the Mac card offer the same "Deny and tell Claude…" choice?
+   Recommendation: not in this change; Claude's own prompt on the Mac already
+   has it.
+   **Decision (2026-10-30):** leave it out of this change.
 
 ## Context
 
