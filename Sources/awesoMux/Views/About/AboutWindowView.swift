@@ -212,9 +212,13 @@ struct AboutCredit: Identifiable {
             attribution: "MessagePack serialization — MIT",
             resource: "LICENSE", ext: nil, subdirectory: "MPack"),
         AboutCredit(
-            name: "stb_sprintf",
-            attribution: "String formatting — MIT or public domain",
-            resource: "LICENSE", ext: nil, subdirectory: "stb-sprintf"),
+            name: "stb_image",
+            attribution: "Image decoding — MIT or public domain",
+            resource: "LICENSE", ext: nil, subdirectory: "stb-image"),
+        AboutCredit(
+            name: "stb_image_resize",
+            attribution: "Image resizing — MIT or public domain",
+            resource: "LICENSE", ext: nil, subdirectory: "stb-image-resize"),
         AboutCredit(
             name: "Google Breakpad",
             attribution: "Crash handling — BSD-3-Clause and bundled notices",

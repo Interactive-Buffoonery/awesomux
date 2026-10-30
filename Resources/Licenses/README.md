@@ -28,7 +28,8 @@ named in the table:
 | Dear ImGui | 1.92.5-docking / `3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c` | `DearImGui/LICENSE.txt` |
 | sentry-native | 0.7.8 (`N-V-__8AAPlZGwBEa-gxrcypGBZ2R8Bse4JYSfo_ul8i2jlG`) | `sentry-native/LICENSE` |
 | MPack | 1.0 (vendored by sentry-native 0.7.8) | `MPack/LICENSE` |
-| stb_sprintf | 1.09 (vendored by sentry-native 0.7.8) | `stb-sprintf/LICENSE` |
+| stb_image | 2.28 (vendored by the Ghostty pin above) | `stb-image/LICENSE` |
+| stb_image_resize | 0.97 (vendored by the Ghostty pin above) | `stb-image-resize/LICENSE` |
 | Google Breakpad | `b99f444ba5f6b98cac261cbb391d8766b34a5918` | `Breakpad/LICENSE` |
 | simdutf | 9.0.0 / `ca7acbcea967b5dcbab490066e99e3a6e6925539` | `simdutf/LICENSE-MIT`, `simdutf/LICENSE-APACHE`, `simdutf/NOTICE-BSD3` |
 | Highway | 1.2.0 / `66486a10623fa0d72fe91260f96c892e41aceb06` | `Highway/LICENSE`, `Highway/LICENSE-BSD3` |
