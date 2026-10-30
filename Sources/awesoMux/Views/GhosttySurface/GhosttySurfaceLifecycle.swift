@@ -1163,7 +1163,7 @@ extension GhosttySurfaceNSView {
 
     func updateWindowObservation() {
         if lifecycleState.observedWindow !== window {
-            resetPendingSurfaceKeyEvents()
+            clearPendingSurfaceKeyEvents()
         }
         // Scope removal to the previously-observed window so we don't sweep
         // away unrelated occlusion observers if any are added later.
