@@ -30,6 +30,8 @@ This narrows the deferred "free-text answers" in Consequences to this one case.
   that was written; reusing it with a different note is a retry conflict.
 - Sending a note needs the same Decide grant and device authentication as any
   other answer.
+- The companion protocol's decision answer gains an optional note field; the
+  phone and Mac ship that change together.
 
 ## Context
 

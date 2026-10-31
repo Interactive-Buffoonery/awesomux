@@ -69,10 +69,11 @@ Contract status + caveats:
 
 - The `decision.behavior` allow/deny contract is now first-class in the official
   hooks docs. Community writeups (ClaudeLog, claudefa.st) that earlier drafts of
-  this note leaned on show a stale shape — a top-level `decision` object, an
-  `ask` value, and `message`/`interrupt` fields on deny — treat those as
-  historical. The hook post-dates INT-500, which is why the repo's side-channel
-  doc still treats `PermissionRequest` as inbound-only.
+  this note leaned on show a stale shape — a top-level `decision` object and
+  an `ask` value — treat those as historical. The current docs do accept
+  `message` and `interrupt` on a deny (see the ADR-0038 2026-10-30
+  amendment). The hook post-dates INT-500, which is why the repo's
+  side-channel doc still treats `PermissionRequest` as inbound-only.
 - **Reliability wrinkle:** deny decisions from `PermissionRequest` were *ignored*
   in earlier Claude Code versions (anthropics/claude-code#19298 — auto-closed
   2026-03-05 as `not_planned` by the stale-bot, never confirmed fixed). Pin a
