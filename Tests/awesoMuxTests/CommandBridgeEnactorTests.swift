@@ -68,6 +68,39 @@ struct CommandBridgeEnactorTests {
         #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
     }
 
+    @Test(arguments: [false, true])
+    func terminalInputAcknowledgesRestartNotice(newRestartBeforeLayout: Bool) async throws {
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.announceSessionRespawnedFresh = { _, _ in }
+        enactor.onFreshDaemonIncarnation()
+        let noticeID = try #require(fixture.runtime.restartedSessionNotices[fixture.paneID])
+        let siblingID = UUID()
+        let siblingNoticeID = UUID()
+        fixture.runtime.restartedSessionNotices[siblingID] = siblingNoticeID
+
+        fixture.view.observeBindingAction("paste_from_clipboard", accepted: false, hasContent: true)
+        fixture.view.observeBindingAction("paste_from_clipboard", accepted: true, hasContent: false)
+        fixture.view.observeBindingAction("copy_to_clipboard", accepted: true, hasContent: true)
+        await awaitSignal { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] == noticeID)
+
+        fixture.view.observeBindingAction("paste_from_clipboard", accepted: true, hasContent: true)
+        // Keep pane geometry stable until the input handler has returned.
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] == noticeID)
+        if newRestartBeforeLayout {
+            enactor.onFreshDaemonIncarnation()
+        }
+        let latestNoticeID = fixture.runtime.restartedSessionNotices[fixture.paneID]
+        await awaitSignal { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] == (newRestartBeforeLayout ? latestNoticeID : nil))
+        #expect(fixture.runtime.restartedSessionNotices[siblingID] == siblingNoticeID)
+    }
+
     enum ExitOutcomesCase: String, CaseIterable {
         case cleanExitClearsStateAndCloses
         case remoteCleanShellExitClosesPane

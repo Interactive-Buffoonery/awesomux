@@ -1315,6 +1315,7 @@ extension GhosttySurfaceNSView {
 
     func markNeedsAttentionPromptAnswered() {
         runtime.cancelCommandRetry(toPane: paneID)
+        runtime.clearSessionRestartNotice(for: paneID, afterLayout: true)
         sessionStore.markNeedsAttentionPromptAnswered(id: sessionID, paneID: paneID)
     }
 }
