@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-20
 - **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
+- **Amended:** 2026-10-30 — deny with a note to Claude (see Amendment)
 - **Deciders:** Sarah
 - **Issue:** [#793](https://github.com/Interactive-Buffoonery/awesomux/issues/793)
 
@@ -12,6 +13,25 @@
 This supersedes workspace-selection requirements below. Separate default-off
 powers and all request identity, eligibility, expiry and release checks remain.
 Existing narrower Watch and rename grants widen to every workspace on load.
+
+## Amendment (2026-10-30): deny with a note to Claude
+
+A bare deny from the phone leaves Claude without a next step. Claude's own prompt
+offers "No, and tell Claude what to do differently", and its `PermissionRequest`
+hook accepts a `message` on a deny for the same purpose. The phone offers
+**Allow**, **Deny** and **Deny and tell Claude…**, all for this request only.
+This narrows the deferred "free-text answers" in Consequences to this one case.
+
+- A note goes only with a deny, because the hook accepts a message only there.
+- A note is plain text up to 500 characters.
+- The hook reply is built with a JSON encoder, not string interpolation, so a
+  note can't change the reply's structure.
+- A retry ID binds the note as well as the choice, so a retry delivers the note
+  that was written; reusing it with a different note is a retry conflict.
+- Sending a note needs the same Decide grant and device authentication as any
+  other answer.
+- The companion protocol's decision answer gains an optional note field; the
+  phone and Mac ship that change together.
 
 ## Context
 
