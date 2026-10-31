@@ -18,7 +18,8 @@ python3 script/local-permission-e2e/run.py \
 The output directory must not exist. `result.json` lists completed cases;
 a nonzero runner exit means failure even if some cases already passed. The
 optional timeout case takes the actual 120-second helper budget. The remaining
-nine cases exercise bridge allow/deny, file allow/deny, bridge disconnect with
+eleven cases exercise bridge allow/deny, file allow/deny, deny with a note for
+Claude on both transports, bridge disconnect with
 an unchanged invocation, fragmented socket responses, and broken stdout with
 no ACK on either transport. File cases also cover a terminal no-decision record,
 unrelated directory notifications, immediate publication, and retirement of the

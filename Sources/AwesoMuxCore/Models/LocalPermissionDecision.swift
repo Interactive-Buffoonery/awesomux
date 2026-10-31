@@ -114,6 +114,8 @@ public struct LocalPermissionOutcome: Codable, Equatable, Sendable {
     public var state: LocalPermissionState
     public var choice: LocalPermissionChoice?
     public var source: LocalPermissionAnswerSource?
+    /// Text for the provider; only a deny carries one.
+    public var note: String?
 }
 
 public struct LocalPermissionRemoteReceipt: Equatable, Sendable {
@@ -156,6 +158,7 @@ public final class LocalPermissionDecisionCore {
     private struct Retry {
         let identity: LocalPermissionIdentity
         let choice: LocalPermissionChoice
+        let note: String?
         let receipt: LocalPermissionRemoteReceipt
         let retainUntil: Date
         let retentionDeadline: ContinuousClock.Instant
@@ -277,7 +280,7 @@ public final class LocalPermissionDecisionCore {
 
     @discardableResult
     public func commit(
-        _ identity: LocalPermissionIdentity, choice: LocalPermissionChoice, now: Date,
+        _ identity: LocalPermissionIdentity, choice: LocalPermissionChoice, note: String? = nil, now: Date,
         helperAlive: Bool
     ) -> LocalPermissionState? {
         validate(identity, now: now, helperAlive: helperAlive)
@@ -285,6 +288,7 @@ public final class LocalPermissionDecisionCore {
         if entry.outcome.state == .pending, entry.request.choices.contains(choice) {
             entry.outcome.state = .recorded
             entry.outcome.choice = choice
+            entry.outcome.note = choice == .deny ? note : nil
             entry.outcome.source = .mac
             entries[identity.invocationID] = entry
         }
@@ -294,13 +298,13 @@ public final class LocalPermissionDecisionCore {
     /// MainActor serializes expiry and both local/remote commits. A remote
     /// deadline affects only device actions, never the remaining Mac window.
     public func commitRemote(
-        _ identity: LocalPermissionIdentity, choice: LocalPermissionChoice,
+        _ identity: LocalPermissionIdentity, choice: LocalPermissionChoice, note: String? = nil,
         deviceID: UUID, deviceName: String, retryID: UUID, now: Date, helperAlive: Bool
     ) -> LocalPermissionRemoteReceipt {
         validate(identity, now: now, helperAlive: helperAlive)
         let key = RetryKey(deviceID: deviceID, retryID: retryID)
         if let retry = retries[key] {
-            guard retry.identity == identity, retry.choice == choice else {
+            guard retry.identity == identity, retry.choice == choice, retry.note == note else {
                 return .init(result: .retryConflict, outcome: nil)
             }
             return retry.receipt
@@ -311,7 +315,7 @@ public final class LocalPermissionDecisionCore {
         guard let entry = entries[identity.invocationID], entry.request.identity == identity else {
             let receipt = LocalPermissionRemoteReceipt(result: .unknown, outcome: nil)
             retries[key] = Retry(
-                identity: identity, choice: choice, receipt: receipt, retainUntil: now.addingTimeInterval(600),
+                identity: identity, choice: choice, note: note, receipt: receipt, retainUntil: now.addingTimeInterval(600),
                 retentionDeadline: monotonicNow().advanced(by: .seconds(600)))
             return receipt
         }
@@ -321,7 +325,7 @@ public final class LocalPermissionDecisionCore {
         } else if now >= entry.remoteExpiresAt || monotonicNow() >= entry.remoteDeadline {
             result = .expired
         } else {
-            _ = commit(identity, choice: choice, now: now, helperAlive: helperAlive)
+            _ = commit(identity, choice: choice, note: note, now: now, helperAlive: helperAlive)
             if var winner = entries[identity.invocationID], winner.outcome.state == .recorded {
                 winner.outcome.source = .device(id: deviceID, name: deviceName)
                 entries[identity.invocationID] = winner
@@ -333,7 +337,7 @@ public final class LocalPermissionDecisionCore {
         let receipt = LocalPermissionRemoteReceipt(result: result, outcome: outcome(identity))
         let retainUntil = entry.request.expiresAt.addingTimeInterval(600)
         retries[key] = Retry(
-            identity: identity, choice: choice, receipt: receipt, retainUntil: retainUntil,
+            identity: identity, choice: choice, note: note, receipt: receipt, retainUntil: retainUntil,
             retentionDeadline: monotonicNow().advanced(by: .seconds(max(0, retainUntil.timeIntervalSince(now)))))
         return receipt
     }

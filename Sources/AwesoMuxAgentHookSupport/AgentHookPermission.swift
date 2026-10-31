@@ -68,8 +68,27 @@ enum AgentHookPermission {
         }
     }
 
-    private static func outputDecision(_ choice: LocalPermissionChoice, output: (String) -> Bool) -> Bool {
-        output("{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"\(choice.rawValue)\"}}}")
+    private struct Reply: Encodable {
+        struct Hook: Encodable {
+            struct Decision: Encodable {
+                let behavior: LocalPermissionChoice
+                let message: String?
+            }
+            var hookEventName = "PermissionRequest"
+            let decision: Decision
+        }
+        let hookSpecificOutput: Hook
+    }
+
+    /// Encoded, never interpolated: a device-written note must stay a string value.
+    private static func outputDecision(
+        _ choice: LocalPermissionChoice, note: String?, output: (String) -> Bool
+    ) -> Bool {
+        let reply = Reply(hookSpecificOutput: .init(decision: .init(behavior: choice, message: choice == .deny ? note : nil)))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(reply), let text = String(data: data, encoding: .utf8) else { return false }
+        return output(text)
     }
 
     /// A matching response consumes the invocation even if it expired during
@@ -83,7 +102,7 @@ enum AgentHookPermission {
         guard outcome.identity == request.identity else { return false }
         if outcome.state == .delivering, let choice = outcome.choice {
             guard monotonicNow() < deadline, wallNow() < request.expiresAt else { return true }
-            if outputDecision(choice, output: output) { acknowledge() }
+            if outputDecision(choice, note: outcome.note, output: output) { acknowledge() }
         }
         return true
     }

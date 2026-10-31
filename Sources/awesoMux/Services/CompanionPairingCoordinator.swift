@@ -1093,7 +1093,7 @@ private final class CompanionNetworkServer {
                 let answer: CompanionDecisionAnswer?
                 if isAnswer {
                     guard let payload = object["decisionAnswer"] as? [String: Any],
-                        Set(payload.keys) == ["identity", "choice", "retryID"],
+                        Set(payload.keys).subtracting(["note"]) == ["identity", "choice", "retryID"],
                         let identity = payload["identity"] as? [String: Any],
                         Set(identity.keys) == [
                             "runtimeID", "workspaceID", "paneID", "targetVersion", "providerSessionID", "invocationID", "revision",
