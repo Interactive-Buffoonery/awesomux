@@ -39,6 +39,28 @@ import Testing
         #expect(core.outcome(request.identity)?.choice == .allow)
         #expect(core.claimDelivery(request.identity, now: fixture.now, helperAlive: true) == nil)
     }
+    // A retry must deliver the note that was written; a different note under
+    // the same retry ID is a conflict, never a replacement.
+    @Test func retryBindsDenyNote() {
+        let (core, request) = fixture.fixture()
+        #expect(core.admit(request, now: fixture.now, helperAlive: true))
+        let device = UUID(), retry = UUID()
+        let first = core.commitRemote(
+            request.identity, choice: .deny, note: "Use staging", deviceID: device, deviceName: "Phone",
+            retryID: retry, now: fixture.now, helperAlive: true)
+        #expect(first.result == .recorded)
+        #expect(core.outcome(request.identity)?.note == "Use staging")
+        #expect(
+            core.commitRemote(
+                request.identity, choice: .deny, note: "Use prod", deviceID: device, deviceName: "Phone",
+                retryID: retry, now: fixture.now, helperAlive: true
+            ).result == .retryConflict)
+        #expect(
+            core.commitRemote(
+                request.identity, choice: .deny, note: "Use staging", deviceID: device, deviceName: "Phone",
+                retryID: retry, now: fixture.now, helperAlive: true) == first)
+        #expect(core.outcome(request.identity)?.note == "Use staging")
+    }
     @Test func macWinnerCannotBeOverwritten() {
         let (core, request) = fixture.fixture()
         #expect(core.admit(request, now: fixture.now, helperAlive: true))

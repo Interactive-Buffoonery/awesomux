@@ -258,7 +258,7 @@ final class LocalPermissionCoordinator {
                 guard allowed(identity.target) else { throw LocalAPIError.permissionDenied }
                 let request = core.requests.first { $0.identity == identity }
                 let result = core.commitRemote(
-                    identity, choice: answer.choice == .allow ? .allow : .deny,
+                    identity, choice: answer.choice == .allow ? .allow : .deny, note: answer.note,
                     deviceID: deviceID, deviceName: deviceName, retryID: answer.retryID, now: Date(),
                     helperAlive: request.map(LocalPermissionFiles.helperAlive) ?? false)
                 if result.result == .recorded, remoteAuthorities[identity.invocationID] == nil {
@@ -351,6 +351,7 @@ final class LocalPermissionCoordinator {
                 core.markOutputAttempted(identity)
             } else {
                 wire.choice = nil
+                wire.note = nil
             }
             try body(wire)
         }
