@@ -11,6 +11,10 @@ The downstream patch includes six regression tests. `batch-regression.zig.inc` a
 Both sources are MIT licensed; the copied package retains libxev’s LICENSE.
 Existing bundled libxev notices remain applicable.
 
+Archive extraction supports Apple's bundled Python 3.9.6. It accepts only
+regular files and directories, rejects absolute and parent paths, and never
+creates links or special files.
+
 Preparation fetches Ghostty’s exact content-addressed libxev package into a
 private cache, verifies its declared Zig hash, copies it into the generated
 source, then applies this patch. A changed dependency declaration or patch

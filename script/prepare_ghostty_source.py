@@ -127,6 +127,24 @@ LIBXEV_URL = "https://deps.files.ghostty.org/libxev-819ffa180ca20e31c7eded74e2e1
 LIBXEV_HASH = "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn"
 
 
+def extract_libxev(archive, destination):
+    destination.mkdir()
+    for member in archive.getmembers():
+        relative = Path(member.name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RuntimeError("Unsafe libxev archive path: " + member.name)
+        target = destination / relative
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif member.isfile():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.extractfile(member) as source, target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(member.mode & 0o755)
+        else:
+            raise RuntimeError("Unsupported libxev archive entry: " + member.name)
+
+
 def inject_libxev(staging, zig):
     manifest = staging / "build.zig.zon"
     source = manifest.read_text()
@@ -147,7 +165,7 @@ def inject_libxev(staging, zig):
     # Zig 0.17 stores fetched packages as archives rather than unpacked trees.
     unpacked = cache / "source"
     with tarfile.open(cache / "p" / (package_hash + ".tar.gz")) as file:
-        file.extractall(unpacked, filter="data")
+        extract_libxev(file, unpacked)
     manifests = list(unpacked.rglob("build.zig.zon"))
     if len(manifests) != 1:
         raise RuntimeError("Unexpected libxev source archive layout")
