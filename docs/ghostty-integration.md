@@ -52,7 +52,7 @@ without changing the Ghostty submodule or its libxev pin. It prevents duplicate
 completion queueing and preserves rearm/cancellation state. The full patched
 libxev tests, including the300-pipe batch-boundary regression, run before every
 native Ghostty build. Source package hashes and patch context are checked before
-applying it. Both patch inputs participate in the artifact fingerprint.
+applying it. All patch and regression inputs participate in the artifact fingerprint.
 
 ## Build The XCFramework
 

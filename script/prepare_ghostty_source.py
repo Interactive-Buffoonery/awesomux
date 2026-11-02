@@ -34,6 +34,8 @@ INPUTS = (
     ROOT / "native/ghostty/kitty-clear-tests.zig.inc",
     ROOT / "native/libxev/kqueue.patch",
     ROOT / "native/libxev/batch-regression.zig.inc",
+    ROOT / "native/libxev/machport.patch",
+    ROOT / "native/libxev/machport-regressions.zig.inc",
 )
 
 
@@ -151,12 +153,14 @@ def inject_libxev(staging, zig):
         raise RuntimeError("Unexpected libxev source archive layout")
     package = staging / "pkg/awesomux-libxev"
     shutil.copytree(manifests[0].parent, package)
-    patch = str(ROOT / "native/libxev/kqueue.patch")
     command = ["git", "apply", "--directory=pkg/awesomux-libxev"]
-    subprocess.run(command + ["--check", patch], cwd=staging, check=True)
-    subprocess.run(command + [patch], cwd=staging, check=True)
+    for name in ("kqueue.patch", "machport.patch"):
+        patch = str(ROOT / "native/libxev" / name)
+        subprocess.run(command + ["--check", patch], cwd=staging, check=True)
+        subprocess.run(command + [patch], cwd=staging, check=True)
     with (package / "src/backend/kqueue.zig").open("a") as file:
-        file.write("\n" + (ROOT / "native/libxev/batch-regression.zig.inc").read_text())
+        for name in ("batch-regression.zig.inc", "machport-regressions.zig.inc"):
+            file.write("\n" + (ROOT / "native/libxev" / name).read_text())
     manifest.write_text(source.replace(declaration, '        .libxev = .{ .path = "./pkg/awesomux-libxev", .lazy = true },', 1))
 
 

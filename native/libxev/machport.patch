@@ -1,0 +1,45 @@
+--- a/src/backend/kqueue.zig
++++ b/src/backend/kqueue.zig
+@@ -313,6 +313,15 @@
+         }
+     }
+ 
++    fn rearm_machport(self: *Loop, c: *Completion) !void {
++        if (comptime !builtin.os.tag.isDarwin()) return;
++        if (c.op != .machport) return;
++        var event = c.kevent().?;
++        event.flags = std.c.EV.ENABLE;
++        // No event output: re-enable without receiving into the callback's buffer.
++        _ = try kevent_syscall(self.kqueue_fd, &.{event}, &.{}, null);
++    }
++
+     /// Run the event loop. See RunMode documentation for details on modes.
+     /// Once the loop is run, the pointer MUST remain stable.
+     pub fn run(self: *Loop, mode: RunMode) !void {
+@@ -479,6 +488,7 @@
+                     .rearm => if (disarm_ev != null) {
+                         c.flags.state = .active;
+                         c.result = null;
++                        try self.rearm_machport(c);
+                     } else {
+                         if (c_active) self.active -= 1;
+                         c.flags.state = .adding;
+@@ -593,6 +603,7 @@
+                     // sure that the state is correct.
+                     .rearm => {
+                         c.flags.state = .active;
++                        try self.rearm_machport(c);
+                     },
+                 }
+             }
+@@ -1130,7 +1141,9 @@
+                 break :kevent .{
+                     .ident = @as(c_uint, v.port),
+                     .filter = std.c.EVFILT.MACHPORT,
+-                    .flags = std.c.EV.ADD | std.c.EV.ENABLE,
++                    // Receiving happens in the kernel, before any queue guard.
++                    // Keep the buffer stable until its callback finishes.
++                    .flags = std.c.EV.ADD | std.c.EV.ENABLE | std.c.EV.DISPATCH,
+                     .fflags = darwin.MACH_RCV_MSG,
+                     .data = 0,
+                     .udata = @intFromPtr(self),
