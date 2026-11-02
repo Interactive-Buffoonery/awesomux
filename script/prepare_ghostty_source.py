@@ -3,10 +3,13 @@
 
 import argparse
 import hashlib
+import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tarfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +32,8 @@ INPUTS = (
     ROOT / "native/ghostty/command-status.zig",
     ROOT / "native/ghostty/command-status-tests.zig.inc",
     ROOT / "native/ghostty/kitty-clear-tests.zig.inc",
+    ROOT / "native/libxev/kqueue.patch",
+    ROOT / "native/libxev/batch-regression.zig.inc",
 )
 
 
@@ -116,6 +121,45 @@ def inject_kitty_clear(staging):
         file.write((ROOT / "native/ghostty/kitty-clear-tests.zig.inc").read_text())
 
 
+LIBXEV_URL = "https://deps.files.ghostty.org/libxev-819ffa180ca20e31c7eded74e2e1aceb1eab557f.tar.gz"
+LIBXEV_HASH = "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn"
+
+
+def inject_libxev(staging, zig):
+    manifest = staging / "build.zig.zon"
+    source = manifest.read_text()
+    declarations = list(re.finditer(r"        \.libxev = \.\{.*?\n        \},", source, re.DOTALL))
+    if len(declarations) != 1:
+        raise RuntimeError("Ghostty libxev declaration changed; review the kqueue patch")
+    declaration = declarations[0].group()
+    if (declaration.count(f'.url = "{LIBXEV_URL}"') != 1
+            or declaration.count(f'.hash = "{LIBXEV_HASH}"') != 1):
+        raise RuntimeError("Ghostty libxev pin changed; review the kqueue patch")
+    cache = staging / ".awesomux-libxev-cache"
+    package_hash = subprocess.check_output(
+        [zig, "fetch", LIBXEV_URL], text=True, timeout=120,
+        env=dict(os.environ, ZIG_GLOBAL_CACHE_DIR=str(cache)),
+    ).strip()
+    if package_hash != LIBXEV_HASH:
+        raise RuntimeError("Fetched libxev package hash differs from the Ghostty pin")
+    # Zig 0.17 stores fetched packages as archives rather than unpacked trees.
+    unpacked = cache / "source"
+    with tarfile.open(cache / "p" / (package_hash + ".tar.gz")) as file:
+        file.extractall(unpacked, filter="data")
+    manifests = list(unpacked.rglob("build.zig.zon"))
+    if len(manifests) != 1:
+        raise RuntimeError("Unexpected libxev source archive layout")
+    package = staging / "pkg/awesomux-libxev"
+    shutil.copytree(manifests[0].parent, package)
+    patch = str(ROOT / "native/libxev/kqueue.patch")
+    command = ["git", "apply", "--directory=pkg/awesomux-libxev"]
+    subprocess.run(command + ["--check", patch], cwd=staging, check=True)
+    subprocess.run(command + [patch], cwd=staging, check=True)
+    with (package / "src/backend/kqueue.zig").open("a") as file:
+        file.write("\n" + (ROOT / "native/libxev/batch-regression.zig.inc").read_text())
+    manifest.write_text(source.replace(declaration, '        .libxev = .{ .path = "./pkg/awesomux-libxev", .lazy = true },', 1))
+
+
 def fingerprint():
     digest = hashlib.sha256()
     for path in INPUTS:
@@ -123,7 +167,7 @@ def fingerprint():
     return digest.hexdigest()
 
 
-def prepare(vendor, destination):
+def prepare(vendor, destination, zig="zig"):
     sha = subprocess.check_output(["git", "-C", str(vendor), "rev-parse", "HEAD"], text=True).strip()
     identity = sha + "-" + fingerprint()
     target = destination / identity
@@ -134,6 +178,7 @@ def prepare(vendor, destination):
     try:
         subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(vendor), str(staging)], check=True)
         subprocess.run(["git", "-C", str(staging), "checkout", "--quiet", "--detach", sha], check=True)
+        inject_libxev(staging, zig)
         inject_remote_pwd(staging)
         inject_command_status(staging)
         inject_kitty_clear(staging)
@@ -187,5 +232,6 @@ if __name__ == "__main__":
     parser.add_argument("--fingerprint", action="store_true")
     parser.add_argument("--vendor", type=Path, default=ROOT / "vendor/ghostty")
     parser.add_argument("--destination", type=Path, default=ROOT / ".build/ghostty-sources")
+    parser.add_argument("--zig", default="zig")
     args = parser.parse_args()
-    print(fingerprint() if args.fingerprint else prepare(args.vendor, args.destination))
+    print(fingerprint() if args.fingerprint else prepare(args.vendor, args.destination, args.zig))
