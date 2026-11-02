@@ -45,6 +45,15 @@ The integration uses Ghostty's Darwin XCFramework output,
 the SwiftPM app via the `GhosttyKit` system-library module and
 `GhosttyKitLinker` target (see `Package.swift`).
 
+## libxev kqueue fixes
+
+The generated build copy applies the [libxev kqueue patch](../native/libxev/README.md)
+without changing the Ghostty submodule or its libxev pin. It prevents duplicate
+completion queueing and preserves rearm/cancellation state. The full patched
+libxev tests, including the300-pipe batch-boundary regression, run before every
+native Ghostty build. Source package hashes and patch context are checked before
+applying it. All patch and regression inputs participate in the artifact fingerprint.
+
 ## Build The XCFramework
 
 Prerequisites:
