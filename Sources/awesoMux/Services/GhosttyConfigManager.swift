@@ -297,8 +297,8 @@ struct GhosttyConfigManager {
         guard count > 0 else { return }
         for index in 0..<count {
             let diag = ghostty_config_get_diagnostic(config, index)
-                let message = String(cString: diag.message)
-                Self.diagnosticsLogger.debug("ghostty config diagnostic: \(message, privacy: .public)")
+            let message = String(cString: diag.message)
+            Self.diagnosticsLogger.debug("ghostty config diagnostic: \(message, privacy: .public)")
         }
     }
 #else
