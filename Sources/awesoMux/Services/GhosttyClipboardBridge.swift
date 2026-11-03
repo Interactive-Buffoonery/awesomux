@@ -76,7 +76,7 @@ extension GhosttyRuntime {
         _ userdata: UnsafeMutableRawPointer?,
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?,
-        mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+        mimes: UnsafePointer<UnsafePointer<CChar>>?,
         mimesLen: Int,
         list: Bool
     ) -> ghostty_clipboard_read_result_e {
@@ -106,7 +106,7 @@ extension GhosttyRuntime {
         var requestedMimes: [String] = []
         if let mimes {
             for index in 0..<mimesLen {
-                guard let mimePtr = mimes[index] else { continue }
+                let mimePtr = mimes[index]
                 let mime = String(cString: mimePtr)
                 guard !requestedMimes.contains(mime) else { continue }
                 requestedMimes.append(mime)
@@ -346,17 +346,9 @@ extension GhosttyRuntime {
         if let contents = confirm.contents {
             for index in 0..<confirm.contents_len {
                 let content = contents[index]
-                guard let mimePtr = content.mime else { continue }
+                let mimePtr = content.mime
                 let mime = String(cString: mimePtr)
-                // libghostty owns this memory only for the callback duration;
-                // a nil pointer with a non-zero length must degrade to empty
-                // bytes rather than crash the confirm path.
-                let data: Data
-                if content.len > 0, let bytes = content.data {
-                    data = Data(bytes: bytes, count: content.len)
-                } else {
-                    data = Data()
-                }
+                let data = Data(bytes: content.data, count: content.len)
                 representations.append((mime, data))
             }
         }
@@ -1051,12 +1043,11 @@ extension GhosttyRuntime {
     ) -> String? {
         for index in 0..<count {
             let item = content[index]
-            guard let mime = item.mime,
-                  String(cString: mime) == "text/plain",
-                  let data = item.data else {
+            guard String(cString: item.mime) == "text/plain" else {
                 continue
             }
 
+            let data = item.data
             if let maximumBytes,
                cStringByteCount(data, maximumBytes: maximumBytes) == nil {
                 return nil

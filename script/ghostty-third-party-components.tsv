@@ -1,8 +1,8 @@
-# Audited against GhosttyKit ReleaseFast at vendor/ghostty pin below.
-# ghostty_pin=cf0ab14aed55315a53de668bc1bbcf4a13ce0ddd
+# Source adoption only; fresh ReleaseFast archive audit pending for this pin.
+# ghostty_pin=091beb99250bc4c1a255d3617b54630c115d0f27
 # zig_version_series=0.17
-# archive_member_count=277
-# archive_members_sha256=f52ec83b0da3b43ad0ee55c9eb1a20dd8249d8aaf0e7c49de764c5ee61b0e5b8
+# archive_member_count=PENDING
+# archive_members_sha256=PENDING
 #
 # component<TAB>pinned source<TAB>representative archive member<TAB>Licenses-relative files (| separated)
 FreeType	2.13.2 / N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub	ftbase.o	FreeType/LICENSE.TXT|FreeType/FTL.TXT|FreeType/GPLv2.TXT

@@ -52,13 +52,11 @@ extension GhosttyRuntime {
             return true
 
         case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
-            guard let view = surfaceView(from: target),
-                let titlePointer = action.action.set_title.title
-            else {
+            guard let view = surfaceView(from: target) else {
                 return false
             }
 
-            let title = String(cString: titlePointer)
+            let title = String(cString: action.action.set_title.title)
             // A `Task` here leaves a gap for `update(session:pane:)` to repoint
             // this view at a different pane before the write lands — same race
             // INT-587 fixed for GHOSTTY_ACTION_PROGRESS_REPORT below (INT-608).
@@ -74,13 +72,11 @@ extension GhosttyRuntime {
             return true
 
         case GHOSTTY_ACTION_PWD:
-            guard let view = surfaceView(from: target),
-                let pwdPointer = action.action.pwd.pwd
-            else {
+            guard let view = surfaceView(from: target) else {
                 return false
             }
 
-            let workingDirectory = String(cString: pwdPointer)
+            let workingDirectory = String(cString: action.action.pwd.pwd)
             // Same pane-recycle race as GHOSTTY_ACTION_SET_TITLE above (INT-608).
             // OSC 7 (pwd) is parsed from PTY output like OSC 9;4 (progress), so
             // it shares that case's ghostty_app_tick-only assumption too.
@@ -132,8 +128,8 @@ extension GhosttyRuntime {
             }
 
             let notification = action.action.desktop_notification
-            let title = notification.title.map(String.init(cString:)) ?? ""
-            let body = notification.body.map(String.init(cString:)) ?? ""
+            let title = String(cString: notification.title)
+            let body = String(cString: notification.body)
 
             // Same COMMAND_FINISHED ordering constraint as GHOSTTY_ACTION_RING_BELL
             // above — stays on `Task` (see that case's comment).
@@ -406,7 +402,7 @@ extension GhosttyRuntime {
                 return false
             }
 
-            let needle = action.action.start_search.needle.map(String.init(cString:))
+            let needle = String(cString: action.action.start_search.needle)
             assert(
                 Thread.isMainThread,
                 "GHOSTTY_ACTION_START_SEARCH fired off-main — the " + "start_search binding-action callback assumption no longer holds"
@@ -905,7 +901,7 @@ func awesoMuxGhosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
 }
 
 func awesoMuxGhosttyAction(
-    _ app: ghostty_app_t?,
+    _ app: ghostty_app_t,
     _ target: ghostty_target_s,
     _ action: ghostty_action_s
 ) -> Bool {
@@ -915,8 +911,8 @@ func awesoMuxGhosttyAction(
 func awesoMuxGhosttyReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
-    _ state: UnsafeMutableRawPointer?,
-    _ mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+    _ state: UnsafeMutableRawPointer,
+    _ mimes: UnsafePointer<UnsafePointer<CChar>>,
     _ mimesLen: Int,
     _ list: Bool
 ) -> ghostty_clipboard_read_result_e {
@@ -932,8 +928,8 @@ func awesoMuxGhosttyReadClipboard(
 
 func awesoMuxGhosttyConfirmReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
-    _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
-    _ state: UnsafeMutableRawPointer?,
+    _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>,
+    _ state: UnsafeMutableRawPointer,
     _ request: ghostty_clipboard_request_e
 ) {
     GhosttyRuntime.confirmReadClipboard(
@@ -947,7 +943,7 @@ func awesoMuxGhosttyConfirmReadClipboard(
 func awesoMuxGhosttyWriteClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
-    _ content: UnsafePointer<ghostty_clipboard_content_s>?,
+    _ content: UnsafePointer<ghostty_clipboard_content_s>,
     _ len: Int,
     _ confirm: Bool
 ) {

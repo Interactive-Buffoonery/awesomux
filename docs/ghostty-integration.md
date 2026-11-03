@@ -4,7 +4,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `cf0ab14aed55315a53de668bc1bbcf4a13ce0ddd` (untagged `origin/main`, post-`v1.4.0`)
+- Current pin: `091beb99250bc4c1a255d3617b54630c115d0f27` (untagged `origin/main`, post-`v1.4.0`)
 - License: MIT
 
 > This pin includes upstream's [Kitty history cleanup](https://github.com/ghostty-org/ghostty/pull/14832)
@@ -18,7 +18,14 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > This revision adds DEC column operations, corrects VT formatter wrapping,
 > and rejects empty prefixed commands. It also updates embedded tmux control
 > handling and z2d rasterization to 0.13.2.
-> The public embedded C header and bundled Ghostty license are unchanged.
+> The public C header now declares pointer nullability. Swift callbacks,
+> pointer-field reads and clipboard fixtures follow that contract, guided by
+> upstream's MIT-licensed macOS Swift migration in 0e067ded703c4212248daf996f97c62f2f13114a.
+> Nullable userdata, constructors, target surfaces and preedit clearing remain
+> supported. The bundled Ghostty license is unchanged.
+> Fresh generated-source compilation, ReleaseFast builds, archive member
+> count/digest and component audit, native regressions and runtime checks are
+> pending for this pin; prior-pin evidence does not transfer.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
