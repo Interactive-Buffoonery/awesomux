@@ -451,7 +451,8 @@ struct ContentView: View {
                         hasRecoveryWarning: hasRecoveryWarning,
                         edgeTabStyle: edgeTabStyle,
                         edgeTabVisibilitySource: sidebarPresentation.visibilitySource,
-                        sidebarPosition: sidebarPosition
+                        sidebarPosition: sidebarPosition,
+                        onFocusAgentPane: onFocusAgentPane
                     )
                     .environment(appSettingsStore)
                     .environment(documentTabActions)
@@ -525,14 +526,8 @@ struct ContentView: View {
     /// Wire the multi-pane peek card's click-to-jump once, when the overlay is
     /// installed. Re-resolves the live workspace and confirms the pane still
     /// exists before acting — a pane can close while the card is open (538 R6).
-    /// Selecting + focusing the clicked pane then acknowledging it is an
-    /// explicit gesture, so it acks immediately (ADR-0003 explicit-vs-dwell).
-    ///
-    /// `acknowledgeSession` acks the workspace's ACTIVE pane; `setActivePane`
-    /// runs first so the clicked pane *is* the active one by then — that is why
-    /// the active-pane ack lands on exactly the clicked pane (per-pane ack,
-    /// INT-504 hybrid model). The `setActivePane` call is load-bearing for that
-    /// ack, not redundant, even when the clicked pane was already active.
+    /// Navigation does not acknowledge or answer a request. setActivePane still
+    /// establishes the destination before terminal focus and the guarded dwell.
     ///
     /// VoiceOver gets the same "Focused pane N" announcement the keyboard
     /// `⌘⌥N` path emits, so an assistive-tech user who triggers the jump from
@@ -547,10 +542,7 @@ struct ContentView: View {
             }
             sessionStore.selectedSessionID = sessionID
             sessionStore.setActivePane(id: paneID, in: sessionID)
-            // Jumping to a pane to look at it is arrival, not an answer — the
-            // unread badge is ack-on-read's proper subject, an unanswered turn
-            // is not (ADR-0007's 2026-08-21 amendment).
-            sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
+            // Navigation does not answer or dismiss a request; notification dwell remains separate.
             peekModel?.hide(for: sessionID)
             TerminalAccessibilityAnnouncer.announce(
                 String(
@@ -565,7 +557,6 @@ struct ContentView: View {
                 return
             }
             sessionStore.selectedSessionID = sessionID
-            sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
             peekModel?.hideGroup(for: groupID)
         }
         peekModel.onNewSessionInGroup = { [weak peekModel] groupID in

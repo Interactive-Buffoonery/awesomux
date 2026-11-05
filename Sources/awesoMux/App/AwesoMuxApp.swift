@@ -473,32 +473,7 @@ struct AwesoMuxApp: App {
                 onTerminalFooterHeightChange: { height in
                     popUpTerminalController.updateBottomInset(height)
                 },
-                onFocusAgentPane: { sessionID, paneID in
-                    // Mirror the peek card's pane jump (ContentView.wirePeekSelection):
-                    // guard the ghost-click (roster rows are render-time snapshots), then
-                    // setActivePane BEFORE ack/focus — requestTerminalFocus alone moves
-                    // first responder but not the model's active pane, which strands the
-                    // path bar / per-pane ack on the wrong pane (review finding).
-                    guard let session = sessionStore.session(id: sessionID),
-                        let paneIndex = session.layout.paneIDs.firstIndex(of: paneID)
-                    else {
-                        // Roster rows are render-time snapshots; the pane can vanish
-                        // between build and click. IDs only — privacy-safe.
-                        Self.logger.debug(
-                            "agent panel jump dropped stale row sessionID=\(sessionID, privacy: .public) paneID=\(paneID, privacy: .public)"
-                        )
-                        return
-                    }
-                    sessionStore.selectedSessionID = sessionID
-                    appDelegate.surfacePrimaryWindow()
-                    sessionStore.setActivePane(id: paneID, in: sessionID)
-                    // Explicit gesture → immediate ack, same as the peek card (ADR-0003).
-                    // Arriving at the pane is not answering its turn, though: the
-                    // roster's whole workflow is cycling through waiting panes.
-                    sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
-                    requestTerminalFocus(sessionID: sessionID, paneID: paneID)
-                    announcePaneFocused(index: paneIndex + 1)
-                },
+                onFocusAgentPane: focusAgentPane,
                 onFocusActiveTerminal: focusActiveTerminal,
                 sidebarPresentationCommandMailbox: sidebarPresentationCommandMailbox,
                 sidebarWidthToggleRequestID: sidebarWidthToggleRequestID,
@@ -1335,13 +1310,19 @@ struct AwesoMuxApp: App {
 
                 Divider()
 
-                Button("Acknowledge Workspace") {
+                Button("Mark Workspace as Seen") {
                     if let id = sessionStore.selectedSessionID {
-                        sessionStore.acknowledgeAllPanes(in: id)
+                        sessionStore.markWorkspaceSeen(id: id)
                     }
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.acknowledgeWorkspace))
-                .disabled(!selectedSessionNeedsAcknowledgement || isAnySheetPresented)
+                .disabled(!selectedSessionCanMarkSeen || isAnySheetPresented)
+
+                Button("Next Agent Needing Me") {
+                    focusNextAgentNeedingAttention()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextAgentNeedingAttention))
+                .disabled(isAnySheetPresented)
 
                 Button("Focus Permission Prompt") {
                     focusPermissionPrompt()
@@ -1352,7 +1333,7 @@ struct AwesoMuxApp: App {
                 Button("Clear All Notifications") {
                     sessionStore.acknowledgeAllSessions()
                 }
-                .disabled(sessionStore.unreadNotificationTotal == 0 || isAnySheetPresented)
+                .disabled(!sessionStore.hasAttentionToDismiss || isAnySheetPresented)
 
                 Divider()
 
@@ -2915,11 +2896,11 @@ struct AwesoMuxApp: App {
         postAccessibilityAnnouncement(announcement)
     }
 
-    private var selectedSessionNeedsAcknowledgement: Bool {
+    private var selectedSessionCanMarkSeen: Bool {
         guard let session = sessionStore.selectedSession else {
             return false
         }
-        return session.unreadNotificationCount > 0 || session.needsAcknowledgement
+        return sessionStore.canMarkWorkspaceSeen(id: session.id)
     }
 
     private var selectedManagedSSHConversionTarget: RemoteTarget? {
@@ -4962,6 +4943,36 @@ struct AwesoMuxApp: App {
         return String(prefix) + "..."
     }
 
+    private func focusAgentPane(sessionID: TerminalSession.ID, paneID: UUID) {
+        guard !isAnySheetPresented,
+            let owningSessionID = sessionStore.sessionIDContainingPane(paneID),
+            let session = sessionStore.session(id: owningSessionID),
+            let paneIndex = session.layout.paneIDs.firstIndex(of: paneID)
+        else { return }
+        sessionStore.selectedSessionID = owningSessionID
+        appDelegate.surfacePrimaryWindow()
+        sessionStore.setActivePane(id: paneID, in: owningSessionID)
+        // Navigation does not enable approval keys; permission-card focus is a separate command.
+        requestTerminalFocus(sessionID: owningSessionID, paneID: paneID)
+        announcePaneFocused(index: paneIndex + 1)
+    }
+
+    private func focusNextAgentNeedingAttention() {
+        guard !isAnySheetPresented else { return }
+        let roster = AgentActivityRoster.build(sessions: sessionStore.groups.flatMap(\.sessions))
+        guard
+            let row = roster.nextNeedingAttention(
+                after: sessionStore.selectedSession?.activePaneID,
+                orderedPaneIDs: sessionStore.actionableAgentPaneIDs
+            )
+        else {
+            TerminalAccessibilityAnnouncer.announce(
+                String(localized: "No agents need your attention", comment: "No next actionable agent; focus remains unchanged"))
+            return
+        }
+        focusAgentPane(sessionID: row.sessionID, paneID: row.paneID)
+    }
+
     private func focusPermissionPrompt() {
         guard !isAnySheetPresented,
             let sessionID = sessionStore.selectedSessionID,
@@ -5178,9 +5189,10 @@ struct AwesoMuxApp: App {
                     // that share this command's name — the active-pane-only
                     // ack silently no-ops when attention sits on a sibling
                     // pane in a split.
-                    sessionStore.acknowledgeAllPanes(in: id)
+                    sessionStore.markWorkspaceSeen(id: id)
                 }
             },
+            nextAgentNeedingAttention: focusNextAgentNeedingAttention,
             focusPermissionPrompt: focusPermissionPrompt,
             clearAllNotifications: {
                 sessionStore.acknowledgeAllSessions()

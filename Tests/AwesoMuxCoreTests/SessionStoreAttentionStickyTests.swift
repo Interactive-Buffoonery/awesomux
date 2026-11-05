@@ -40,7 +40,7 @@ import Testing
         #expect(store.attentionStickySessionID == nil)
     }
 
-    @Test func deliberateAcknowledgeReleasesTheStickyButTheDwellDoesNot() {
+    @Test func legacyFullDismissalReleasesTheStickyButTheDwellDoesNot() {
         let a = needy("alpha")
         let store = SessionStore(groups: [SessionGroup(name: "One", sessions: [a])])
         store.needsInputSectionEnabled = true

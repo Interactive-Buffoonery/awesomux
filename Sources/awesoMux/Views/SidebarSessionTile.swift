@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SidebarSessionTile: View {
     let session: TerminalSession
+    let canMarkSeen: Bool
     let match: SessionMatch?
     let tint: ProjectTint
     let isActive: Bool
@@ -401,8 +402,8 @@ struct SidebarSessionTile: View {
         }
         .disabled(!canMakeWorkspaceManaged)
 
-        if session.unreadNotificationCount > 0 || session.needsAcknowledgement {
-            Button("Acknowledge Workspace") {
+        if canMarkSeen {
+            Button("Mark Workspace as Seen") {
                 onAcknowledge()
             }
         }
@@ -1206,6 +1207,7 @@ extension SidebarSessionTile: Equatable {
         let verticalPadding: CGFloat
         let tintedHighContrast: Bool
         let alwaysShowJumpNumbers: Bool
+        let canMarkSeen: Bool
         let canMakeWorkspaceManaged: Bool
         let canReorderWithinGroup: Bool
         let isPinned: Bool
@@ -1301,6 +1303,7 @@ extension SidebarSessionTile: Equatable {
             verticalPadding: verticalPadding,
             tintedHighContrast: tintedHighContrast,
             alwaysShowJumpNumbers: alwaysShowJumpNumbers,
+            canMarkSeen: canMarkSeen,
             canMakeWorkspaceManaged: canMakeWorkspaceManaged,
             canReorderWithinGroup: canReorderWithinGroup,
             isPinned: isPinned,

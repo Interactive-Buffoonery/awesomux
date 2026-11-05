@@ -74,14 +74,24 @@ struct SidebarStatusFooter: View {
             // State rides accessibilityValue, not just the hint — hints are
             // user-suppressible in VoiceOver verbosity settings.
             .accessibilityValue(activityPanelOpen
-                ? String(localized: "Expanded", comment: "Accessibility value for the footer total button while the agent activity panel is open")
-                : String(localized: "Collapsed", comment: "Accessibility value for the footer total button while the agent activity panel is closed"))
+                    ? String(localized: "Agents", comment: "Selected sidebar mode")
+                    : String(localized: "Workspaces", comment: "Selected sidebar mode")
+            )
             .accessibilityHint(activityPanelOpen
-                ? String(localized: "Hides the agent activity panel", comment: "Accessibility hint for the footer total button while the panel is open")
-                : String(localized: "Shows the agent activity panel", comment: "Accessibility hint for the footer total button while the panel is closed"))
+                    ? String(
+                        localized: "Shows the Workspaces sidebar",
+                        comment: "Accessibility hint for the footer total button while the panel is open")
+                    : String(
+                        localized: "Shows the Agents sidebar",
+                        comment: "Accessibility hint for the footer total button while the panel is closed")
+            )
             .help(activityPanelOpen
-                ? String(localized: "Hide Agent Activity", comment: "Tooltip for the footer total button while the agent activity panel is open")
-                : String(localized: "Show Agent Activity", comment: "Tooltip for the footer total button while the agent activity panel is closed"))
+                    ? String(
+                        localized: "Show Workspaces Sidebar",
+                        comment: "Tooltip for the footer total button while the agent activity panel is open")
+                    : String(
+                        localized: "Show Agents Sidebar",
+                        comment: "Tooltip for the footer total button while the agent activity panel is closed"))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -167,13 +177,13 @@ struct SidebarStatusFooter: View {
         )
         .accessibilityHint(
             String(
-                localized: "Shows the agent activity panel",
+                localized: "Shows the Agents sidebar",
                 comment: "Accessibility hint for a footer chip that opens the agent activity panel")
         )
         // The label leads because the dot+count chip carries no text of its
         // own — the tooltip is the only place a sighted user gets the state
         // by name.
-        .help("\(state.label) — Show in Activity Panel")
+        .help("\(state.label) — Show in Agents Sidebar")
     }
 
     private var settingsButton: some View {

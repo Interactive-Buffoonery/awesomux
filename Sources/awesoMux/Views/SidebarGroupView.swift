@@ -33,6 +33,7 @@ struct SidebarGroupView: View {
     /// VoiceOver action all route here, so the confirm-and-announce work in
     /// `closeWorkspaceGroup` can't be bypassed by one of them.
     let onCloseGroup: () -> Void
+    let markSeenSessionIDs: Set<TerminalSession.ID>
     let onAcknowledge: (TerminalSession) -> Void
     let onMoveSession: (TerminalSession.ID, SessionGroup.ID, Int) -> Void
     let onMoveGroup: (Int, Int) -> Void
@@ -510,6 +511,7 @@ struct SidebarGroupView: View {
         let session = entry.session
         SidebarSessionTile(
             session: session,
+            canMarkSeen: markSeenSessionIDs.contains(session.id),
             match: entry.match,
             tint: tint,
             isActive: selectedSessionID == session.id,

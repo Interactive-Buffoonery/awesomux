@@ -426,9 +426,17 @@ enum KeyboardShortcutCatalog {
         )
     }
 
+    static let nextAgentNeedingAttention = KeyBinding(
+        id: "nextAgentNeedingAttention",
+        action: "Next Agent Needing Me",
+        key: "j",
+        modifiers: [.command, .option],
+        keyDisplay: "J"
+    )
+
     static let acknowledgeWorkspace = KeyBinding(
         id: "acknowledgeWorkspace",
-        action: "Acknowledge Workspace",
+        action: "Mark Workspace as Seen",
         key: "k",
         modifiers: [.command, .shift],
         keyDisplay: "K"
@@ -661,8 +669,10 @@ enum KeyboardShortcutCatalog {
             KeyboardShortcutSection(
                 title: "Workspaces",
                 entries: [
-                    KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Clear attention on the active workspace"),
-                    KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to sidebar search"),
+                    KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Mark notifications seen without approving requests"),
+                    KeyboardShortcutEntry(
+                        resolved(Self.nextAgentNeedingAttention, keyboard: keyboard), detail: "Go to the next agent needing attention"),
+                    KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to workspace search or the agent list"),
                     KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
                     KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
                 ]
