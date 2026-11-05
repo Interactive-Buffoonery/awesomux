@@ -924,6 +924,41 @@ struct CommandBridgeEnactorTests {
         case remoteOwnedSpawnKeepsAgentChrome
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func savedPaneRequiresConfirmedAttach(confirmed: Bool, heal: Bool) throws {
+        let pane = TerminalPane(title: "unconfirmed attach", workingDirectory: "/tmp", executionPlan: .local)
+        let fixture = try makeFixture(sessionID: pane.terminalSessionID, pane: pane)
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.attachCommandProvider = { _, _, _, _ in "amx attach" }
+        let launch = enactor.prepareAttach(for: pane, bridgeEnabled: true)
+        defer { enactor.beginStatusWatch(channel: nil) }
+        #expect(enactor.statusWatcher?.isArmed == true)
+        fixture.view.applyPostSpawnPaneState(for: launch)
+        if confirmed {
+            enactor.handleStatusEvents([
+                try attachedEvent(pid: 100, createdAt: 1, sessionID: pane.terminalSessionID, created: true)
+            ])
+        }
+        if heal {
+            enactor.latestSessionEndReason = .unknown
+            enactor.beginExitSupervision(exitCode: 1)
+        }
+        let savedPane = try #require(fixture.livePane)
+        #expect(savedPane.terminalBackendMetadata == (confirmed ? establishedMetadata : .empty))
+
+        // A new runtime models quitting before the first confirmed attachment.
+        let relaunched = try makeFixture(sessionID: pane.terminalSessionID, pane: savedPane)
+        let reattach = relaunched.view.commandBridgeEnactor
+        reattach.attachCommandProvider = { _, _, _, _ in "amx attach" }
+        _ = reattach.prepareAttach(for: savedPane, bridgeEnabled: true)
+        defer { reattach.beginStatusWatch(channel: nil) }
+        reattach.handleStatusEvents([
+            try attachedEvent(pid: 200, createdAt: 2, sessionID: pane.terminalSessionID, created: true)
+        ])
+        #expect((relaunched.runtime.restartedSessionNotices[pane.id] != nil) == confirmed)
+        #expect(relaunched.livePane?.terminalBackendMetadata == establishedMetadata)
+    }
+
     @Test(arguments: PostSpawnStateCase.allCases)
     func postSpawnState(_ scenario: PostSpawnStateCase) throws {
         switch scenario {
@@ -940,6 +975,19 @@ struct CommandBridgeEnactorTests {
                 paneID: bridge.paneID,
                 metadata: .empty
             )
+            bridge.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach …"))
+            #expect(bridge.livePane?.terminalBackendMetadata == establishedMetadata)
+
+            bridge.store.updateTerminalBackendMetadata(
+                sessionID: bridge.hostSessionID, paneID: bridge.paneID, metadata: .empty
+            )
+            // A channel whose watcher cannot arm must retain the legacy path.
+            bridge.view.commandBridgeEnactor.beginStatusWatch(
+                channel: AmxStatusChannel(
+                    fileURL: URL(fileURLWithPath: "/tmp/missing-amx-status-\(UUID().uuidString)"), token: "fixture"
+                ))
+            defer { bridge.view.commandBridgeEnactor.beginStatusWatch(channel: nil) }
+            #expect(bridge.view.commandBridgeEnactor.statusWatcher?.isArmed == false)
             bridge.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach …"))
             #expect(bridge.livePane?.terminalBackendMetadata == establishedMetadata)
         case .remoteOwnedSpawnKeepsAgentChrome:
