@@ -3,7 +3,8 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-/// Outcome of staging composer text into a terminal pane. `.failed` keeps the
+/// Outcome of copying a Codex prompt or staging text into another agent pane.
+/// `.failed` keeps the
 /// composer open with the draft intact so a send that lands on a dead surface
 /// isn't silent data loss.
 enum RichInputSendResult: Equatable {
@@ -15,8 +16,8 @@ enum RichInputSendResult: Equatable {
 /// one-shot "send to agent" nudge into an editable box: the user can revise or
 /// extend the seeded text before it is staged into the associated terminal.
 ///
-/// Enter stages the text (chat-app convention); Shift/Option-Enter inserts a
-/// newline. Staging reuses the existing send path, which pastes the block into
+/// Enter copies for Codex or stages text for other providers; Shift/Option-Enter
+/// inserts a newline. Staging reuses the existing send path, which pastes the block into
 /// the prompt without submitting — the user still presses Return in the
 /// terminal, preserving the nudge's deliberate human-in-the-loop gate.
 struct RichInputComposerSheet: View {
@@ -24,7 +25,8 @@ struct RichInputComposerSheet: View {
     let reviewedFilePath: String
     let receivingTerminal: String
     let capturedWorkingDirectory: String
-    /// Stages the sanitized draft; returns `.sent` on success or `.failed`
+    let isCopy: Bool
+    /// Copies or stages the sanitized draft; returns `.sent` on success or `.failed`
     /// (with a reason) to keep the composer open.
     let onSend: (String) -> RichInputSendResult
     let onClose: () -> Void
@@ -44,6 +46,7 @@ struct RichInputComposerSheet: View {
         reviewedFilePath: String,
         receivingTerminal: String,
         capturedWorkingDirectory: String,
+        isCopy: Bool = false,
         onSend: @escaping (String) -> RichInputSendResult,
         onClose: @escaping () -> Void
     ) {
@@ -51,6 +54,7 @@ struct RichInputComposerSheet: View {
         self.reviewedFilePath = reviewedFilePath
         self.receivingTerminal = receivingTerminal
         self.capturedWorkingDirectory = capturedWorkingDirectory
+        self.isCopy = isCopy
         self.onSend = onSend
         self.onClose = onClose
         _draft = State(initialValue: seed)
@@ -108,7 +112,11 @@ struct RichInputComposerSheet: View {
                 value: reviewedFilePath
             )
             detailRow(
-                String(localized: "Receiving terminal", comment: "Composer label for the pinned receiving terminal"),
+                isCopy
+                    ? String(
+                        localized: "Associated terminal",
+                        comment: "Composer label for the terminal where the user can manually paste the copied prompt")
+                    : String(localized: "Receiving terminal", comment: "Composer label for the pinned receiving terminal"),
                 value: receivingTerminal
             )
             detailRow(
@@ -141,7 +149,11 @@ struct RichInputComposerSheet: View {
     private var editor: some View {
         ZStack(alignment: .topLeading) {
             if draft.isEmpty {
-                Text("Write a prompt to send to this document's terminal…")
+                Text(
+                    isCopy
+                        ? String(localized: "Write a prompt to copy for Codex…", comment: "Placeholder in the Codex clipboard composer")
+                        : String(localized: "Write a prompt to send to this document's terminal…")
+                )
                     .font(.system(size: 13))
                     .foregroundStyle(Color.aw.text2)
                     .padding(.horizontal, 9)
@@ -155,6 +167,7 @@ struct RichInputComposerSheet: View {
                 isFocused: $isEditorFocused,
                 minHeight: Self.minEditorHeight,
                 maxHeight: Self.maxEditorHeight,
+                isCopy: isCopy,
                 onSend: send,
                 onCancel: onClose
             )
@@ -172,7 +185,13 @@ struct RichInputComposerSheet: View {
 
     private var footer: some View {
         HStack {
-            Text("Return pastes into the terminal · ⇧Return or ⌥Return for a new line")
+            Text(
+                isCopy
+                    ? String(
+                        localized: "Return copies · paste into Codex when ready · ⇧Return or ⌥Return for a new line",
+                        comment: "Keyboard and manual paste instructions in the Codex copy composer")
+                    : String(localized: "Return pastes into the terminal · ⇧Return or ⌥Return for a new line")
+            )
                 .font(.system(size: 11))
                 .foregroundStyle(Color.aw.text2)
             Spacer()
@@ -180,7 +199,11 @@ struct RichInputComposerSheet: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.aw.text2)
                 .keyboardShortcut(.cancelAction)
-            Button(String(localized: "Send", comment: "Button to stage the composed prompt into the terminal"), action: send)
+            Button(
+                isCopy
+                    ? String(localized: "Copy", comment: "Button to copy the composed Codex prompt")
+                    : String(localized: "Send", comment: "Button to stage the composed prompt into the terminal"), action: send
+            )
                 .buttonStyle(.borderedProminent)
                 .tint(Color.aw.mauve)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -206,7 +229,7 @@ struct RichInputComposerSheet: View {
 
 // MARK: - Editable NSTextView bridge
 
-/// Editable NSTextView wrapper that stages on plain Return and grows with its
+/// Editable NSTextView wrapper that copies or stages on plain Return and grows with its
 /// content up to a cap. AppKit rather than SwiftUI's `TextEditor` because a
 /// focused `TextEditor` consumes plain Return as a newline before SwiftUI key
 /// handling sees it — intercepting it here via `doCommandBy` is the reliable way
@@ -217,6 +240,7 @@ private struct RichInputTextView: NSViewRepresentable {
     @Binding var isFocused: Bool
     let minHeight: CGFloat
     let maxHeight: CGFloat
+    let isCopy: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
 
@@ -252,7 +276,11 @@ private struct RichInputTextView: NSViewRepresentable {
         // VoiceOver so a screen-reader user doesn't stage into a live PTY by
         // surprise.
         textView.setAccessibilityHelp(
-            String(
+            isCopy
+                ? String(
+                    localized: "Return copies the prompt. Paste into Codex when ready. Shift-Return or Option-Return inserts a new line.",
+                    comment: "Accessibility help for the copy composer's Return key")
+                : String(
                 localized: "Return pastes into the terminal. Shift-Return or Option-Return inserts a new line.",
                 comment: "Accessibility help describing the composer's Return-key behavior"
             )
