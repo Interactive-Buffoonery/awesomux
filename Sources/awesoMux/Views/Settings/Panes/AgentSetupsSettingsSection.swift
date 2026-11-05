@@ -13,7 +13,8 @@ struct AgentSetupsSettingsSection: View {
             index: 2,
             title: String(localized: "Launch setups"),
             subtitle: String(
-                localized: "Optional named launch choices for installed agents in the command palette. Saving a setup does not verify that it launches. Status integrations are managed separately.",
+                localized:
+                    "Optional named launch choices for installed agents in the command palette. Saving a setup does not verify that it launches. Status integrations are managed separately.",
                 comment: "Explains that launch setups are optional and separate from status integration or launch verification.")
         ) {
             ForEach(Array(store.setups.enumerated()), id: \.element.id) { index, setup in
