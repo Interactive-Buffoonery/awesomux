@@ -152,7 +152,9 @@ struct RichInputComposerSheet: View {
                 Text(
                     isCopy
                         ? String(localized: "Write a prompt to copy for Codex…", comment: "Placeholder in the Codex clipboard composer")
-                        : String(localized: "Write a prompt to send to this document's terminal…")
+                        : String(
+                            localized: "Write a prompt to send to this document's terminal…",
+                            comment: "Placeholder in the composer that stages a prompt into the document's associated terminal")
                 )
                     .font(.system(size: 13))
                     .foregroundStyle(Color.aw.text2)

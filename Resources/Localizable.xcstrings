@@ -6277,7 +6277,7 @@
       "comment" : "Placeholder in the Codex clipboard composer"
     },
     "Write a prompt to send to this document's terminal…" : {
-
+      "comment" : "Placeholder in the composer that stages a prompt into the document's associated terminal"
     },
     "Yellow" : {
       "comment" : "Workspace group tint color",
