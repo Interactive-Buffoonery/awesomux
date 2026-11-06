@@ -802,7 +802,7 @@ enum PaletteCommandRegistry {
         commands.append(contentsOf: [
             PaletteCommand(
                 id: KeyboardShortcutCatalog.nextAgentNeedingAttention.id,
-                title: "Next Agent Needing Me",
+                title: String(localized: "Next Agent Needing Me", comment: "Agent navigation and notification command"),
                 subtitle: nil,
                 keywords: ["agent", "attention", "waiting", "permission", "question", "next"],
                 shortcut: KeyboardShortcutCatalog.nextAgentNeedingAttention,
@@ -812,7 +812,7 @@ enum PaletteCommandRegistry {
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.acknowledgeWorkspace.id,
-                title: "Mark Workspace as Seen",
+                title: String(localized: "Mark Workspace as Seen", comment: "Agent navigation and notification command"),
                 subtitle: nil,
                 keywords: ["mark", "read", "clear", "notification"],
                 shortcut: KeyboardShortcutCatalog.acknowledgeWorkspace,

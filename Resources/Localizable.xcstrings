@@ -2666,6 +2666,9 @@
     "Go to pane" : {
       "comment" : "Navigate to the pane with attention"
     },
+    "Go to the next agent needing attention" : {
+      "comment" : "Agent navigation and notification command"
+    },
     "Go to waiting pane" : {
       "comment" : "Navigate without approving or answering"
     },
@@ -3095,10 +3098,13 @@
       "comment" : "Pane-specific mark-seen accessibility action"
     },
     "Mark Workspace as Seen" : {
-
+      "comment" : "Agent navigation and notification command"
     },
     "Mark as seen" : {
       "comment" : "Clear notification without approving a request"
+    },
+    "Mark notifications seen without approving requests" : {
+      "comment" : "Agent navigation and notification command"
     },
     "Match %arg of %arg" : {
       "comment" : "Spoken find-bar position; arguments are the one-based current match and the match count.",
@@ -3387,7 +3393,7 @@
       "comment" : "Welcome tour button advancing to the next beat"
     },
     "Next Agent Needing Me" : {
-
+      "comment" : "Agent navigation and notification command"
     },
     "Next Document Tab" : {
 
