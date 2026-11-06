@@ -29,7 +29,7 @@ struct RecoverySummaryPresentationTests {
                     "Some names or titles were changed.",
                     "1 duplicate workspace group was merged.",
                     "1 working directory was reset to home.",
-                    "1 pane lost its saved selection.",
+                    "The saved pane selection was reset in 1 workspace.",
                     "The selected workspace couldn't be restored.",
                 ]
                 : [
@@ -39,7 +39,7 @@ struct RecoverySummaryPresentationTests {
                     "Some names or titles were changed.",
                     "2 duplicate workspace groups were merged.",
                     "2 working directories were reset to home.",
-                    "2 panes lost their saved selection.",
+                    "The saved pane selection was reset in 2 workspaces.",
                     "The selected workspace couldn't be restored.",
                 ]
             #expect(LocalizedPluralStrings.recoverySummaryLines(summary, bundle: bundle) == expected)
@@ -74,9 +74,16 @@ struct RecoverySummaryPresentationTests {
         }
     }
 
-    @Test("Repeated name adjustments and final workspace fallback are described truthfully")
+    @Test("Repeated name adjustments and workspace selection fallbacks are described truthfully")
     func restoredStateExplainsCounterMeaning() throws {
-        let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
+        let duplicateID = UUID()
+        let firstPane = TerminalPane(id: duplicateID, title: "first", workingDirectory: "~", executionPlan: .local)
+        let secondPane = TerminalPane(id: duplicateID, title: "second", workingDirectory: "~", executionPlan: .local)
+        let first = TerminalSession(
+            title: "first", workingDirectory: "~",
+            layout: .split(TerminalSplit(orientation: .horizontal, first: .pane(firstPane), second: .pane(secondPane))),
+            activePaneID: duplicateID
+        )
         let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
         let target = try #require(RemoteTarget(user: "fixture", host: "example.invalid"))
         let snapshot = SessionSnapshot(
@@ -90,11 +97,18 @@ struct RecoverySummaryPresentationTests {
         #expect(restored.store.groups.count == 2)
         #expect(restored.store.selectedSessionID == first.id)
         #expect(restored.sanitizationSummary.groupNameAdjustments == 2)
+        #expect(restored.sanitizationSummary.activePaneFallbacks == 1)
         #expect(restored.sanitizationSummary.selectedSessionFallbacks == 1)
+        let restoredFirst = try #require(restored.store.groups.first?.sessions.first)
+        var restoredPanes: [TerminalPane] = []
+        restoredFirst.layout.forEachPane { restoredPanes.append($0) }
+        #expect(restoredPanes.count == 2)
+        #expect(restoredFirst.activePaneID == restoredFirst.layout.firstPane?.id)
         try withEnglishBundle { bundle in
             #expect(
                 LocalizedPluralStrings.recoverySummaryLines(restored.sanitizationSummary, bundle: bundle) == [
                     "Some names or titles were changed.",
+                    "The saved pane selection was reset in 1 workspace.",
                     "The selected workspace couldn't be restored.",
                 ])
         }
