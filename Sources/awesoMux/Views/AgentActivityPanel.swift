@@ -142,8 +142,6 @@ struct AgentActivityPanel: View {
                 }
                 if updatesFocused || updatesAccessibilityFocused {
                     let target = navigable[direction == .down ? 0 : navigable.count - 1]
-                    updatesFocused = false
-                    updatesAccessibilityFocused = false
                     focusRow(target.id)
                     proxy.scrollTo(target.id)
                     return
@@ -151,18 +149,12 @@ struct AgentActivityPanel: View {
                 let currentID = focusedPaneID ?? seenFocusID ?? selectedPaneID
                 let index = navigable.firstIndex { $0.id == currentID } ?? (direction == .down ? -1 : navigable.count)
                 if hasPlacementUpdates && ((direction == .up && index == 0) || (direction == .down && index == navigable.count - 1)) {
-                    focusedPaneID = nil
-                    seenFocusID = nil
-                    accessibilityPaneID = nil
-                    seenAccessibilityID = nil
                     updatesFocused = true
                     if voiceOverEnabled { updatesAccessibilityFocused = true }
                     proxy.scrollTo("agent-placement-updates", anchor: .top)
                     return
                 }
                 let next = max(0, min(navigable.count - 1, index + (direction == .down ? 1 : -1)))
-                seenFocusID = nil
-                seenAccessibilityID = nil
                 focusRow(navigable[next].id)
                 proxy.scrollTo(navigable[next].id)
             }
