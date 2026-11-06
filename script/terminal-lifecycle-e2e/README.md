@@ -225,9 +225,26 @@ last failure when an owned window is available. They are captured by exact owner
 PID + CG window ID, decoded as PNG, and never use a desktop fallback. This manual
 gate does not imply full preflight, VoiceOver, device, or hosted CI acceptance.
 
-## Project transcript browser on minimighty
+## Native macOS project transcript browser
 
-`heavy-gate ./script/native-ui.sh` runs preflight and staging, then invokes this
+Run directly from a checkout on macOS 15+ with the repository-pinned Xcode,
+Swift, Zig, formatter, Ghostty artifacts, and Metal compiler prerequisites
+available (see `README.md` and `docs/ci.md`). Python 3 and `swiftc` must be on
+PATH. Use an unlocked graphical console owned by the invoking user, English
+menus, and existing Accessibility and Screen Recording grants for the automation
+host. The prerequisite probe reports missing console/permission access without
+changing grants or machine settings.
+
+```sh
+./script/native-ui.sh --check-prerequisites
+./script/native-ui.sh
+```
+
+This is a manual native test entry point, not a GitHub Actions workflow. No
+particular machine or external gate wrapper is required. The full invocation
+runs preflight directly and stops on failure before staging or either journey.
+
+`./script/native-ui.sh` runs preflight and staging, then invokes this
 runner with `--project-transcripts` at 1.0 and the maximum supported 1.35 text
 scale using Georgia.
 This scenario preserves the synthetic PR #775 journey formerly kept under
@@ -236,26 +253,38 @@ a transcript, and document focus. It shares the lifecycle driver's permission,
 identity, isolation and cleanup rules. It does not claim a TL01–TL05 pass or
 VoiceOver speech verification.
 
-`heavy-gate ./script/native-ui.sh --check-prerequisites` only compiles/probes the
+`./script/native-ui.sh --check-prerequisites` only compiles/probes the
 helper without building or launching the app. Existing Accessibility and Screen
 Recording permission grants and an unlocked runner desktop are required. Reports
-and screenshots return under `.build/minimighty-ui/` in unique run directories.
+and screenshots return under `.build/native-ui/` in unique run directories.
 The normal lifecycle invocation and its scenarios remain available unchanged.
 
-`heavy-gate ./script/native-ui.sh --diagnose-startup` skips preflight and the two
+`./script/native-ui.sh --diagnose-startup` skips preflight and the two
 transcript journeys, stages through the same `--stage-local-api-e2e` path, and
 runs exactly one real setup at normal scale with the transcript config. It
 retains all permission, console, signing, path isolation, launch identity,
 window/focus, fresh-profile, first-backend and fixture shell identity checks.
 It stops after the first terminal is ready, then performs the same cleanup.
-Evidence is under `.build/minimighty-ui/run.XXXXXXXX/startup/`; a successful
+Evidence is under `.build/native-ui/run.XXXXXXXX/startup/`; a successful
 report has `mode: startup` and proves startup only. It provides no preflight,
 lifecycle or transcript-journey pass. A failure retains the diagnostics above.
 The Python driver's `--diagnose-startup` uses an already staged bundle and can
 be combined with `--project-transcripts` to reproduce that scenario's config;
 it cannot be combined with prerequisite-only or freshness checks.
 
-Remote jobs may provide `HEAVY_GATE_UI_FIXTURE_ROOT`, an owned mode-0700
+For optional remote execution, invoke the same entry point in a checkout of the
+intended revision on a Mac meeting those prerequisites, for example:
+
+```sh
+ssh mac-ui-runner 'cd /path/to/awesomux && ./script/native-ui.sh'
+```
+
+SSH does not provide an unlocked console or permission grants; the probe must
+still pass on the remote Mac. Keep the command's exit status and collect its
+printed evidence directory from that checkout. An external job wrapper may
+schedule this command, but is not part of the entry point's contract.
+
+Local or remote jobs may provide `HEAVY_GATE_UI_FIXTURE_ROOT`, an owned mode-0700
 directory below macOS user temp. Each run allocates a unique fixture directory
 there, including its disposable app copy, and removes it after app/backend
 cleanup. This keeps interactive fixtures and bundled fonts off removable

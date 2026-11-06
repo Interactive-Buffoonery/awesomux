@@ -7,8 +7,8 @@ if [[ "$#" -gt 1 || ( "$MODE" != run && "$MODE" != --check-prerequisites && "$MO
     echo "Usage: script/native-ui.sh [--check-prerequisites|--diagnose-startup]" >&2
     exit 64
 fi
-mkdir -p .build/minimighty-ui
-OUTPUT="$(mktemp -d "$ROOT_DIR/.build/minimighty-ui/run.XXXXXXXX")"
+mkdir -p .build/native-ui
+OUTPUT="$(mktemp -d "$ROOT_DIR/.build/native-ui/run.XXXXXXXX")"
 printf 'Native UI evidence: %s\n' "$OUTPUT"
 swiftc script/terminal-lifecycle-e2e/native.swift -o "$OUTPUT/native"
 "$OUTPUT/native" probe > "$OUTPUT/prerequisites.json"
@@ -18,7 +18,7 @@ from pathlib import Path
 probe = json.loads(Path(sys.argv[1]).read_text())
 print(json.dumps(probe, indent=2))
 if not all(probe.get(key) is True for key in ('console', 'accessibility', 'screenCapture')):
-    raise SystemExit('Minimighty native UI prerequisites unavailable; no app was built or launched')
+    raise SystemExit('Native macOS UI prerequisites unavailable; no app was built or launched')
 PY
 if [[ "$MODE" == --check-prerequisites ]]; then
     exit 0
