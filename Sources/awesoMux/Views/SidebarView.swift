@@ -77,6 +77,7 @@ struct SidebarView: View {
     @State private var dragClearScheduler = SidebarDragClearScheduler()
     @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
     @State private var activityPanelOpen = false
+    @State private var sessionPendingRevealInWorkspaces: TerminalSession.ID?
     @State private var activityPanelScrollRequestID = UUID()
     @State private var activityPanelScrollTarget: AgentDisplayState?
     @State private var lastDragWatchdogRefresh = Date.distantPast
@@ -762,30 +763,23 @@ struct SidebarView: View {
             sessionStore.needsInputSectionEnabled = enabled
         }
         .onChange(of: sessionStore.selectedSessionID) { _, newValue in
-                guard isWorkspacesMode else { return }
-            // Selection can land inside a collapsed group via more than
-            // notification clicks (⌘+number, prev/next workspace) — expanding
-            // here covers all of them from one place instead of each caller.
-            guard let newValue,
-                let group = sessionStore.groups.first(where: { group in
-                    group.sessions.contains { $0.id == newValue }
-                })
-            else {
-                return
+                // The Workspaces list is hidden here, so expanding now would be
+                // invisible; a return to Workspaces reveals the selection instead.
+                guard isWorkspacesMode else {
+                    sessionPendingRevealInWorkspaces = newValue
+                    return
+                }
+                revealInOriginGroup(newValue)
             }
-            // A pinned or lifted session renders in a synthetic section, not its
-            // origin group; silently expanding that origin group would be a
-            // surprising side effect (especially on the collapsed rail). Gated on
-            // the setting so the default configuration keeps its old behavior.
-            // The store's list already resolves the setting, the sticky, and
-            // pinned precedence — re-deriving membership here could disagree
-            // with the section actually on screen.
-            let isLifted = sessionStore.liftedSessionIDs.contains(newValue)
-            guard !sessionStore.isPinned(newValue), !isLifted else {
-                return
+            .onChange(of: isWorkspacesMode) { _, isWorkspaces in
+                guard isWorkspaces else { return }
+                // Only a selection or return made in Agents reveals: a group the user
+                // collapsed around the selection must survive switching views.
+                if sessionPendingRevealInWorkspaces == sessionStore.selectedSessionID {
+                    revealInOriginGroup(sessionPendingRevealInWorkspaces)
+                }
+                sessionPendingRevealInWorkspaces = nil
             }
-            collapsedGroupIDs.remove(group.id)
-        }
         .onChange(of: sessionStore.groups.isEmpty, focusNewWorkspaceAfterEmptyTransition)
         .onChange(of: sessionStore.pinnedSessionIDs) { oldIDs, newIDs in
             // Single all-paths hook for pin/unpin side effects (sidebar menu,
@@ -813,10 +807,17 @@ struct SidebarView: View {
                 // An unpinned workspace that still needs input moves to the Needs
                 // Input section, not back to its group — announcing a return and
                 // expanding the group would both be wrong.
-                if sessionStore.needsInputSectionEnabled, session.needsUserInput {
+                    if sessionStore.needsInputSectionEnabled,
+                        SidebarAttentionProjection.isLifted(
+                            session,
+                            stickySessionID: nil,
+                            unansweredTurnPaneIDs: sessionStore.unansweredTurnPaneIDs
+                        )
+                    {
                     accessibilityAnnouncer.announce(
                         String(
-                            localized: "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Input",
+                                localized:
+                                    "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Attention",
                             comment:
                                 "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
                         )
@@ -833,9 +834,15 @@ struct SidebarView: View {
             }
         }
         .onChange(of: sessionStore.liftedSessionIDs) { oldIDs, newIDs in
-                guard isWorkspacesMode else { return }
+                guard isWorkspacesMode else {
+                    let removedID = SidebarLiftedSectionTransition.singleRemoval(from: oldIDs, to: newIDs)
+                    if let removedID, removedID == sessionStore.selectedSessionID {
+                        sessionPendingRevealInWorkspaces = removedID
+                    }
+                    return
+                }
             // Twin of the pin handler above, for the other synthetic section. A
-            // workspace leaving Needs Input while its origin group is collapsed
+                // workspace leaving Needs Attention while its origin group is collapsed
             // otherwise just vanishes — no expand, nothing spoken.
             // An addition driven by an attention reason stays silent, because
             // WorkspaceAttentionAnnouncementTracker already speaks a workspace
@@ -861,9 +868,9 @@ struct SidebarView: View {
                 accessibilityAnnouncer.announce(
                     String(
                         localized:
-                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is still waiting for a reply, moved to Needs Input",
+                                "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is waiting for a reply, moved to Needs Attention",
                         comment:
-                            "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Input section; the placeholder is the workspace title"
+                                "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Attention section; the placeholder is the workspace title"
                     )
                 )
             }
@@ -888,7 +895,7 @@ struct SidebarView: View {
             accessibilityAnnouncer.announce(
                 String(
                     localized:
-                        "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Input, returned to \(group.name)",
+                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Attention, returned to \(group.name)",
                     comment:
                         "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name"
                 )
@@ -917,6 +924,31 @@ struct SidebarView: View {
 
     private var isWorkspacesMode: Bool {
         !activityPanelOpen || displayMode == .collapsed
+    }
+
+    /// Selection can land inside a collapsed group via more than notification
+    /// clicks (⌘+number, prev/next workspace) — expanding here covers all of them
+    /// from one place instead of each caller.
+    private func revealInOriginGroup(_ sessionID: TerminalSession.ID?) {
+        guard let sessionID,
+            let group = sessionStore.groups.first(where: { group in
+                group.sessions.contains { $0.id == sessionID }
+            })
+        else {
+            return
+        }
+        // A pinned or lifted session renders in a synthetic section, not its
+        // origin group; silently expanding that origin group would be a
+        // surprising side effect (especially on the collapsed rail). Gated on
+        // the setting so the default configuration keeps its old behavior.
+        // The store's list already resolves the setting, the sticky, and
+        // pinned precedence — re-deriving membership here could disagree
+        // with the section actually on screen.
+        let isLifted = sessionStore.liftedSessionIDs.contains(sessionID)
+        guard !sessionStore.isPinned(sessionID), !isLifted else {
+            return
+        }
+        collapsedGroupIDs.remove(group.id)
     }
 
     private func handleFocusRequest(_ requestID: UUID?, visibleRows: [SidebarVisibleRow]) {
@@ -1299,7 +1331,7 @@ struct SidebarView: View {
 
         // Runs over the pinned projection's REDUCED entries, so a pinned
         // workspace is already absent and can never be lifted twice — that is
-        // the whole of "pinned wins". Needs Input renders above Pinned, so it
+        // the whole of "pinned wins". Needs Attention renders above Pinned, so it
         // also gets the last word on the filter's top match.
         let attentionProjection = SidebarAttentionProjection.apply(
             entries: pinnedProjection.entries,
@@ -1346,7 +1378,7 @@ struct SidebarView: View {
         )
     }
 
-    /// The synthetic Needs Input section. Extracted from `body` as a
+    /// The synthetic Needs Attention section. Extracted from `body` as a
     /// `@ViewBuilder` func (matching `pinnedSection`) so its callback closures
     /// don't push the already-large body expression past the type-checker's
     /// budget.
@@ -1492,7 +1524,7 @@ struct SidebarView: View {
         )
     }
 
-    /// "New Workspace Here" from a lifted tile (Needs Input or Pinned) lands the
+    /// "New Workspace Here" from a lifted tile (Needs Attention or Pinned) lands the
     /// new workspace in the session's origin group, matching the in-group tile.
     private func newSessionInLiftedOrigin(_ session: TerminalSession) {
         guard

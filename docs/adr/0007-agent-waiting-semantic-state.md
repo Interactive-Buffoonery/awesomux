@@ -237,7 +237,7 @@ Consequences:
   proves the turn was answered — by a keystroke or by `amx send` alike — and
   `.sessionEnd` covers a departed agent. Acknowledging the workspace clears it
   too, so ⌘⇧K reaches these rows.
-- Tool phases deliberately do NOT retract. Subagent tool calls inherit the pane's
+- Claude Code tool phases deliberately do NOT retract. Subagent tool calls inherit the pane's
   event file, and a background `.toolStart` after turn-end was measured at 11 of
   32 turn-ends; clearing on those would drop a genuinely waiting row a third of
   the time.
@@ -302,3 +302,12 @@ be answered, and by nothing else.
   same single-net-change gate as the departure announcement. Sighted users get
   the row moving to the top of the sidebar; without this there is no non-visual
   channel at all.
+
+
+## Amendment (2026-10-18): promote visible attention and completed Codex turns
+
+The opt-in Needs Attention section now includes every workspace whose visible chrome is `needsAttention`, including generic terminal notifications and bells. Previously those alerts painted the same orange cue as a blocking question but stayed inside their groups, making the enabled promotion setting appear broken. A low-priority attention reason hidden behind a dead pane's recovery state remains excluded.
+
+Codex has no equivalent of Claude Code's delayed `idle_prompt`, so an accepted Codex `stop` asserting `waiting` records an unanswered turn in the existing pane/provider-session map. Prompt submission, session exit, and explicit acknowledgement retract that mark through the existing paths. An accepted Codex `toolStart` also retracts it because Codex may continue after Stop without a new user prompt; this follows the reducer's working-state decision, including its existing background-producer limitation. Mark-setting events after an ended lifecycle are ignored. An accepted replacement identity also drops the old mark; a nested child that preserves the parent identity cannot clear it. Claude Code keeps its delayed idle-prompt behavior. Quiet unanswered turns do not capture the selected-row sticky, so answering can return them immediately; a selected orange row keeps the existing read-without-moving behavior.
+
+This changes sidebar presentation only. Bells and generic notifications do not become permission prompts, completed responses remain `waiting`, and `awaitsExplicitAnswer` and document-input safety rules remain unchanged. Pinned workspaces retain precedence, arrival order remains stable, and toggling promotion off drains the rendered section.

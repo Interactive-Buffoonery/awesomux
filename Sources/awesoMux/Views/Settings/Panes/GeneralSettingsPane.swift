@@ -11,6 +11,7 @@ struct GeneralSettingsPane: View {
 
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var loginItemModel = LoginItemSettingsModel()
+    @State private var defaultTerminalModel = DefaultTerminalSettingsModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -91,6 +92,44 @@ struct GeneralSettingsPane: View {
 
             SettingsSection(
                 index: 2,
+                title: String(localized: "Default terminal"),
+                subtitle: String(localized: "Open executable files and .command scripts in awesoMux.")
+            ) {
+                SettingsField(
+                    label: String(localized: "Default terminal"),
+                    hint: String(
+                        localized:
+                            "Applies to executable files opened from Finder. Apps with their own terminal preference must be configured separately."
+                    ),
+                    isFirst: true
+                ) {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Button {
+                            Task { await defaultTerminalModel.makeDefault() }
+                        } label: {
+                            Text(
+                                defaultTerminalModel.isDefault
+                                    ? String(localized: "awesoMux is the default")
+                                    : String(localized: "Make awesoMux the default terminal"))
+                        }
+                        .disabled(defaultTerminalModel.isDefault || defaultTerminalModel.isUpdating)
+                        Text(defaultTerminalModel.applicationURL.path)
+                            .awFont(AwFont.UI.meta)
+                            .foregroundStyle(Color.aw.text2)
+                            .textSelection(.enabled)
+                        if let error = defaultTerminalModel.errorMessage {
+                            Text(error)
+                                .awFont(AwFont.UI.meta)
+                                .foregroundStyle(Color.aw.status.needs)
+                                .multilineTextAlignment(.trailing)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            SettingsSection(
+                index: 3,
                 title: String(localized: "Menu bar", comment: "General settings section title"),
                 subtitle: String(
                     localized: "Choose when the awesoMux smile appears in the macOS menu bar.",
@@ -114,11 +153,24 @@ struct GeneralSettingsPane: View {
         }
         .onAppear {
             loginItemModel.refresh()
+            defaultTerminalModel.refresh()
+        }
+        .onChange(of: defaultTerminalModel.errorMessage) { _, message in
+            guard let message else { return }
+            NSAccessibility.post(
+                element: NSApplication.shared,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: message,
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+                ]
+            )
         }
         .onReceive(
             NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
         ) { _ in
             loginItemModel.refresh()
+            defaultTerminalModel.refresh()
         }
     }
 
