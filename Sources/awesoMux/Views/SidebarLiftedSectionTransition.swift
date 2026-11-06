@@ -1,7 +1,7 @@
 import AwesoMuxCore
 
 /// Classifies a change to `SessionStore.liftedSessionIDs` for the sidebar's
-/// Needs Input side effects (auto-expanding the origin group, announcing the
+/// Needs Attention side effects (auto-expanding the origin group, announcing the
 /// return). Lives outside the view so the single-net-change gate — the part
 /// that keeps a bulk drain from expanding N groups and firing N announcements —
 /// is reachable from a test.
@@ -42,7 +42,7 @@ enum SidebarLiftedSectionTransition {
     /// attention reason is already spoken by `WorkspaceAttentionAnnouncementTracker`,
     /// and two announcements for one event is worse than none — but the tracker
     /// structurally cannot reach this source, since it speaks a crossing into
-    /// `.needsAttention`/`.done`/`.error` and an idle prompt produces none of them.
+    /// `.needsAttention`/`.done`/`.error`; quiet waiting completions produce none of them.
     ///
     /// Out here rather than in the view body for the same reason as the gate
     /// above: this is the part that decides whether a VoiceOver user hears
@@ -51,6 +51,6 @@ enum SidebarLiftedSectionTransition {
         of session: TerminalSession,
         unansweredTurnPaneIDs: Set<TerminalPane.ID>
     ) -> Bool {
-        !session.needsUserInput && session.hasUnansweredTurn(in: unansweredTurnPaneIDs)
+        session.effectiveChromeState != .needsAttention && session.hasUnansweredTurn(in: unansweredTurnPaneIDs)
     }
 }
