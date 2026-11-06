@@ -171,6 +171,40 @@ extension SessionStore {
         )
     }
 
+    public func recordOutputNotification(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        reason: AttentionReason,
+        observedAt: TimeInterval,
+        canNotify: Bool
+    ) {
+        guard let position = position(for: sessionID) else { return }
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let outcome = WorkspaceAttentionReducer.recordOutputNotification(
+            &session, paneID: paneID, reason: reason, observedAt: observedAt, canNotify: canNotify)
+        if outcome.didMutate {
+            _groups[position.groupIndex].sessions[position.sessionIndex] = session
+            commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange, riskSessionIDs: [sessionID]))
+        } else {
+            // The burst clock must advance without publishing every bell in a stream.
+            withSilentGroupMutation { $0[position.groupIndex].sessions[position.sessionIndex] = session }
+        }
+    }
+
+    func recordOutputNotificationSeen(sessionID: TerminalSession.ID, paneIDs: Set<TerminalPane.ID>) {
+        guard let position = position(for: sessionID) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        withSilentGroupMutation { groups in
+            let session = groups[position.groupIndex].sessions[position.sessionIndex]
+            groups[position.groupIndex].sessions[position.sessionIndex].layout = session.layout.mappingPanes { pane in
+                guard paneIDs.contains(pane.id) else { return pane }
+                var pane = pane
+                pane.outputNotificationSeenAt = now
+                return pane
+            }
+        }
+    }
+
     public func updatePermissionPromptAttention(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
@@ -297,6 +331,7 @@ extension SessionStore {
         else {
             return
         }
+        recordOutputNotificationSeen(sessionID: id, paneIDs: [targetPaneID])
         if pane.agentKind != .shell,
             pane.agentState.refreshesAgentActivity || pane.agentState == .needsAttention
         {

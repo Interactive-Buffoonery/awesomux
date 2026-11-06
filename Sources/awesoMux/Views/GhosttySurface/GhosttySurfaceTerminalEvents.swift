@@ -742,20 +742,37 @@ extension GhosttySurfaceNSView {
         )
     }
 
-    func markNeedsAttention() {
-        guard
-            Self.shouldMarkGenericOutputNeedsAttention(
-                isKeyWindow: window?.isKeyWindow == true,
-                isSelectedWorkspace: sessionStore.selectedSessionID == sessionID
-            )
-        else {
-            return
+    func enqueueTerminalAttentionEvent(_ operation: @escaping @MainActor (GhosttySurfaceNSView) -> Void) {
+        let revision = terminalEventState.bindingRevision
+        let surfaceIdentity = currentMouseSurfaceIdentity
+        let sessionID = sessionID
+        let paneID = paneID
+        let terminalSessionID = pane.terminalSessionID
+        let executionPlan = pane.executionPlan
+        terminalEventState.enqueueTerminalAttentionEvent { [weak self] in
+            guard let self,
+                terminalEventState.bindingRevision == revision,
+                self.sessionID == sessionID, self.paneID == paneID,
+                pane.terminalSessionID == terminalSessionID, pane.executionPlan == executionPlan,
+                currentMouseSurfaceIdentity == surfaceIdentity,
+                let livePane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+                livePane.terminalSessionID == terminalSessionID, livePane.executionPlan == executionPlan
+            else { return }
+            operation(self)
         }
+    }
 
-        sessionStore.markSessionNeedsAttention(
-            id: sessionID,
-            paneID: paneID,
-            unreadNotificationDelta: 1
+    func markNeedsAttention(
+        reason: AttentionReason = .bell,
+        observedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+        wasBackground: Bool = true
+    ) {
+        sessionStore.recordOutputNotification(
+            sessionID: sessionID, paneID: paneID, reason: reason, observedAt: observedAt,
+            canNotify: wasBackground
+                && Self.shouldMarkGenericOutputNeedsAttention(
+                    isKeyWindow: window?.isKeyWindow == true,
+                    isSelectedWorkspace: sessionStore.selectedSessionID == sessionID)
         )
     }
 
@@ -941,21 +958,27 @@ extension GhosttySurfaceNSView {
             else { return }
         }
 
-        guard
-            let detection = terminalEventState.agentOutputDetector.detectedOutput(
-                in: visibleText,
-                assumingAgentContext: terminalEventState.hasObservedAgentActivity,
-                liveAgentKind: liveKindForGate
-            )
-        else {
-            return
+        let detection = terminalEventState.agentOutputDetector.detectedOutput(
+            in: visibleText,
+            assumingAgentContext: terminalEventState.hasObservedAgentActivity,
+            liveAgentKind: liveKindForGate)
+        let cue =
+            detection?.state == .needsAttention || terminalEventState.lastAcceptedAttentionCue != nil
+            ? terminalEventState.agentOutputDetector.attentionCue(in: visibleText, liveAgentKind: liveKindForGate) : nil
+        applyVisibleTextAgentOutput(detection, attentionCue: cue, now: now)
+    }
+
+    func applyVisibleTextAgentOutput(_ detection: AgentOutputDetection?, attentionCue: String?, now: TimeInterval) {
+        if attentionCue == nil {
+            terminalEventState.lastAcceptedAttentionCue = nil
         }
+        guard let detection else { return }
 
         terminalEventState.hasObservedAgentActivity = true
         if shouldSuppressVisibleTextState(detection.state, now: now) {
             return
         }
-        applyDetectedAgentOutput(detection)
+        applyDetectedAgentOutput(detection, attentionCue: detection.state == .needsAttention ? attentionCue : nil)
     }
 
     func liveAgentHooksDelivered(for liveAgentKind: AgentKind) -> Bool {
@@ -1088,7 +1111,8 @@ extension GhosttySurfaceNSView {
         applyDetectedAgentOutput(AgentOutputDetection(state: detectedState))
     }
 
-    func applyDetectedAgentOutput(_ detection: AgentOutputDetection) {
+    func applyDetectedAgentOutput(_ detection: AgentOutputDetection, attentionCue: String? = nil) {
+        if let attentionCue, terminalEventState.lastAcceptedAttentionCue == attentionCue { return }
         // Drop late detector ticks that arrive after the session has been
         // closed/removed from the store. Without this guard, the announcement
         // posts even though the store mutation would no-op below — speaking a
@@ -1123,6 +1147,16 @@ extension GhosttySurfaceNSView {
             liveDisplayState: liveDisplayState,
             terminalIsActiveForAttention: sessionIsSelectedInKeyWindow || terminalIsFocused
         )
+        if detection.state == .needsAttention, liveDisplayState == .needsAttention,
+            let attentionCue,
+            livePane?.terminalSessionID == pane.terminalSessionID,
+            livePane?.executionPlan == pane.executionPlan,
+            terminalEventState.visibleTextAgentStateReducer.canObserveAttentionCue(
+                liveAgentKind: liveAgentKind, liveAgentHooksDelivered: hooksDelivered)
+        {
+            // A bell may already represent attention; seeing its prompt still establishes the cue episode.
+            terminalEventState.lastAcceptedAttentionCue = attentionCue
+        }
         guard decision.shouldApply else {
             return
         }
@@ -1159,6 +1193,9 @@ extension GhosttySurfaceNSView {
             unreadNotificationDelta: applyState != nil ? decision.unreadNotificationDelta : 0
         )
         guard applied else { return }
+        if applyState == .needsAttention, let attentionCue {
+            terminalEventState.lastAcceptedAttentionCue = attentionCue
+        }
 
         if applyState != nil || decision.agentKind != nil {
             announce(decision.announcementIntent)

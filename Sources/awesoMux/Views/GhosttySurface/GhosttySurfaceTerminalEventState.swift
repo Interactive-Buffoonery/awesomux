@@ -19,6 +19,24 @@ final class GhosttySurfaceTerminalEventState {
     /// sample tick. See `scheduleAccessibilityValueChangeAnnouncement()`.
     var lastAccessibilityReportedVisibleText: String?
     var hasObservedAgentActivity = false
+    var terminalAttentionDrainTask: Task<Void, Never>?
+    var terminalAttentionEvents: [@MainActor () -> Void] = []
+    var bindingRevision: UInt64 = 0
+    var lastAcceptedAttentionCue: String?
+
+    func enqueueTerminalAttentionEvent(_ operation: @escaping @MainActor () -> Void) {
+        terminalAttentionEvents.append(operation)
+        guard terminalAttentionDrainTask == nil else { return }
+        terminalAttentionDrainTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { terminalAttentionDrainTask = nil }
+            while !terminalAttentionEvents.isEmpty {
+                let batch = terminalAttentionEvents
+                terminalAttentionEvents.removeAll(keepingCapacity: true)
+                for event in batch { event() }
+            }
+        }
+    }
     var lastRuntimeEventAppliedAt: TimeInterval?
     var lastRuntimeAttentionEventAppliedAt: TimeInterval?
     /// The pane and foreground Codex process that last delivered a Codex hook.

@@ -9,7 +9,7 @@ struct WhileAwaySummaryView: View {
     @State private var showingDetails = false
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             Button {
                 showingDetails = true
             } label: {
@@ -20,6 +20,7 @@ struct WhileAwaySummaryView: View {
                     systemImage: "clock.arrow.circlepath"
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .awFont(AwFont.UI.meta)
             }
             .buttonStyle(.plain)
             .accessibilityHint(
@@ -30,15 +31,23 @@ struct WhileAwaySummaryView: View {
                 store.dismissWhileAwaySummary()
             } label: {
                 Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .accessibilityLabel(
                 String(
                     localized: "Dismiss while you were away summary",
                     comment: "Accessibility label for dismissing the companion away activity summary banner."))
         }
-        .padding(AwSpacing.panelPadding)
-        .background(.regularMaterial)
+        .foregroundStyle(Color.aw.text)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 460, alignment: .leading)
+        .background(Color.aw.surface.chrome.opacity(0.98), in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.aw.border2, lineWidth: 0.5) }
+        .awShadow(.sheet)
+        .accessibilityElement(children: .contain)
         .onChange(of: summary.events.map(\.id), initial: true) { _, _ in
             TerminalAccessibilityAnnouncer.announce(
                 String(

@@ -182,6 +182,10 @@ final class GhosttySurfaceNSView: NSView {
     var surface: ghostty_surface_t? {
         get { unsafeSurface }
         set {
+            if unsafeSurface != newValue {
+                terminalEventState.lastAcceptedAttentionCue = nil
+                terminalEventState.lastDetectedVisibleText = ""
+            }
             companionPreviewCache.invalidate()
             unsafeSurface = newValue
         }
@@ -422,6 +426,13 @@ final class GhosttySurfaceNSView: NSView {
         }
         if paneID != pane.id {
             localPermissionLaunchEnvironment = nil
+        }
+        if self.sessionStore !== sessionStore || self.sessionID != session.id || self.paneID != pane.id
+            || self.pane.terminalSessionID != pane.terminalSessionID || self.pane.executionPlan != pane.executionPlan
+        {
+            terminalEventState.bindingRevision &+= 1
+            terminalEventState.lastAcceptedAttentionCue = nil
+            terminalEventState.lastDetectedVisibleText = ""
         }
         self.sessionStore = sessionStore
         self.session = session

@@ -465,8 +465,9 @@ public final class SessionStore {
 
     /// Notification-only acknowledgment. Explicit requests remain owned by their provider.
     public func markPaneSeen(sessionID: TerminalSession.ID, paneID: UUID) {
-        guard let owningSessionID = sessionIDContainingPane(paneID),
-            let position = position(for: owningSessionID),
+        guard let owningSessionID = sessionIDContainingPane(paneID) else { return }
+        recordOutputNotificationSeen(sessionID: owningSessionID, paneIDs: [paneID])
+        guard let position = position(for: owningSessionID),
             let pane = _groups[position.groupIndex].sessions[position.sessionIndex].layout.pane(id: paneID),
             pane.canMarkSeen || unansweredTurns[paneID] != nil
         else { return }
@@ -510,6 +511,7 @@ public final class SessionStore {
     public func markWorkspaceSeen(id: TerminalSession.ID) {
         guard let position = position(for: id) else { return }
         let session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        recordOutputNotificationSeen(sessionID: id, paneIDs: Set(session.panes.map(\.id)))
         let panes = session.panes.filter { $0.canMarkSeen || unansweredTurns[$0.id] != nil }
         guard !panes.isEmpty else { return }
         if selectedSessionID == id { acknowledgementCoordinator.cancel() }
