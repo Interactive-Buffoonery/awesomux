@@ -12,7 +12,7 @@ named in the table:
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
 | Ghostty | `091beb99250bc4c1a255d3617b54630c115d0f27` | `Ghostty/LICENSE` |
-| zmx / amx | `480fc5eae888d0dca7cefc80aff913efeb2eb88c` | `zmx/LICENSE` |
+| zmx / amx | `ffa16fa3e14e6622eb6c07b5fe292396ce2ecdbd` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
 | Selenized | `jan-warchol/selenized` v1.0 | `Selenized/LICENSE` |
@@ -90,6 +90,7 @@ The z2d row covers Zig rasterization code compiled into `ghostty_zcu.o`. Its
 MPL-2.0 terms and upstream notices are bundled unchanged. `z2d/SOURCE.txt` links
 the exact unmodified source and archive used by this pin.
 
-Ghostty source adoption at the pin above awaits a fresh ReleaseFast archive
-audit, member count/digest and component reconciliation. Existing component
-rows are an inventory to verify, not current-pin binary evidence.
+The ReleaseFast archive at the Ghostty pin above was rebuilt with Zig 0.17.0.
+Its 277 members match the inventory recorded in the manifest. Bundled notices
+were checked against the pinned package sources and compiler license. This
+records archive contents and licensing; it does not establish runtime behavior.

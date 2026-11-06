@@ -22,10 +22,10 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > pointer-field reads and clipboard fixtures follow that contract, guided by
 > upstream's MIT-licensed macOS Swift migration in 0e067ded703c4212248daf996f97c62f2f13114a.
 > Nullable userdata, constructors, target surfaces and preedit clearing remain
-> supported. The bundled Ghostty license is unchanged.
-> Fresh generated-source compilation, ReleaseFast builds, archive member
-> count/digest and component audit, native regressions and runtime checks are
-> pending for this pin; prior-pin evidence does not transfer.
+> supported. The bundled Ghostty license is unchanged. The ReleaseFast build
+> passed 68 libxev tests and 400 Ghostty regression tests. Swift compilation,
+> preflight and runtime checks are recorded separately for the application
+> revision being validated.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
