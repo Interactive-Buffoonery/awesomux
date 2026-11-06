@@ -354,17 +354,19 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                     return path
                 }
             )
+            var completedAllEntries = true
             for entry in entries where !referencedPaths.contains(entry.standardizedFileURL.path) {
                 // Only the regular files a cache writes are ours to delete.
                 do {
                     guard try entry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
                     try fileManager.removeItem(at: entry)
                 } catch {
-                    // Keep write protection and older prunes eligible if this
-                    // pass did not finish its filesystem work.
-                    return
+                    completedAllEntries = false
                 }
             }
+            // A failed entry must not stop collection of other files, but this
+            // incomplete pass cannot retire write protection or older prunes.
+            guard completedAllEntries else { return }
 
             // Once a completed write has survived a prune scheduled strictly
             // after it landed, future prunes can trust their fresh store-derived
