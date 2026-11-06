@@ -455,8 +455,7 @@ public final class SessionStore {
     public internal(set) var actionableAgentPaneIDs: [UUID] = []
 
     func reconcileActionableAgentPaneIDs() {
-        let roster = AgentActivityRoster.build(sessions: _groups.flatMap(\.sessions))
-        let current = roster.rows.filter { $0.section == .needsYou }.map(\.paneID)
+        let current = AgentActivityRoster.actionablePaneIDs(sessions: _groups.flatMap(\.sessions))
         let membership = Set(current)
         var next = actionableAgentPaneIDs.filter { membership.contains($0) }
         let retained = Set(next)

@@ -47,7 +47,7 @@ public struct AgentActivityRoster: Equatable, Sendable {
         }
 
         public var section: Section {
-            if attentionReason?.awaitsExplicitAnswer == true || state == .needsAttention || executionState == .error {
+            if AgentActivityRoster.needsAttention(state: state, execution: executionState, reason: attentionReason) {
                 return .needsYou
             }
             switch executionState {
@@ -113,6 +113,21 @@ public struct AgentActivityRoster: Equatable, Sendable {
             let right = rank[rhs.element.paneID] ?? Int.max
             return left == right ? lhs.offset < rhs.offset : left < right
         }.map(\.element)
+    }
+
+    /// Queue membership only: preserve traversal order without building display groups or sorting.
+    public static func actionablePaneIDs(sessions: [TerminalSession]) -> [UUID] {
+        sessions.flatMap { session in
+            session.panes.compactMap { pane in
+                guard pane.agentKind != .shell || pane.attentionReason?.awaitsExplicitAnswer == true else { return nil }
+                return needsAttention(state: pane.effectiveChromeState, execution: pane.agentExecutionState, reason: pane.attentionReason)
+                    ? pane.id : nil
+            }
+        }
+    }
+
+    private static func needsAttention(state: AgentDisplayState, execution: AgentExecutionState, reason: AttentionReason?) -> Bool {
+        reason?.awaitsExplicitAnswer == true || state == .needsAttention || execution == .error
     }
 
     public static func build(_ sessions: [SessionPanes], unansweredTurnPaneIDs: Set<UUID> = [], includingShells: Bool = false)

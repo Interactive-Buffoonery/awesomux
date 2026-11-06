@@ -23,6 +23,7 @@ struct AgentsSidebarScenarios {
                     snapshot(failed, .error, .processError), snapshot(shell, .idle, kind: .shell),
                 ])
         ])
+        precondition(AgentActivityRoster.actionablePaneIDs(sessions: []) == [])
         let rows = roster.rows
         precondition(rows.count == 5 && !rows.contains { $0.paneID == shell })
         precondition(rows.first { $0.paneID == permission }?.section == .needsYou)
@@ -57,7 +58,24 @@ struct AgentsSidebarScenarios {
             pane.unreadNotificationCount = 2
             return pane
         }
+        for kind in [AgentKind.shell, .claudeCode] {
+            for execution in [AgentExecutionState.idle, .running, .thinking, .output, .waiting, .done, .error] {
+                for reason in [nil, .permissionPrompt, .userInputRequired, .unknown, .processError, .bell] as [AttentionReason?] {
+                    var candidate = workspace
+                    candidate.layout = candidate.layout.mappingPanes { pane in
+                        var pane = pane
+                        pane.agentKind = kind
+                        pane.agentExecutionState = execution
+                        pane.attentionReason = reason
+                        return pane
+                    }
+                    let expected = AgentActivityRoster.build(sessions: [candidate]).rows.filter { $0.section == .needsYou }.map(\.paneID)
+                    precondition(AgentActivityRoster.actionablePaneIDs(sessions: [candidate]) == expected)
+                }
+            }
+        }
         let store = SessionStore(groups: [SessionGroup(name: "Project", sessions: [workspace])])
+        precondition(AgentActivityRoster.actionablePaneIDs(sessions: [workspace]) == [workspace.activePaneID])
         let paneID = workspace.activePaneID
         store.selectedSessionID = workspace.id
         store.setActivePane(id: paneID, in: workspace.id)
@@ -72,6 +90,10 @@ struct AgentsSidebarScenarios {
         store.markWorkspaceSeen(id: workspace.id)
         precondition(store.session(id: workspace.id)?.activePane?.attentionReason == .permissionPrompt)
         let order = store.actionableAgentPaneIDs
+        store.renameSession(id: workspace.id, title: "Renamed task")
+        precondition(store.actionableAgentPaneIDs == order)
+        store.selectedSessionID = workspace.id
+        precondition(store.actionableAgentPaneIDs == order)
         store.markAgentActivityObserved(id: workspace.id, paneID: paneID)
         precondition(store.actionableAgentPaneIDs == order)
         _ = store.splitActivePane(orientation: .vertical, in: workspace.id)
@@ -110,6 +132,29 @@ struct AgentsSidebarScenarios {
             "An older seen prompt must not consume a newer prompt's unread unit")
         bridgeStore.updatePermissionPromptAttention(sessionID: bridgeWorkspace.id, paneID: bridgePaneID, countDelta: -1, hasPending: false)
         precondition(bridgeStore.session(id: bridgeWorkspace.id)?.unreadNotificationCount == 0)
+        let mixed = TerminalSession(title: "Mixed", workingDirectory: "/tmp", agentKind: .claudeCode)
+        let mixedStore = SessionStore(groups: [SessionGroup(name: "Mixed", sessions: [mixed])])
+        _ = mixedStore.splitActivePane(orientation: .vertical, in: mixed.id)
+        let mixedIDs = mixedStore.session(id: mixed.id)!.panes.map(\.id)
+        precondition(mixedIDs.count == 2)
+        mixedStore.updatePermissionPromptAttention(sessionID: mixed.id, paneID: mixedIDs[0], countDelta: 2, hasPending: true)
+        mixedStore.markSessionNeedsAttention(id: mixed.id, paneID: mixedIDs[1])
+        let mixedTotal = mixedStore.session(id: mixed.id)!.unreadNotificationCount
+        precondition(mixedTotal >= 3 && mixedStore.unreadNotificationTotal == mixedTotal)
+        mixedStore.markWorkspaceSeen(id: mixed.id)
+        precondition(mixedStore.unreadNotificationTotal == 0)
+        precondition(mixedStore.session(id: mixed.id)!.unreadNotificationCount == 0)
+        precondition(mixedStore.session(id: mixed.id)!.layout.pane(id: mixedIDs[0])!.attentionReason == .permissionPrompt)
+        precondition(!mixedStore.canMarkWorkspaceSeen(id: mixed.id))
+        mixedStore.markWorkspaceSeen(id: mixed.id)
+        precondition(mixedStore.unreadNotificationTotal == 0)
+        mixedStore.markSessionNeedsAttention(id: mixed.id, paneID: mixedIDs[1])
+        mixedStore.updatePermissionPromptAttention(sessionID: mixed.id, paneID: mixedIDs[0], countDelta: -2, hasPending: false)
+        precondition(mixedStore.unreadNotificationTotal == 1)
+        precondition(mixedStore.session(id: mixed.id)!.unreadNotificationCount == 1)
+        mixedStore.acknowledgeAllSessions()
+        precondition(mixedStore.unreadNotificationTotal == 0)
+        precondition(mixedStore.session(id: mixed.id)!.panes.allSatisfy { $0.attentionReason == nil })
         let reviewWorkspace = TerminalSession(title: "Turn to review", workingDirectory: "/tmp", agentKind: .claudeCode)
         let reviewStore = SessionStore(groups: [SessionGroup(name: "Review", sessions: [reviewWorkspace])])
         reviewStore.needsInputSectionEnabled = true
@@ -124,6 +169,11 @@ struct AgentsSidebarScenarios {
         precondition(
             reviewStore.canMarkWorkspaceSeen(id: reviewWorkspace.id),
             "Turn-review-only reminders must enable every workspace mark-seen entry point")
+        let reviewRoster = AgentActivityRoster.build(
+            sessions: reviewStore.groups.flatMap(\.sessions), unansweredTurnPaneIDs: reviewStore.unansweredTurnPaneIDs)
+        precondition(reviewRoster.rows.first?.section == .settled)
+        precondition(reviewStore.actionableAgentPaneIDs.isEmpty)
+        precondition(reviewRoster.nextNeedingAttention(after: nil, orderedPaneIDs: []) == nil)
         reviewStore.markWorkspaceSeen(id: reviewWorkspace.id)
         precondition(
             !reviewStore.unansweredTurnPaneIDs.contains(reviewWorkspace.activePaneID),
