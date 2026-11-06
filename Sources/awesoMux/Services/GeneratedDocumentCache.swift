@@ -91,6 +91,7 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     // `nonisolated(unsafe)` promise: accessed only under `cacheLock`.
     nonisolated(unsafe) private static var authoredPaths: [String: AuthoredPathState] = [:]
     nonisolated(unsafe) private static var nextPruneID = 0
+    nonisolated(unsafe) private static var completedPruneIDs: [String: Int] = [:]
 
     // MARK: - Writing
 
@@ -315,6 +316,10 @@ struct GeneratedDocumentCache: @unchecked Sendable {
         protecting authoredAtScheduling: Set<String>
     ) {
         Self.cacheLock.withLock {
+            let directoryPath = cacheDirectoryURL.standardizedFileURL.path
+            // A newer prune may retire write protection before an older task
+            // reaches this lock. Its stale keep-set must never run afterward.
+            guard scheduledID > Self.completedPruneIDs[directoryPath, default: 0] else { return }
             // `createIfMissing: false`: a prune must never bring the directory
             // into existence, and a symlinked cache root is refused here too —
             // otherwise prune becomes a delete primitive aimed wherever the
@@ -351,11 +356,14 @@ struct GeneratedDocumentCache: @unchecked Sendable {
             )
             for entry in entries where !referencedPaths.contains(entry.standardizedFileURL.path) {
                 // Only the regular files a cache writes are ours to delete.
-                guard
-                    ((try? entry.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile)
-                        == true
-                else { continue }
-                try? fileManager.removeItem(at: entry)
+                do {
+                    guard try entry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+                    try fileManager.removeItem(at: entry)
+                } catch {
+                    // Keep write protection and older prunes eligible if this
+                    // pass did not finish its filesystem work.
+                    return
+                }
             }
 
             // Once a completed write has survived a prune scheduled strictly
@@ -366,6 +374,7 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                     || state.isPending
                     || state.createdAfterPruneID >= scheduledID
             }
+            Self.completedPruneIDs[directoryPath] = scheduledID
         }
     }
 
