@@ -2,6 +2,7 @@ import AwesoMuxBridgeProtocol
 import Foundation
 
 public struct AgentOutputDetection: Equatable, Sendable {
+    public enum CodexUI: Equatable, Sendable { case question, composer }
     public var state: AgentState
     public var agentKind: AgentKind?
     /// Whether the kind was proven by an authoritative source (the live
@@ -10,20 +11,100 @@ public struct AgentOutputDetection: Equatable, Sendable {
     /// a different non-shell kind — a scraped signature still sitting in the
     /// scrollback must not. Text detections leave this `false`.
     public var agentKindIsAuthoritative: Bool
+    /// Positively framed current Codex controls, distinct from transcript prose.
+    public var codexUI: CodexUI?
+    public var isLiveCodexQuestion: Bool { codexUI == .question }
 
     public init(
         state: AgentState,
         agentKind: AgentKind? = nil,
-        agentKindIsAuthoritative: Bool = false
+        agentKindIsAuthoritative: Bool = false,
+        codexUI: CodexUI? = nil
     ) {
         self.state = state
         self.agentKind = agentKind
         self.agentKindIsAuthoritative = agentKindIsAuthoritative
+        self.codexUI = codexUI
     }
 }
 
 public struct AgentOutputDetector: Sendable {
     public init() {}
+
+    public func attentionCue(in visibleText: String, liveAgentKind: AgentKind) -> String? {
+        let originalLines = visibleText.split(separator: "\n", omittingEmptySubsequences: false)
+        let normalized = visibleText.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        let trimmed = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+        if liveAgentKind == .codex {
+            guard containsCodexApprovalPrompt(lines) else { return nil }
+            let bottom = trimmed.indices.filter { !trimmed[$0].isEmpty }.suffix(12)
+            guard let question = bottom.last(where: { Self.codexApprovalQuestions.contains(trimmed[$0]) }),
+                let lastChoice = bottom.last(where: { codexApprovalChoice(in: trimmed[$0]) != nil })
+            else { return nil }
+            return (question...lastChoice).map { index in
+                let raw = String(originalLines[index])
+                // Only numbered menu rows normalize indentation and the moving selection arrow.
+                return codexApprovalChoice(in: raw)?.text ?? raw
+            }.joined(separator: "\n")
+        }
+        guard containsNeedsAttentionPrompt(normalized) else { return nil }
+        let isChoice: (String) -> Bool = { $0.contains("[y]") || $0.contains("[n]") || $0.contains("[y/") }
+        let hasInlineQuestion: (String) -> Bool = { line in
+            let choice = ["[y", "[n]"].compactMap { line.range(of: $0)?.lowerBound }.min()
+            return choice.map { !line[..<$0].trimmingCharacters(in: .whitespaces).isEmpty } ?? false
+        }
+        let isHeading: (String) -> Bool = { line in
+            let content = dropDecorativePrefix(line[...])
+            return Self.attentionPromptHeadings.contains { hasTokenBoundedPrefix(content, $0) }
+        }
+        // An older structured prompt must not hide a newer introductory permission request.
+        guard let last = trimmed.lastIndex(where: { isChoice($0) || (!$0.hasPrefix("-") && containsNeedsAttentionPrompt($0)) })
+        else { return nil }
+        let start: Int
+        let end: Int
+        if !isChoice(trimmed[last]) {
+            let paragraphStart = trimmed[..<last].lastIndex(where: \.isEmpty).map { $0 + 1 } ?? 0
+            start =
+                isHeading(trimmed[last])
+                ? last
+                : (trimmed[paragraphStart..<last].lastIndex(where: { $0.hasPrefix("command:") }) ?? last)
+            // shortcut: Without choices, the first body paragraph bounds the request; prefer provider IDs when available.
+            if trimmed[start].hasPrefix("command:"), trimmed[start] != "command:" {
+                end = (trimmed[(start + 1)...].firstIndex(where: \.isEmpty) ?? trimmed.endIndex) - 1
+            } else if let body = trimmed[(start + 1)...].firstIndex(where: { !$0.isEmpty }) {
+                end = (trimmed[body...].firstIndex(where: \.isEmpty) ?? trimmed.endIndex) - 1
+            } else {
+                end = last
+            }
+        } else {
+            end = last
+            var firstChoice = last
+            while firstChoice > 0, !hasInlineQuestion(trimmed[firstChoice]),
+                trimmed[firstChoice - 1].isEmpty || isChoice(trimmed[firstChoice - 1])
+            {
+                firstChoice -= 1
+            }
+            // A question-bearing choice row starts a new block, even directly after older choices.
+            let lowerBound = trimmed[..<firstChoice].lastIndex(where: isChoice).map { $0 + 1 } ?? 0
+            let paragraphStart = trimmed[lowerBound..<firstChoice].lastIndex(where: \.isEmpty).map { $0 + 1 } ?? lowerBound
+            if let marker = trimmed[paragraphStart..<firstChoice].lastIndex(where: isHeading) {
+                start = marker
+            } else if let command = trimmed[paragraphStart..<firstChoice].lastIndex(where: { $0.hasPrefix("command:") }) {
+                start = command
+            } else if hasInlineQuestion(trimmed[firstChoice]) {
+                start = firstChoice
+            } else if let question = trimmed[paragraphStart..<firstChoice].lastIndex(where: { line in
+                !line.hasPrefix("-") && containsActionPrompt(line)
+            }) {
+                start = question
+            } else {
+                start = trimmed[paragraphStart..<firstChoice].lastIndex(where: { !$0.isEmpty }) ?? firstChoice
+            }
+        }
+        // Recognition folds case; identity preserves the actual command text, including case and accents.
+        return originalLines[start...end].joined(separator: "\n")
+    }
 
     public func detectedState(
         in visibleText: String,
@@ -58,6 +139,16 @@ public struct AgentOutputDetector: Sendable {
                 || containsAgentContext(normalized, lines: lines)
         else {
             return nil
+        }
+
+        // Current native controls outrank provider/work prose left in the transcript.
+        if liveKindIsCodex {
+            if containsCodexQuestionPrompt(lines) {
+                return AgentOutputDetection(state: .needsAttention, agentKind: .codex, codexUI: .question)
+            }
+            if let composerState = codexComposerState(lines) {
+                return AgentOutputDetection(state: composerState, agentKind: .codex, codexUI: .composer)
+            }
         }
 
         let hasStatefulAgentContext = containsStatefulAgentContext(lines)
@@ -105,7 +196,7 @@ public struct AgentOutputDetector: Sendable {
             return AgentOutputDetection(state: .thinking, agentKind: .hermes)
         }
 
-        // Codex attention must come from its live approval UI, never from
+        // Codex attention must come from its live interactive UI, never from
         // prose: a hookless (shared app-server) pane has no hook to correct it.
         if liveKindIsCodex
             ? containsCodexApprovalPrompt(lines)
@@ -467,6 +558,67 @@ public struct AgentOutputDetector: Sendable {
         }
     }
 
+    private func codexApprovalChoice(in line: String) -> (selected: Bool, text: String, label: String)? {
+        let display = line.trimmingCharacters(in: .whitespaces)
+        let selected = display.hasPrefix("› ")
+        let choice = selected ? String(display.dropFirst(2)) : display
+        let parts = choice.split(separator: ".", maxSplits: 1)
+        guard parts.count == 2, !parts[0].isEmpty, parts[0].allSatisfy(\.isNumber) else { return nil }
+        let label = parts[1].trimmingCharacters(in: .whitespaces)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        guard Self.codexApprovalChoices.contains(where: { label.hasPrefix($0) }) else { return nil }
+        return (selected, choice, label)
+    }
+
+    /// Codex 0.166's request_user_input menu and notes editor share this frame.
+    private func containsCodexQuestionPrompt(_ lines: [Substring]) -> Bool {
+        let bottom = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.suffix(40)
+        guard let footer = bottom.last,
+            footer == "tab to add notes | enter to submit answer | esc to interrupt"
+                || footer == "tab or esc to clear notes | enter to submit answer",
+            let header = bottom.lastIndex(where: { line in
+                guard line.hasPrefix("question "),
+                    line.range(of: #"^question [0-9]+/[0-9]+ \([0-9]+ unanswered\)$"#, options: .regularExpression) != nil
+                else { return false }
+                let counts = line.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+                return counts.count == 3 && counts[0] > 0 && counts[0] <= counts[1]
+                    && counts[2] > 0 && counts[2] <= counts[1]
+            })
+        else { return false }
+        // The footer must end the viewport: a later composer/work line makes a quoted frame inert.
+        let hasSelectedChoice = bottom.suffix(from: bottom.index(after: header)).contains { line in
+            guard line.hasPrefix("› ") else { return false }
+            let parts = line.dropFirst(2).split(separator: ".", maxSplits: 1)
+            return parts.count == 2 && Int(parts[0]).map { $0 > 0 } == true
+                && !parts[1].trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        return hasSelectedChoice
+    }
+
+    private func codexComposerState(_ lines: [Substring]) -> AgentState? {
+        let trimmed = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+        let bottom = trimmed.indices.filter { !trimmed[$0].isEmpty }.suffix(8)
+        guard let footer = bottom.last,
+            trimmed[footer].range(
+                of: #"\? for shortcuts(?:\s+⚠ [0-9]+ warnings? · f2 to view)?$"#, options: .regularExpression) != nil,
+            let composer = bottom.last(where: { trimmed[$0] == "›" || trimmed[$0].hasPrefix("› ") }),
+            composer < footer
+        else { return nil }
+        let prompt = trimmed[composer].dropFirst().trimmingCharacters(in: .whitespaces)
+        guard prompt.range(of: #"^[0-9]+\."#, options: .regularExpression) == nil,
+            !trimmed[composer...footer].contains(where: { $0.contains("enter to submit answer") })
+        else { return nil }
+        // Read only the adjacent status paragraph; tips may wrap, while earlier prose is inert.
+        let paragraph = trimmed[..<composer].reversed().drop(while: { $0.isEmpty })
+            .prefix(while: { !$0.isEmpty }).prefix(40).reversed()
+        let status = paragraph.prefix(while: { !$0.hasPrefix("└ tip:") }).joined(separator: " ")
+        if status.hasPrefix("• "), status.hasSuffix("esc to interrupt)") {
+            return .thinking
+        }
+        return .waiting
+    }
+
     /// Codex 0.163's approval overlay: a question followed by its numbered
     /// choices at the bottom of the viewport, where the composer would sit.
     private func containsCodexApprovalPrompt(_ lines: [Substring]) -> Bool {
@@ -480,17 +632,11 @@ public struct AgentOutputDetector: Sendable {
         var hasApproval = false
         var hasRejection = false
         for line in menu {
-            let selected = line == "›" || line.hasPrefix("› ")
-            let choice = selected ? String(line.dropFirst(2)) : line
-            let parts = choice.split(separator: ".", maxSplits: 1)
-            let numbered = parts.count == 2 && !parts[0].isEmpty && parts[0].allSatisfy(\.isNumber)
-            let label = numbered ? parts[1].trimmingCharacters(in: .whitespaces) : ""
-            let recognized = Self.codexApprovalChoices.contains { label.hasPrefix($0) }
-            if numbered && recognized {
-                hasSelectedChoice = hasSelectedChoice || selected
-                hasApproval = hasApproval || label.hasPrefix("yes,")
-                hasRejection = hasRejection || label.hasPrefix("no,")
-            } else if selected || containsThinkingCue(line) {
+            if let choice = codexApprovalChoice(in: line) {
+                hasSelectedChoice = hasSelectedChoice || choice.selected
+                hasApproval = hasApproval || choice.label.hasPrefix("yes,")
+                hasRejection = hasRejection || choice.label.hasPrefix("no,")
+            } else if line == "›" || line.hasPrefix("› ") || containsThinkingCue(line) {
                 // A later composer or work indicator means this is transcript,
                 // even when the response quotes a complete numbered menu.
                 return false
@@ -513,12 +659,12 @@ public struct AgentOutputDetector: Sendable {
         "no, and tell codex what to do differently",
     ]
 
+    private static let attentionPromptHeadings = [
+        "permission needed", "permission required", "needs permission", "approve pending request",
+    ]
+
     private func containsNeedsAttentionPrompt(_ text: String) -> Bool {
-        if text.contains("permission needed")
-            || text.contains("permission required")
-            || text.contains("needs permission")
-            || text.contains("approve pending request")
-        {
+        if Self.attentionPromptHeadings.contains(where: { text.contains($0) }) {
             return true
         }
 
@@ -531,16 +677,15 @@ public struct AgentOutputDetector: Sendable {
         }
 
         let hasSeparateChoices = text.contains("[y]") && text.contains("[n]")
-        let promptAsksForAction = text.contains("run ")
+        return hasSeparateChoices && containsActionPrompt(text)
+    }
+
+    private func containsActionPrompt(_ text: String) -> Bool {
+        text.contains("run ")
             || text.contains("allow")
             || text.contains("approve")
             || text.contains("proceed")
             || text.contains("continue")
-        if hasSeparateChoices && promptAsksForAction {
-            return true
-        }
-
-        return false
     }
 
     private func containsThinkingCue(_ text: String) -> Bool {

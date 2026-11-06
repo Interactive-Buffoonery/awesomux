@@ -1256,7 +1256,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             )
         }
 
-        var cAvailable: [UnsafePointer<CChar>?] = []
+        var cAvailable: [UnsafePointer<CChar>] = []
         for mime in available {
             guard let copied = strdup(mime) else { continue }
             cStrings.append(copied)

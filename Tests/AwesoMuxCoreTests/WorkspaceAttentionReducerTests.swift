@@ -6,6 +6,110 @@ import Testing
 
 @Suite("WorkspaceAttentionReducer")
 struct WorkspaceAttentionReducerTests {
+    @MainActor @Test("mixed terminal signals coalesce, stay seen during a burst, and rearm after quiet")
+    func outputBurstStaysSeen() {
+        let session = TerminalSession(title: "shell", workingDirectory: "~")
+        let store = SessionStore(groups: [SessionGroup(name: "Project", sessions: [session])])
+        let now = ProcessInfo.processInfo.systemUptime
+        for index in 0..<37 {
+            store.recordOutputNotification(
+                sessionID: session.id, paneID: session.activePaneID,
+                reason: index.isMultiple(of: 2) ? .bell : .desktopNotification,
+                observedAt: now - 4 + Double(index) / 100, canNotify: true)
+        }
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
+        #expect(store.session(id: session.id)?.attentionReason == .bell)
+        store.markPaneSeen(sessionID: session.id, paneID: session.activePaneID)
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: now + 0.1, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 0)
+        #expect(store.session(id: session.id)?.attentionReason == nil)
+        // Ghostty forwards identical OSC notices about five seconds apart, even during a continuous stream.
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: now + 5.2, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 0)
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .desktopNotification, observedAt: now + 16.2, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
+        #expect(store.session(id: session.id)?.attentionReason == .desktopNotification)
+    }
+
+    @MainActor @Test("zero unread acknowledgement fences queued output", arguments: ["pane", "workspace", "input", "all"])
+    func queuedOutputCannotOutliveAcknowledgement(action: String) {
+        let session = TerminalSession(title: "shell", workingDirectory: "~")
+        let store = SessionStore(groups: [SessionGroup(name: "Project", sessions: [session])])
+        let oldEvent = ProcessInfo.processInfo.systemUptime - 1
+        switch action {
+        case "pane": store.markPaneSeen(sessionID: session.id, paneID: session.activePaneID)
+        case "workspace": store.markWorkspaceSeen(id: session.id)
+        case "input": store.markNeedsAttentionPromptAnswered(id: session.id, paneID: session.activePaneID)
+        default: store.acknowledgeAllSessions()
+        }
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: oldEvent, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 0)
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: oldEvent + 1.1, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 0)
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: oldEvent + 20, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
+    }
+
+    @MainActor
+    @Test("generic output credit survives permission masking and drain", arguments: [AttentionReason.bell, .desktopNotification])
+    func outputCreditIsSeparateFromPermissions(reason: AttentionReason) {
+        let session = TerminalSession(title: "shell", workingDirectory: "~")
+        let store = SessionStore(groups: [SessionGroup(name: "Project", sessions: [session])])
+        let now = ProcessInfo.processInfo.systemUptime
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: reason, observedAt: now, canNotify: true)
+        store.updatePermissionPromptAttention(sessionID: session.id, paneID: session.activePaneID, countDelta: 2, hasPending: true)
+        for index in 1...37 {
+            store.recordOutputNotification(
+                sessionID: session.id, paneID: session.activePaneID,
+                reason: reason, observedAt: now + Double(index) / 100, canNotify: true)
+        }
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 3)
+        #expect(store.session(id: session.id)?.attentionReason == .permissionPrompt)
+        store.updatePermissionPromptAttention(sessionID: session.id, paneID: session.activePaneID, countDelta: -2, hasPending: false)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
+        #expect(store.session(id: session.id)?.attentionReason == reason)
+    }
+
+    @MainActor @Test("foreground output and pending permissions do not add generic credits")
+    func outputDoesNotContaminatePromptCredits() {
+        let session = TerminalSession(title: "shell", workingDirectory: "~")
+        let store = SessionStore(groups: [SessionGroup(name: "Project", sessions: [session])])
+        let now = ProcessInfo.processInfo.systemUptime
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: now, canNotify: false)
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .bell, observedAt: now + 1, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 0)
+        store.updatePermissionPromptAttention(sessionID: session.id, paneID: session.activePaneID, countDelta: 2, hasPending: true)
+        store.recordOutputNotification(
+            sessionID: session.id, paneID: session.activePaneID,
+            reason: .desktopNotification, observedAt: now + 10, canNotify: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 2)
+        store.markPaneSeen(sessionID: session.id, paneID: session.activePaneID)
+        store.updatePermissionPromptAttention(sessionID: session.id, paneID: session.activePaneID, countDelta: 1, hasPending: true)
+        store.updatePermissionPromptAttention(sessionID: session.id, paneID: session.activePaneID, countDelta: -2, hasPending: true)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
+        #expect(store.session(id: session.id)?.attentionReason == .permissionPrompt)
+        store.updatePermissionPromptAttention(sessionID: session.id, paneID: session.activePaneID, countDelta: -1, hasPending: false)
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 0)
+    }
+
     // A controlled scheduler is necessary to place a new event inside the old dwell window.
     @MainActor @Test(arguments: ["pane", "workspace", "dismiss"])
     func explicitSeenDoesNotClearANewerNotification(action: String) async {

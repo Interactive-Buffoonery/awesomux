@@ -239,8 +239,8 @@ struct AgentActivityPanel: View {
         let needsAttention = available && active && item.row.section == .needsYou
         let highContrast = contrast == .increased
         let borderColor: Color = {
-            if selected { return highContrast ? .aw.dividerHoverHC : .aw.dividerHover }
             if needsAttention { return item.row.state.awState.color }
+            if selected { return highContrast ? .aw.dividerHoverHC : .aw.dividerHover }
             return highContrast ? .aw.dividerRestHC : .aw.border
         }()
         let finished = available && active && item.row.section == .settled && item.row.executionState == .done

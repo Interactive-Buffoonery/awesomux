@@ -171,6 +171,40 @@ extension SessionStore {
         )
     }
 
+    public func recordOutputNotification(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        reason: AttentionReason,
+        observedAt: TimeInterval,
+        canNotify: Bool
+    ) {
+        guard let position = position(for: sessionID) else { return }
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let outcome = WorkspaceAttentionReducer.recordOutputNotification(
+            &session, paneID: paneID, reason: reason, observedAt: observedAt, canNotify: canNotify)
+        if outcome.didMutate {
+            _groups[position.groupIndex].sessions[position.sessionIndex] = session
+            commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange, riskSessionIDs: [sessionID]))
+        } else {
+            // The burst clock must advance without publishing every bell in a stream.
+            withSilentGroupMutation { $0[position.groupIndex].sessions[position.sessionIndex] = session }
+        }
+    }
+
+    func recordOutputNotificationSeen(sessionID: TerminalSession.ID, paneIDs: Set<TerminalPane.ID>) {
+        guard let position = position(for: sessionID) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        withSilentGroupMutation { groups in
+            let session = groups[position.groupIndex].sessions[position.sessionIndex]
+            groups[position.groupIndex].sessions[position.sessionIndex].layout = session.layout.mappingPanes { pane in
+                guard paneIDs.contains(pane.id) else { return pane }
+                var pane = pane
+                pane.outputNotificationSeenAt = now
+                return pane
+            }
+        }
+    }
+
     public func updatePermissionPromptAttention(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
@@ -245,6 +279,7 @@ extension SessionStore {
         paneID: TerminalPane.ID? = nil,
         detectedState: AgentState?,
         agentKind: AgentKind? = nil,
+        isLiveCodexQuestion: Bool = false,
         clearsAttention: Bool,
         clearsUnreadNotifications: Bool = false,
         unreadNotificationDelta: Int = 0
@@ -272,12 +307,26 @@ extension SessionStore {
                 // must stay reclaimable by the pane's own runtime stream.
                 agentKindIsRuntimeEstablished: agentKind != nil ? false : nil,
                 agentState: detectedState,
+                attentionReason: isLiveCodexQuestion && detectedState == .needsAttention
+                    && session(id: id)?.layout.pane(id: targetPaneID)?.agentKind == .codex ? .userInputRequired : nil,
                 clearsAttention: clearsAttention,
                 attentionClearIsAuthoritative: resolvesPendingPermissionPrompt,
                 clearsUnreadNotifications: clearsUnreadNotifications,
                 unreadNotificationDelta: normalizedPublicUnreadDelta(unreadNotificationDelta)
             )
         )
+    }
+
+    /// Resolves a previously observed native question without fabricating an input/permission-answer attempt.
+    @discardableResult
+    public func resolveObservedCodexQuestion(id: TerminalSession.ID, paneID: TerminalPane.ID) -> Bool {
+        guard let pane = session(id: id)?.layout.pane(id: paneID),
+            pane.agentKind == .codex, pane.attentionReason == .userInputRequired,
+            !runtimeEventReducer.suppressesHeuristicState(for: paneID)
+        else { return false }
+        return applyPaneUpdate(
+            sessionID: id, paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(clearsAttention: true, attentionClearIsAuthoritative: true))
     }
 
     /// Marks an answered prompt as thinking again, on the given pane.
@@ -297,6 +346,7 @@ extension SessionStore {
         else {
             return
         }
+        recordOutputNotificationSeen(sessionID: id, paneIDs: [targetPaneID])
         if pane.agentKind != .shell,
             pane.agentState.refreshesAgentActivity || pane.agentState == .needsAttention
         {

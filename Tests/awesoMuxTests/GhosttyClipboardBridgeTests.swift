@@ -77,6 +77,27 @@ struct GhosttyClipboardBridgeTests {
         #expect(prompted == prompts)
     }
 
+    @Test("clipboard writes honor binary payload lengths")
+    func clipboardWritePayloadLength() {
+        let cases: [([UInt8], Int, Int?, String?)] = [
+            (Array("payloadTRAILER".utf8) + [0], 7, nil, "payload"),
+            (Array("trailer".utf8) + [0], 0, nil, ""),
+            ([65, 0, 66, 0], 3, nil, "A\0B"),
+            ([65, 66, 0], 2, 1, nil),
+            ([0, 65, 66, 0], 3, 1, nil),
+            ([65, 66, 0], 2, 2, "AB"),
+        ]
+        for (bytes, length, maximum, expected) in cases {
+            "text/plain".withCString { mime in
+                bytes.withUnsafeBytes { buffer in
+                    var item = ghostty_clipboard_content_s(
+                        mime: mime, data: buffer.baseAddress!.assumingMemoryBound(to: CChar.self), len: length)
+                    #expect(GhosttyRuntime.textPlainContent(from: &item, count: 1, maximumBytes: maximum) == expected)
+                }
+            }
+        }
+    }
+
     @Test("ask policy drops duplicate writes while a confirmation is open")
     func askPolicyDropsDuplicateConcurrentWrites() async {
         GhosttyRuntime.resetClipboardWriteConfirmationProviderForTesting()
@@ -312,9 +333,8 @@ struct GhosttyClipboardBridgeTests {
 struct GhosttyClipboardConfirmPreviewTests {
     /// Builds a `ghostty_clipboard_confirm_s` over C memory that stays valid
     /// for the duration of `body`, mirroring how libghostty owns the payload
-    /// only for its callback duration. A representation may pass an explicit
-    /// `len` with `bytes: nil` — the corrupt shape libghostty never sends but
-    /// a broken embedder could.
+    /// only for its callback duration. Empty data still has a nonnull pointer,
+    /// matching the public header contract.
     private func withConfirm(
         _ representations: [(mime: String, bytes: [UInt8]?, len: Int?)],
         _ body: (ghostty_clipboard_confirm_s) -> Void
@@ -334,8 +354,9 @@ struct GhosttyClipboardConfirmPreviewTests {
             }
             mimeCopies.append(mime)
             let bytes = representation.bytes
-            var dataPointer: UnsafePointer<CChar>?
-            if let bytes {
+            var dataPointer: UnsafePointer<CChar>
+            do {
+                let bytes = bytes ?? []
                 let buffer = UnsafeMutableRawPointer.allocate(
                     byteCount: max(bytes.count, 1),
                     alignment: 1
@@ -384,7 +405,7 @@ struct GhosttyClipboardConfirmPreviewTests {
             representations: [("image/png", [0x89, 0x50, 0x4E], nil), ("application/octet-stream", Array(repeating: 0, count: 12), nil)],
             preview: "image/png (3 bytes)\napplication/octet-stream (12 bytes)", deliverable: nil),
         PayloadCase(representations: [("text/plain", [0xFF, 0xFE], nil)], preview: "text/plain (2 bytes)", deliverable: nil),
-        PayloadCase(representations: [("text/plain", nil, 7)], preview: "", deliverable: ""),
+        PayloadCase(representations: [("text/plain", [], nil)], preview: "", deliverable: ""),
         PayloadCase(representations: [], preview: "", deliverable: nil),
     ])
     func payloadDecoding(testCase: PayloadCase) {

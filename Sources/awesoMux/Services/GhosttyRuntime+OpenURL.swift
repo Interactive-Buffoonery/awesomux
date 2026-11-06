@@ -14,12 +14,12 @@ struct OpenURLAction {
     let value: String
 
     init(_ action: ghostty_action_open_url_s) {
-        guard let url = action.url, action.len > 0 else {
+        guard action.len > 0 else {
             value = ""
             return
         }
 
-        let data = Data(bytes: url, count: Int(action.len))
+        let data = Data(bytes: action.url, count: Int(action.len))
         value = String(data: data, encoding: .utf8) ?? ""
     }
 

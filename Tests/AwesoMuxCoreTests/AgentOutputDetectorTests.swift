@@ -6,6 +6,236 @@ import Testing
 struct AgentOutputDetectorTests {
     private let detector = AgentOutputDetector()
 
+    @Test("attention identity ignores progress but distinguishes the requested command")
+    func attentionCueIgnoresUnrelatedProgress() {
+        let prompt = "claude code v1.7.2\npermission needed\nrun swift test?\n[y] yes [n] no"
+        let first = detector.attentionCue(in: prompt + "\nDownloading 1%", liveAgentKind: .shell)
+        #expect(first != nil)
+        #expect(first == detector.attentionCue(in: prompt + "\nDownloading 99%", liveAgentKind: .shell))
+        #expect(first == detector.attentionCue(in: prompt + "\nrun package upgrade step 99", liveAgentKind: .shell))
+        let leadingProgress = prompt.replacingOccurrences(of: "permission needed", with: "run package upgrade step 1\npermission needed")
+        #expect(
+            detector.attentionCue(in: leadingProgress, liveAgentKind: .shell)
+                == detector.attentionCue(in: leadingProgress.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        #expect(
+            first != detector.attentionCue(in: prompt.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell))
+        let priorPrompt = "permission needed\nrun previous task?\n[y] yes [n] no\nrun package upgrade step 1\n" + prompt
+        #expect(
+            detector.attentionCue(in: priorPrompt, liveAgentKind: .shell)
+                == detector.attentionCue(in: priorPrompt.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        let inlinePrompt = "Muse Code v1.2.3\nrun package upgrade step 1\nProceed with swift test? [y/n]"
+        #expect(
+            detector.attentionCue(in: inlinePrompt, liveAgentKind: .shell)
+                == detector.attentionCue(in: inlinePrompt.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        #expect(
+            detector.attentionCue(in: inlinePrompt, liveAgentKind: .shell)
+                != detector.attentionCue(
+                    in: inlinePrompt.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell))
+        let inlineSeparateChoices = inlinePrompt.replacingOccurrences(of: "[y/n]", with: "[y] yes [n] no")
+        #expect(
+            detector.attentionCue(in: inlineSeparateChoices, liveAgentKind: .shell)
+                == detector.attentionCue(
+                    in: inlineSeparateChoices.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        let choiceLessPrompt = "Hermes\npermission needed\n\nCommand: swift test\n--configuration debug\n\nDownloading 1%"
+        let choiceLessCue = detector.attentionCue(in: choiceLessPrompt, liveAgentKind: .hermes)
+        #expect(choiceLessCue != nil)
+        #expect(
+            choiceLessCue == detector.attentionCue(in: choiceLessPrompt.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes)
+        )
+        #expect(
+            choiceLessCue
+                != detector.attentionCue(
+                    in: choiceLessPrompt.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+        #expect(
+            choiceLessCue
+                != detector.attentionCue(in: choiceLessPrompt.replacingOccurrences(of: "debug", with: "release"), liveAgentKind: .hermes))
+        let mixedChoices = "Muse Code v1.2.3\nrun package upgrade step 1\nProceed with swift test? [y] yes\n[n] no"
+        #expect(
+            detector.attentionCue(in: mixedChoices, liveAgentKind: .shell)
+                == detector.attentionCue(in: mixedChoices.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        #expect(
+            detector.attentionCue(in: mixedChoices, liveAgentKind: .shell)
+                != detector.attentionCue(
+                    in: mixedChoices.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell))
+        let oldBlock = "Hermes\npermission needed\nCommand: previous task\n[y] yes [n] no\n"
+        let newestInline = "Proceed with swift test? [y/n]"
+        #expect(
+            detector.attentionCue(in: oldBlock + newestInline, liveAgentKind: .hermes)
+                == detector.attentionCue(in: "Hermes\n" + newestInline, liveAgentKind: .hermes))
+        let adjacentCommand = "Muse Code v1.2.3\nrun package upgrade step 1\nCommand: swift test\nProceed? [y/n]"
+        #expect(
+            detector.attentionCue(in: adjacentCommand, liveAgentKind: .shell)
+                == detector.attentionCue(in: adjacentCommand.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        #expect(
+            detector.attentionCue(in: adjacentCommand, liveAgentKind: .shell)
+                != detector.attentionCue(
+                    in: adjacentCommand.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell))
+        let caseSensitive = prompt.replacingOccurrences(of: "swift test", with: "printf 'A'")
+        #expect(
+            detector.attentionCue(in: caseSensitive, liveAgentKind: .shell)
+                != detector.attentionCue(in: caseSensitive.replacingOccurrences(of: "'A'", with: "'a'"), liveAgentKind: .shell))
+        let accents = prompt.replacingOccurrences(of: "swift test", with: "printf 'café'")
+        #expect(
+            detector.attentionCue(in: accents, liveAgentKind: .shell)
+                != detector.attentionCue(in: accents.replacingOccurrences(of: "café", with: "cafe"), liveAgentKind: .shell))
+        let oldChoiceLessHeading =
+            "Hermes\npermission needed\nCommand: previous task\n\nDownloading 1%\n\nProceed with swift test? [y] yes\n[n] no"
+        #expect(
+            detector.attentionCue(in: oldChoiceLessHeading, liveAgentKind: .hermes)
+                == detector.attentionCue(in: oldChoiceLessHeading.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes))
+        #expect(
+            detector.attentionCue(in: oldChoiceLessHeading, liveAgentKind: .hermes)
+                != detector.attentionCue(
+                    in: oldChoiceLessHeading.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+        let multilineQuestion = "Muse Code v1.2.3\nrun swift test\n--configuration debug\n[y] yes [n] no"
+        #expect(
+            detector.attentionCue(in: multilineQuestion, liveAgentKind: .shell)
+                != detector.attentionCue(
+                    in: multilineQuestion.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell))
+        for argument in ["--filter Parser?", "Parser?"] {
+            let argumentQuestionMark = "Hermes\nrun swift test\n" + argument + "\n[y] yes [n] no"
+            #expect(
+                detector.attentionCue(in: argumentQuestionMark, liveAgentKind: .hermes)
+                    != detector.attentionCue(
+                        in: argumentQuestionMark.replacingOccurrences(of: "run swift test", with: "run swift test --parallel"),
+                        liveAgentKind: .hermes))
+        }
+        for choices in ["", "\n[y] yes [n] no"] {
+            let quotedPermission = "Hermes\npermission needed\nCommand: swift test\n--message \"permission required\"" + choices
+            let cue = detector.attentionCue(in: quotedPermission, liveAgentKind: .hermes)
+            #expect(cue != nil)
+            #expect(
+                cue
+                    != detector.attentionCue(
+                        in: quotedPermission.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+        }
+        let negativeFirst = "Hermes\nrun package upgrade step 1\nProceed with swift test? [n] no\n[y] yes"
+        let negativeCue = detector.attentionCue(in: negativeFirst, liveAgentKind: .hermes)
+        #expect(negativeCue != nil)
+        #expect(
+            negativeCue
+                == detector.attentionCue(
+                    in: negativeFirst.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .hermes))
+        #expect(
+            negativeCue
+                != detector.attentionCue(
+                    in: negativeFirst.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+        let introductoryHeading = "Hermes\nThis tool needs permission\nCommand: swift test\n\nDownloading 1%"
+        let introductoryCue = detector.attentionCue(in: introductoryHeading, liveAgentKind: .hermes)
+        #expect(introductoryCue != nil)
+        let oneLineCommand = "Hermes\nThis tool needs permission\nCommand: printf 'permission required'\n\nDownloading 1%"
+        let oneLineCue = detector.attentionCue(in: oneLineCommand, liveAgentKind: .hermes)
+        #expect(oneLineCue != nil)
+        let optionPhrase = "Hermes\npermission needed\nrun swift test\n--message 'permission required'\n\nDownloading 1%"
+        let optionCue = detector.attentionCue(in: optionPhrase, liveAgentKind: .hermes)
+        #expect(optionCue != nil)
+        #expect(
+            optionCue
+                != detector.attentionCue(
+                    in: optionPhrase.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+        #expect(
+            optionCue
+                == detector.attentionCue(
+                    in: optionPhrase.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes))
+        #expect(
+            oneLineCue
+                == detector.attentionCue(
+                    in: oneLineCommand.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes))
+        #expect(
+            oneLineCue
+                != detector.attentionCue(
+                    in: oneLineCommand.replacingOccurrences(of: "printf", with: "echo"), liveAgentKind: .hermes))
+        for argument in ["--configuration debug", "--filter Parser?", "--message 'run this?'"] {
+            let politeQuestion = "Hermes\nrun package upgrade step 1\nWould you like to run swift test?\n" + argument + "\n[y] yes [n] no"
+            let politeCue = detector.attentionCue(in: politeQuestion, liveAgentKind: .hermes)
+            #expect(detector.detectedState(in: politeQuestion, liveAgentKind: .hermes) == .needsAttention)
+            #expect(politeCue != nil)
+            #expect(
+                politeCue
+                    != detector.attentionCue(
+                        in: politeQuestion.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+            #expect(
+                politeCue
+                    == detector.attentionCue(
+                        in: politeQuestion.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .hermes))
+        }
+        for oldChoices in ["", "\n[y] yes [n] no"] {
+            let retainedOldBlock = "Hermes\npermission needed\nCommand: previous task" + oldChoices + "\n\n" + introductoryHeading
+            let currentCue = detector.attentionCue(in: retainedOldBlock, liveAgentKind: .hermes)
+            #expect(currentCue == introductoryCue)
+            #expect(
+                currentCue
+                    != detector.attentionCue(
+                        in: retainedOldBlock.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+            #expect(
+                currentCue
+                    == detector.attentionCue(
+                        in: retainedOldBlock.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes))
+        }
+        #expect(
+            introductoryCue
+                == detector.attentionCue(
+                    in: introductoryHeading.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes))
+        let introductoryPayload = introductoryHeading.replacingOccurrences(
+            of: "Command: swift test", with: "Command: swift test\n--message \"permission required\"")
+        #expect(
+            detector.attentionCue(in: introductoryPayload, liveAgentKind: .hermes)
+                != detector.attentionCue(
+                    in: introductoryPayload.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .hermes))
+        #expect(
+            detector.attentionCue(in: introductoryPayload, liveAgentKind: .hermes)
+                == detector.attentionCue(
+                    in: introductoryPayload.replacingOccurrences(of: "1%", with: "99%"), liveAgentKind: .hermes))
+        #expect(detector.attentionCue(in: "Downloading 99%", liveAgentKind: .shell) == nil)
+        let commandPrompt = prompt.replacingOccurrences(of: "run swift test?", with: "Command: swift test")
+        #expect(
+            detector.attentionCue(in: commandPrompt, liveAgentKind: .shell)
+                != detector.attentionCue(
+                    in: commandPrompt.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell))
+        let splitChoice = "Muse Code v1.2.3\nrun package upgrade step 1\nProceed with swift test?\n[y] yes [n] no"
+        #expect(detector.detectedState(in: splitChoice) == .needsAttention)
+        let priorSplitChoice = "permission needed\nrun previous task?\n[y] yes [n] no\n" + splitChoice
+        #expect(
+            detector.attentionCue(in: priorSplitChoice, liveAgentKind: .shell)
+                == detector.attentionCue(in: priorSplitChoice.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+
+        #expect(
+            detector.attentionCue(in: splitChoice, liveAgentKind: .shell)
+                == detector.attentionCue(in: splitChoice.replacingOccurrences(of: "step 1", with: "step 2"), liveAgentKind: .shell))
+        #expect(
+            detector.attentionCue(in: splitChoice, liveAgentKind: .shell)
+                != detector.attentionCue(in: splitChoice.replacingOccurrences(of: "swift test", with: "swift build"), liveAgentKind: .shell)
+        )
+    }
+
+    @Test("live Codex approval identity survives menu navigation")
+    func codexCueIgnoresSelectedChoice() {
+        let prompt =
+            "Would you like to run the following command?\nswift test\n› 1. Yes, proceed\n  2. No, and tell Codex what to do differently"
+        let first = detector.attentionCue(in: prompt, liveAgentKind: .codex)
+        #expect(first != nil)
+        let moved = prompt.replacingOccurrences(of: "› 1.", with: "  1.").replacingOccurrences(of: "  2.", with: "› 2.")
+        #expect(first == detector.attentionCue(in: moved, liveAgentKind: .codex))
+        #expect(first == detector.attentionCue(in: prompt + "\nDownloading 99%", liveAgentKind: .codex))
+        #expect(detector.detectedState(in: prompt, liveAgentKind: .codex) == .needsAttention)
+        let trailingStatus = prompt + "\n\nStatus: yes, proceed label rendered; tick 1"
+        #expect(detector.detectedState(in: trailingStatus, liveAgentKind: .codex) == .needsAttention)
+        #expect(first == detector.attentionCue(in: trailingStatus, liveAgentKind: .codex))
+        #expect(
+            detector.attentionCue(in: trailingStatus, liveAgentKind: .codex)
+                == detector.attentionCue(in: trailingStatus.replacingOccurrences(of: "tick 1", with: "tick 2"), liveAgentKind: .codex))
+
+        let caseSensitive = prompt.replacingOccurrences(of: "swift test", with: "printf 'A'")
+        #expect(
+            detector.attentionCue(in: caseSensitive, liveAgentKind: .codex)
+                != detector.attentionCue(in: caseSensitive.replacingOccurrences(of: "'A'", with: "'a'"), liveAgentKind: .codex))
+        let accented = prompt.replacingOccurrences(of: "swift test", with: "printf 'café'")
+        #expect(
+            detector.attentionCue(in: accented, liveAgentKind: .codex)
+                != detector.attentionCue(in: accented.replacingOccurrences(of: "café", with: "cafe"), liveAgentKind: .codex))
+
+    }
+
     @Test(arguments: [
         (
             """
@@ -235,6 +465,70 @@ struct AgentOutputDetectorTests {
             No, and tell Codex what to do differently
             """
         #expect(detector.detectedOutput(in: prose, liveAgentKind: .codex)?.state != .needsAttention)
+    }
+
+    @Test("live Codex question overlay is distinct from quoted questions and later UI")
+    func codexQuestionOverlay() {
+        // Captured from Codex 0.166.0 request_user_input; prose alone must not arm attention.
+        let question = """
+              Question 1/1 (1 unanswered)
+              Does this question highlight the correct awesoMux agent?
+
+              › 1. Yes                The correct awesoMux agent is highlighted.
+                2. No                 The correct awesoMux agent is not highlighted.
+                3. None of the above  Optionally, add details in notes (tab)
+
+              tab to add notes | enter to submit answer | esc to interrupt
+            """
+        let notes = question.replacingOccurrences(
+            of: "tab to add notes | enter to submit answer | esc to interrupt",
+            with: "› Add notes\n\ntab or esc to clear notes | enter to submit answer")
+        for liveQuestion in [
+            question, notes, question.replacingOccurrences(of: "› 1.", with: "  1.").replacingOccurrences(of: "  2.", with: "› 2."),
+        ] {
+            #expect(detector.detectedOutput(in: liveQuestion, liveAgentKind: .codex)?.state == .needsAttention)
+            #expect(detector.detectedOutput(in: liveQuestion, liveAgentKind: .codex)?.isLiveCodexQuestion == true)
+        }
+        for inactive in [
+            question + "\n› Ask Codex to do anything",
+            question + "\n• Working (3s • esc to interrupt)",
+            question.replacingOccurrences(of: "Question 1/1 (1 unanswered)", with: "Question 1/1 (0 unanswered)"),
+            question.replacingOccurrences(of: "Question 1/1 (1 unanswered)", with: "Question 2/1 (1 unanswered)"),
+            question.replacingOccurrences(of: "Question 1/1 (1 unanswered)", with: "A quoted question:"),
+            question.replacingOccurrences(of: "› 1.", with: "  1."),
+            question.replacingOccurrences(of: "tab to add notes | enter to submit answer | esc to interrupt", with: ""),
+            "Does this question highlight the correct awesoMux agent?\n1. Yes\n2. No",
+        ] {
+            #expect(detector.detectedOutput(in: inactive, liveAgentKind: .codex)?.state != .needsAttention)
+        }
+        #expect(detector.detectedOutput(in: question, liveAgentKind: .shell) == nil)
+
+        let composer = "› Ask Codex to do anything\nGPT-6.1-Sol medium · ~/Development\n← for agents · ? for shortcuts"
+        for prefix in ["", question + "\n", "Claude Code\nThinking\n"] {
+            let idle = detector.detectedOutput(in: prefix + composer, liveAgentKind: .codex)
+            #expect(idle?.state == .waiting)
+            #expect(idle?.codexUI == .composer)
+            #expect(idle?.agentKind == .codex)
+        }
+        #expect(detector.detectedOutput(in: "• Working (3s • esc to interrupt)\n" + composer, liveAgentKind: .codex)?.state == .thinking)
+        #expect(
+            detector.detectedOutput(
+                in: "• Working (4s • esc to interrupt)\n└ Tip: Use /skills to list available skills.\n" + composer,
+                liveAgentKind: .codex)?.state == .thinking)
+        #expect(
+            detector.detectedOutput(
+                in: "• Working (4s • esc to interrupt)\n└ Tip: Use a preset to\n  run a saved prompt.\n\n" + composer,
+                liveAgentKind: .codex)?.state == .thinking)
+        let warningComposer = composer + "    ⚠ 2 warnings · f2 to view"
+        #expect(detector.detectedOutput(in: warningComposer, liveAgentKind: .codex)?.codexUI == .composer)
+        #expect(detector.detectedOutput(in: composer + "\nWarning details", liveAgentKind: .codex)?.codexUI != .composer)
+        #expect(
+            detector.detectedOutput(
+                in: "• Working (4s • esc to interrupt)\n\n• Finished explaining that example.\n\n" + composer,
+                liveAgentKind: .codex)?.state == .waiting)
+        for unknown in ["› 1. Yes\n? for shortcuts", "Warning: MCP connection failed", "› Ask Codex to do anything"] {
+            #expect(detector.detectedOutput(in: unknown, liveAgentKind: .codex)?.codexUI != .composer)
+        }
     }
 
     @Test("live codex pane reads its viewport after the launch banner scrolls away")

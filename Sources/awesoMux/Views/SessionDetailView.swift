@@ -39,18 +39,6 @@ struct SessionDetailView: View {
             VStack(spacing: 0) {
                 ZStack {
                     VStack(spacing: 0) {
-                        if let row = AgentActivityRoster.build(sessions: [session], includingShells: true)
-                            .orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs)
-                            .first(where: { $0.section == .needsYou })
-                        {
-                            AgentAttentionBar(
-                                row: row,
-                                paneNumber: (session.layout.paneIDs.firstIndex(of: row.paneID) ?? 0) + 1,
-                                onNavigate: { onFocusAgentPane(row.sessionID, row.paneID) },
-                                onMarkSeen: { sessionStore.markPaneSeen(sessionID: row.sessionID, paneID: row.paneID) }
-                            )
-                        }
-
                         // INT-698 D4: the remote-agent permission banner for the
                         // active pane, above the terminal. Self-gates on
                         // `activePrompt != nil`; only mounted when a live bridge
@@ -99,7 +87,21 @@ struct SessionDetailView: View {
                             onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer
                         )
                         .overlay(alignment: .top) {
-                            whileAwaySummary
+                            VStack(spacing: 8) {
+                                whileAwaySummary
+                                if let row = AgentActivityRoster.build(sessions: [session], includingShells: true)
+                                    .orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs)
+                                    .first(where: { $0.section == .needsYou && $0.paneID != session.activePaneID })
+                                {
+                                    AgentAttentionBar(
+                                        row: row,
+                                        paneNumber: (session.layout.paneIDs.firstIndex(of: row.paneID) ?? 0) + 1,
+                                        onNavigate: { onFocusAgentPane(row.sessionID, row.paneID) },
+                                        onMarkSeen: { sessionStore.markPaneSeen(sessionID: row.sessionID, paneID: row.paneID) }
+                                    )
+                                    .padding(12)
+                                }
+                            }
                         }
                         .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
                             SidebarEdgeTab(
@@ -235,6 +237,7 @@ struct SessionDetailView: View {
         if let summary = sessionStore.whileAwaySummary {
             WhileAwaySummaryView(store: sessionStore, summary: summary)
                 .liveTitleChannels(from: sessionStore)
+                .padding(12)
         }
     }
 
@@ -892,10 +895,13 @@ private struct AgentAttentionBar: View {
             content(horizontal: true)
             content(horizontal: false)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.aw.surface.sidebar)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 460, alignment: .leading)
+        .background(Color.aw.surface.chrome.opacity(0.98), in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.aw.border2, lineWidth: 0.5) }
+        .awShadow(.sheet)
+        .accessibilityElement(children: .contain)
     }
 
     private func content(horizontal: Bool) -> some View {
@@ -906,7 +912,16 @@ private struct AgentAttentionBar: View {
                 .foregroundStyle(Color.aw.railText)
                 .lineLimit(2)
             if horizontal { Spacer(minLength: 4) }
-            HStack(spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { actions }
+                VStack(alignment: .leading, spacing: 8) { actions }
+            }
+            .buttonStyle(.plain)
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text)
+        }
+    }
+    @ViewBuilder private var actions: some View {
                 Button(
                     row.attentionReason == .permissionPrompt
                         ? String(localized: "Go to waiting pane", comment: "Navigate without approving or answering")
@@ -918,12 +933,8 @@ private struct AgentAttentionBar: View {
                                 localized: "Clears the notification; permission approval remains separate",
                                 comment: "Mark seen boundary hint"))
                 }
-            }
-            .buttonStyle(.plain)
-            .awFont(AwFont.UI.meta)
-            .foregroundStyle(Color.aw.text)
-        }
     }
+
 }
 
 private struct SidebarEdgeTab: View {

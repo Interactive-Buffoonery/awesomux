@@ -49,6 +49,41 @@ struct SessionStoreFocusedCommandTests {
         ])
     }
 
+    @Test("marking a detected Codex question seen does not answer it")
+    func detectedQuestionStaysPendingUntilAnswered() {
+        let session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex, agentExecutionState: .thinking)
+        let store = makeStore(session)
+        #expect(
+            store.applyDetectedAgentState(
+                id: session.id, detectedState: .needsAttention, isLiveCodexQuestion: true,
+                clearsAttention: false, unreadNotificationDelta: 1))
+        store.markPaneSeen(sessionID: session.id, paneID: session.activePaneID)
+        #expect(store.selectedSession?.attentionReason == .userInputRequired)
+        #expect(store.selectedSession?.unreadNotificationCount == 0)
+        _ = store.applyDetectedAgentState(id: session.id, detectedState: .thinking, clearsAttention: true)
+        #expect(store.selectedSession?.attentionReason == .userInputRequired)
+        #expect(store.resolveObservedCodexQuestion(id: session.id, paneID: session.activePaneID))
+        #expect(store.selectedSession?.attentionReason == nil)
+        #expect(store.selectedSession?.agentExecutionState == .thinking)
+        _ = store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(source: .codex, attentionReason: .permissionPrompt, phase: .notification),
+            to: session.id, paneID: session.activePaneID, terminalIsFocused: true)
+        #expect(store.selectedSession?.attentionReason == .permissionPrompt)
+        #expect(!store.resolveObservedCodexQuestion(id: session.id, paneID: session.activePaneID))
+        #expect(store.selectedSession?.attentionReason == .permissionPrompt)
+        store.markNeedsAttentionPromptAnswered(id: session.id)
+        _ = store.applyDetectedAgentState(id: session.id, detectedState: .waiting, clearsAttention: true)
+        #expect(store.selectedSession?.agentState == .waiting)
+
+        let background = TerminalSession(
+            title: "background", workingDirectory: "~", agentKind: .codex,
+            agentExecutionState: .waiting, attentionReason: .userInputRequired, unreadNotificationCount: 2)
+        let backgroundStore = makeStore(background)
+        #expect(backgroundStore.resolveObservedCodexQuestion(id: background.id, paneID: background.activePaneID))
+        #expect(backgroundStore.selectedSession?.unreadNotificationCount == 2)
+        #expect(backgroundStore.selectedSession?.agentExecutionState == .waiting)
+    }
+
     enum Resolution: Sendable { case input, visibleWork, beforeHook, waitingInput }
 
     @Test(

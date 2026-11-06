@@ -151,6 +151,48 @@ struct VisibleTextAgentStateReducerTests {
             ))
     }
 
+    @Test("live Codex question UI remains detectable with lifecycle hooks")
+    func codexQuestionWithDeliveredHooks() {
+        for hooksDelivered in [false, true] {
+            let decision = reducer.visibleTextDecision(
+                detectedState: .needsAttention,
+                detectedAgentKind: nil,
+                isLiveCodexQuestion: true,
+                liveAgentKind: .codex,
+                liveAgentHooksDelivered: hooksDelivered,
+                liveExecutionState: .thinking,
+                liveDisplayState: .thinking,
+                terminalIsActiveForAttention: true)
+            #expect(decision.shouldApplyState)
+            #expect(!decision.clearsAttention)
+        }
+        #expect(
+            !reducer.visibleTextDecision(
+                detectedState: .needsAttention,
+                detectedAgentKind: nil,
+                isLiveCodexQuestion: true,
+                liveAgentKind: .claudeCode,
+                liveExecutionState: .thinking,
+                liveDisplayState: .thinking,
+                terminalIsActiveForAttention: true
+            ).shouldApplyState)
+    }
+
+    @Test("a live Codex question upgrades existing generic attention without another unread")
+    func codexQuestionUpgradesGenericAttention() {
+        let decision = reducer.visibleTextDecision(
+            detectedState: .needsAttention,
+            detectedAgentKind: nil,
+            isLiveCodexQuestion: true,
+            liveAgentKind: .codex,
+            liveAgentHooksDelivered: true,
+            liveExecutionState: .thinking,
+            liveDisplayState: .needsAttention,
+            terminalIsActiveForAttention: false)
+        #expect(decision.shouldApplyState)
+        #expect(decision.unreadNotificationDelta == 0)
+    }
+
     @Test("active visible agent activity acknowledges stale unread attention")
     func activeVisibleAgentActivityAcknowledgesStaleUnreadAttention() {
         let active = reducer.visibleTextDecision(
