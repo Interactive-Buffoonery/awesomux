@@ -91,6 +91,7 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     // `nonisolated(unsafe)` promise: accessed only under `cacheLock`.
     nonisolated(unsafe) private static var authoredPaths: [String: AuthoredPathState] = [:]
     nonisolated(unsafe) private static var nextPruneID = 0
+    nonisolated(unsafe) private static var completedPruneIDs: [String: Int] = [:]
 
     // MARK: - Writing
 
@@ -280,24 +281,25 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// references the caller could not know about at scheduling are protected
     /// by the captured authored generation and pending-write leases.
     func schedulePruneUnreferenced(keeping referencedFileURLs: Set<URL>) {
-        let cache = self
-        let scheduled = scheduledPrune()
+        let prune = pruneOperation(keeping: referencedFileURLs)
         Task.detached(priority: .utility) {
-            cache.pruneUnreferenced(
+            prune()
+        }
+    }
+
+    func pruneUnreferencedImmediately(keeping referencedFileURLs: Set<URL>) {
+        pruneOperation(keeping: referencedFileURLs)()
+    }
+
+    func pruneOperation(keeping referencedFileURLs: Set<URL>) -> @Sendable () -> Void {
+        let scheduled = scheduledPrune()
+        return {
+            pruneUnreferenced(
                 keeping: referencedFileURLs,
                 scheduledID: scheduled.id,
                 protecting: scheduled.authoredPaths
             )
         }
-    }
-
-    func pruneUnreferencedImmediately(keeping referencedFileURLs: Set<URL>) {
-        let scheduled = scheduledPrune()
-        pruneUnreferenced(
-            keeping: referencedFileURLs,
-            scheduledID: scheduled.id,
-            protecting: scheduled.authoredPaths
-        )
     }
 
     private func scheduledPrune() -> (id: Int, authoredPaths: Set<String>) {
@@ -314,6 +316,10 @@ struct GeneratedDocumentCache: @unchecked Sendable {
         protecting authoredAtScheduling: Set<String>
     ) {
         Self.cacheLock.withLock {
+            let directoryPath = cacheDirectoryURL.standardizedFileURL.path
+            // A newer prune may retire write protection before an older task
+            // reaches this lock. Its stale keep-set must never run afterward.
+            guard scheduledID > Self.completedPruneIDs[directoryPath, default: 0] else { return }
             // `createIfMissing: false`: a prune must never bring the directory
             // into existence, and a symlinked cache root is refused here too —
             // otherwise prune becomes a delete primitive aimed wherever the
@@ -348,14 +354,19 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                     return path
                 }
             )
+            var completedAllEntries = true
             for entry in entries where !referencedPaths.contains(entry.standardizedFileURL.path) {
                 // Only the regular files a cache writes are ours to delete.
-                guard
-                    ((try? entry.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile)
-                        == true
-                else { continue }
-                try? fileManager.removeItem(at: entry)
+                do {
+                    guard try entry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+                    try fileManager.removeItem(at: entry)
+                } catch {
+                    completedAllEntries = false
+                }
             }
+            // A failed entry must not stop collection of other files, but this
+            // incomplete pass cannot retire write protection or older prunes.
+            guard completedAllEntries else { return }
 
             // Once a completed write has survived a prune scheduled strictly
             // after it landed, future prunes can trust their fresh store-derived
@@ -365,6 +376,7 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                     || state.isPending
                     || state.createdAfterPruneID >= scheduledID
             }
+            Self.completedPruneIDs[directoryPath] = scheduledID
         }
     }
 
