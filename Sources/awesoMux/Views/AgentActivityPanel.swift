@@ -23,6 +23,7 @@ struct AgentActivityPanel: View {
     let onMarkSeen: (AgentActivityRoster.Row) -> Void
     let onDismissReminder: (AgentActivityRoster.Row) -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var heldIDs: [UUID] = []
     @State private var heldItems: [AgentActivityPanelItem] = []
@@ -161,6 +162,7 @@ struct AgentActivityPanel: View {
             .accessibilityElement(children: .contain)
         }
         .frame(maxHeight: .infinity)
+        .focusSection()
         .accessibilityLabel(String(localized: "Agents", comment: "Global agent sidebar"))
     }
 
@@ -233,6 +235,14 @@ struct AgentActivityPanel: View {
             : !active
                 ? String(localized: "Agent no longer active", comment: "A held row whose terminal is no longer running an agent")
                 : item.row.detail
+        let selected = selectedPaneID == item.id
+        let needsAttention = available && active && item.row.section == .needsYou
+        let highContrast = contrast == .increased
+        let borderColor: Color = {
+            if selected { return highContrast ? .aw.dividerHoverHC : .aw.dividerHover }
+            if needsAttention { return item.row.state.awState.color }
+            return highContrast ? .aw.dividerRestHC : .aw.border
+        }()
         let finished = available && active && item.row.section == .settled && item.row.executionState == .done
         let unread = available && active && item.row.unread > 0
         let unreadLabel =
@@ -248,15 +258,9 @@ struct AgentActivityPanel: View {
                 navigate(to: item.row)
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .top, spacing: 6) {
-                        StatusDot(item.row.state.awState)
-                            .frame(width: 14, height: 14)
-                            .padding(.top, 2)
-                            .accessibilityHidden(true)
-                        Text(verbatim: item.title)
-                            .awFont(AwFont.UI.label)
-                            .lineLimit(2)
-                    }
+                    Text(verbatim: item.title)
+                        .awFont(AwFont.UI.label)
+                        .lineLimit(2)
                     if !item.workspaceText.isEmpty {
                         Text(verbatim: item.workspaceText)
                             .awFont(AwFont.UI.meta)
@@ -286,15 +290,21 @@ struct AgentActivityPanel: View {
                 String(
                     localized: "Goes to this agent's pane without answering or approving its request", comment: "Agent row navigation hint")
             )
-            .accessibilityAddTraits(selectedPaneID == item.id ? .isSelected : [])
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(
-                    finished
-                        ? String(localized: "Finished", comment: "Agent execution completed; not a review verdict") : detail
-                )
-                .lineLimit(1)
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(item.row.section == .needsYou ? Color.aw.status.needs : Color.aw.railText)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    if available && active && item.row.state.awState == .thinking {
+                        StatusDot(.thinking)
+                            .frame(width: 10, height: 10)
+                    }
+                    Text(
+                        finished
+                            ? String(localized: "Finished", comment: "Agent execution completed; not a review verdict") : detail
+                    )
+                    .lineLimit(1)
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(needsAttention ? Color.aw.status.needs : Color.aw.railText)
+                }
                 .accessibilityHidden(true)
                 Spacer(minLength: 0)
                 if canMarkSeen || seenFocusID == item.id || seenAccessibilityID == item.id {
@@ -338,6 +348,19 @@ struct AgentActivityPanel: View {
         }
         .padding(8)
         .background(
-            selectedPaneID == item.id ? Color.aw.text.opacity(0.04) : Color.clear, in: RoundedRectangle(cornerRadius: AwRadius.pill))
+            selected ? Color.aw.text.opacity(0.04) : Color.clear, in: RoundedRectangle(cornerRadius: AwRadius.panel)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: AwRadius.panel)
+                .strokeBorder(
+                    borderColor,
+                    style: StrokeStyle(
+                        lineWidth: selected ? (highContrast ? 2 : 1.5) : (highContrast ? 1 : 0.5),
+                        dash: needsAttention && !selected ? [3, 2] : []
+                    )
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
