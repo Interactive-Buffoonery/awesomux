@@ -28,7 +28,7 @@ struct RecoverySummaryPresentationTests {
                     "Skipped 1 document tab that could not be restored.",
                     "Made 1 adjustment to saved names or titles.",
                     "Merged 1 duplicate workspace group.",
-                    "Reset 1 saved working directory to home.",
+                    "Reset the saved working directory for 1 pane or workspace to home.",
                     "Replaced 1 saved pane selection.",
                     "Replaced 1 saved workspace selection.",
                 ]
@@ -38,7 +38,7 @@ struct RecoverySummaryPresentationTests {
                     "Skipped 2 document tabs that could not be restored.",
                     "Made 2 adjustments to saved names or titles.",
                     "Merged 2 duplicate workspace groups.",
-                    "Reset 2 saved working directories to home.",
+                    "Reset saved working directories for 2 panes or workspaces to home.",
                     "Replaced 2 saved pane selections.",
                     "Replaced 2 saved workspace selections.",
                 ]
@@ -69,7 +69,7 @@ struct RecoverySummaryPresentationTests {
             #expect(
                 LocalizedPluralStrings.recoverySummaryLines(summary, bundle: bundle) == [
                     "Made 6 adjustments to saved names or titles.",
-                    "Reset 3 saved working directories to home.",
+                    "Reset saved working directories for 3 panes or workspaces to home.",
                 ])
         }
     }

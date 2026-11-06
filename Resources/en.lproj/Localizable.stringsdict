@@ -899,9 +899,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Reset %lld saved working directory to home.</string>
+            <string>Reset the saved working directory for %lld pane or workspace to home.</string>
             <key>other</key>
-            <string>Reset %lld saved working directories to home.</string>
+            <string>Reset saved working directories for %lld panes or workspaces to home.</string>
         </dict>
     </dict>
     <key>alert.recovery.paneSelections</key>

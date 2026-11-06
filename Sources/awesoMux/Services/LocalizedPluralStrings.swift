@@ -430,6 +430,8 @@ enum LocalizedPluralStrings {
         )
     }
 
+    /// Counts are recorded adjustments, not unique objects: one name can be
+    /// adjusted more than once, and each pane keeps its own working directory.
     static func recoverySummaryLines(
         _ summary: SessionRestoreSanitizationSummary,
         bundle: Bundle = .main
