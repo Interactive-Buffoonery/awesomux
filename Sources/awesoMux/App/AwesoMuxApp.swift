@@ -39,7 +39,8 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
     // Node. Other CODEX_* keys (CODEX_HOME, CODEX_API_KEY, ...) are user
     // configuration, so only these run-scoped keys are removed.
     let environment = ProcessInfo.processInfo.environment
-    if ["CODEX_SANDBOX", "CODEX_THREAD_ID", "CODEX_CI", "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID"].contains(where: { environment[$0] != nil }) {
+    if ["CODEX_SANDBOX", "CODEX_THREAD_ID", "CODEX_CI", "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID"].contains(where: { environment[$0] != nil }
+    ) {
         unsetenv("NO_COLOR")
     }
     let agentRunKeys = [
