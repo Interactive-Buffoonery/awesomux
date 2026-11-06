@@ -653,17 +653,6 @@ struct SidebarView: View {
 
         let sidebarContent = AnyView(
             VStack(spacing: 0) {
-                if displayMode != .collapsed {
-                    Picker(String(localized: "Sidebar view", comment: "Workspace or agent navigation mode"), selection: $activityPanelOpen)
-                    {
-                        Text(String(localized: "Workspaces", comment: "Workspace organization sidebar")).tag(false)
-                        Text(String(localized: "Agents", comment: "Global agent sidebar")).tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                }
                 if isWorkspacesMode {
                     searchHeader(
                         topMatchID: snapshot.topMatchID,
@@ -2019,7 +2008,6 @@ private struct SidebarActivitySection: View, Equatable {
         }
         return VStack(spacing: 0) {
             if activityPanelOpen, invalidationKey.displayMode != .collapsed {
-                Divider()
                 SidebarActivityPanelTitleScope(
                     sessionStore: sessionStore,
                     sessions: sessions,
@@ -2033,8 +2021,7 @@ private struct SidebarActivitySection: View, Equatable {
                     scrollTarget: activityPanelScrollTarget,
                     scrollRequestID: activityPanelScrollRequestID,
                     focusRequestID: invalidationKey.activityPanelFocusRequestID,
-                    onSelect: selectActivityRow,
-                    onClose: { setActivityPanel(open: false) }
+                    onSelect: selectActivityRow
                 )
             }
 
@@ -2046,9 +2033,8 @@ private struct SidebarActivitySection: View, Equatable {
                 onShowWelcomeTour: onShowWelcomeTour,
                 onSelectNextMatchingState: { focusNextAgentPane(matching: $0, in: roster) },
                 onToggleActivityPanel: { state in
-                    // Chips only open/retarget; closing lives on the total
-                    // label and the panel's own close button. Keeps the chips'
-                    // "Show…" tooltips truthful.
+                    // Chips only open/retarget; the total label switches modes.
+                    // Keep the chips' "Show…" tooltips truthful.
                     if activityPanelOpen, state == nil {
                         setActivityPanel(open: false)
                     } else {
@@ -2150,7 +2136,6 @@ private struct SidebarActivityPanelTitleScope: View {
     let scrollRequestID: UUID
     let focusRequestID: UUID?
     let onSelect: (AgentActivityRoster.Row) -> Void
-    let onClose: () -> Void
 
     var body: some View {
         let sessionsByID = Dictionary(
@@ -2169,8 +2154,7 @@ private struct SidebarActivityPanelTitleScope: View {
             selectedPaneID: selectedPaneID,
             onSelect: onSelect,
             onMarkSeen: { sessionStore.markPaneSeen(sessionID: $0.sessionID, paneID: $0.paneID) },
-            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) },
-            onClose: onClose
+            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) }
         )
     }
 
@@ -2201,13 +2185,14 @@ private struct SidebarActivityPanelTitleScope: View {
         } else {
             title = resolvedTitles[row.sessionID] ?? session?.title ?? ""
         }
+        let workspaceTitle = resolvedTitles[row.sessionID] ?? session?.title
         return AgentActivityPanelItem(
             row: row,
             title: title,
             locationText: location?.displayText ?? "",
             workspaceText: [
                 groupName,
-                resolvedTitles[row.sessionID] ?? session?.title,
+                workspaceTitle == title || workspaceTitle == groupName ? nil : workspaceTitle,
             ].compactMap { $0 }.joined(separator: " / ")
         )
     }

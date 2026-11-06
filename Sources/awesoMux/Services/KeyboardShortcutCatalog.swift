@@ -428,7 +428,7 @@ enum KeyboardShortcutCatalog {
 
     static let nextAgentNeedingAttention = KeyBinding(
         id: "nextAgentNeedingAttention",
-        action: String(localized: "Next Agent Needing Me", comment: "Agent navigation and notification command"),
+        action: String(localized: "Next Agent Needing Me", comment: "Navigate to the next actionable agent pane"),
         key: "j",
         modifiers: [.command, .option],
         keyDisplay: "J"
@@ -436,7 +436,7 @@ enum KeyboardShortcutCatalog {
 
     static let acknowledgeWorkspace = KeyBinding(
         id: "acknowledgeWorkspace",
-        action: String(localized: "Mark Workspace as Seen", comment: "Agent navigation and notification command"),
+        action: String(localized: "Mark Workspace as Seen", comment: "Clear workspace notifications without approving requests"),
         key: "k",
         modifiers: [.command, .shift],
         keyDisplay: "K"
@@ -672,13 +672,15 @@ enum KeyboardShortcutCatalog {
                     KeyboardShortcutEntry(
                         acknowledgeWorkspace,
                         detail: String(
-                            localized: "Mark notifications seen without approving requests",
-                            comment: "Agent navigation and notification command")),
+                            localized: "Mark notifications seen without approving requests", comment: "Keyboard shortcut description")),
                     KeyboardShortcutEntry(
                         resolved(Self.nextAgentNeedingAttention, keyboard: keyboard),
+                        detail: String(localized: "Go to the next agent needing attention", comment: "Keyboard shortcut description")),
+                    KeyboardShortcutEntry(
+                        focusSidebar,
                         detail: String(
-                            localized: "Go to the next agent needing attention", comment: "Agent navigation and notification command")),
-                    KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to workspace search or the agent list"),
+                            localized: "Move keyboard focus to workspace search or the agent list", comment: "Keyboard shortcut description"
+                        )),
                     KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
                     KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
                 ]

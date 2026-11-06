@@ -2682,7 +2682,7 @@
       "comment" : "Navigate to the pane with attention"
     },
     "Go to the next agent needing attention" : {
-      "comment" : "Agent navigation and notification command"
+      "comment" : "Keyboard shortcut description"
     },
     "Go to waiting pane" : {
       "comment" : "Navigate without approving or answering"
@@ -3116,13 +3116,13 @@
       "comment" : "Pane-specific mark-seen accessibility action"
     },
     "Mark Workspace as Seen" : {
-      "comment" : "Agent navigation and notification command"
+      "comment" : "Clear workspace notifications without approving requests"
     },
     "Mark as seen" : {
       "comment" : "Clear notification without approving a request"
     },
     "Mark notifications seen without approving requests" : {
-      "comment" : "Agent navigation and notification command"
+      "comment" : "Keyboard shortcut description"
     },
     "Match %arg of %arg" : {
       "comment" : "Spoken find-bar position; arguments are the one-based current match and the match count.",
@@ -3217,6 +3217,9 @@
     },
     "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default." : {
       "comment" : "Settings field hint for the sidebar needs-input section toggle"
+    },
+    "Move keyboard focus to workspace search or the agent list" : {
+      "comment" : "Keyboard shortcut description"
     },
     "Move to Group…" : {
 
@@ -3411,7 +3414,7 @@
       "comment" : "Welcome tour button advancing to the next beat"
     },
     "Next Agent Needing Me" : {
-      "comment" : "Agent navigation and notification command"
+      "comment" : "Navigate to the next actionable agent pane"
     },
     "Next Document Tab" : {
 
@@ -5210,6 +5213,9 @@
     "Show revision details" : {
       "comment" : "Accessibility hint for a compact document revision indicator"
     },
+    "Show updates" : {
+      "comment" : "Apply deferred agent-list placement changes"
+    },
     "Show workspace details" : {
       "comment" : "Notification settings label."
     },
@@ -5242,9 +5248,6 @@
     },
     "Sidebar search" : {
 
-    },
-    "Sidebar view" : {
-      "comment" : "Workspace or agent navigation mode"
     },
     "Skip" : {
       "comment" : "Welcome tour button dismissing the tour"
@@ -6335,7 +6338,7 @@
 
     },
     "Workspaces" : {
-      "comment" : "Selected sidebar mode\nWorkspace organization sidebar",
+      "comment" : "Selected sidebar mode",
       "localizations" : {
         "en" : {
           "stringUnit" : {
