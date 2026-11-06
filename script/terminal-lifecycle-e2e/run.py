@@ -664,6 +664,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 raise RuntimeError("Cannot activate owned window: " + json.dumps(activation))
             def activated_window():
                 observed = snapshot()
+                report["lastActivationObservation"] = observed
                 return observed if observed["frontmost"] and observed["ownedWindowFocused"] else None
             report["activatedWindow"] = poll("owned app/window focused after activation", activated_window)
             if state["terminals"] or sessions():

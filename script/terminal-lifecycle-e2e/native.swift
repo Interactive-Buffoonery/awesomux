@@ -337,6 +337,7 @@ func inputAdmission(_ expectedTitle: String) -> [String: Any] {
     var result: [String: Any] = [
         "ready": false, "windowID": windowID,
         "frontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+        "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1,
     ]
     var focused: CFTypeRef?
     let focusedError = AXUIElementCopyAttributeValue(ax, kAXFocusedUIElementAttribute as CFString, &focused)
@@ -431,6 +432,7 @@ if command == "snapshot" {
     let result: [String: Any] = [
         "pid": pid, "windowID": windowID,
         "frontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+        "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1,
         "ownedWindowFocused": ownedFocusedWindow,
         "focusedTerminal": focusedElement.map(terminal) ?? false,
         "focusedDescription": focusedElement.map { string($0, kAXDescriptionAttribute) } ?? "",
