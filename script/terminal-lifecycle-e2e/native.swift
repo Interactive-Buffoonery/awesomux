@@ -145,7 +145,7 @@ if command == "launch" {
     else { fail("Copied bundle already running") }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.createsNewApplicationInstance = true
-    configuration.activates = false
+    configuration.activates = true
     configuration.addsToRecentItems = false
     configuration.promptsUserIfNeeded = false
     configuration.environment = request.environment
