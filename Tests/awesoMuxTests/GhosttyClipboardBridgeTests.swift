@@ -77,6 +77,27 @@ struct GhosttyClipboardBridgeTests {
         #expect(prompted == prompts)
     }
 
+    @Test("clipboard writes honor binary payload lengths")
+    func clipboardWritePayloadLength() {
+        let cases: [([UInt8], Int, Int?, String?)] = [
+            (Array("payloadTRAILER".utf8) + [0], 7, nil, "payload"),
+            (Array("trailer".utf8) + [0], 0, nil, ""),
+            ([65, 0, 66, 0], 3, nil, "A\0B"),
+            ([65, 66, 0], 2, 1, nil),
+            ([0, 65, 66, 0], 3, 1, nil),
+            ([65, 66, 0], 2, 2, "AB"),
+        ]
+        for (bytes, length, maximum, expected) in cases {
+            "text/plain".withCString { mime in
+                bytes.withUnsafeBytes { buffer in
+                    var item = ghostty_clipboard_content_s(
+                        mime: mime, data: buffer.baseAddress!.assumingMemoryBound(to: CChar.self), len: length)
+                    #expect(GhosttyRuntime.textPlainContent(from: &item, count: 1, maximumBytes: maximum) == expected)
+                }
+            }
+        }
+    }
+
     @Test("ask policy drops duplicate writes while a confirmation is open")
     func askPolicyDropsDuplicateConcurrentWrites() async {
         GhosttyRuntime.resetClipboardWriteConfirmationProviderForTesting()

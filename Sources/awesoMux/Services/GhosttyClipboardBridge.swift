@@ -736,7 +736,7 @@ extension GhosttyRuntime {
         // Surface.clipboardWrite in vendor/ghostty. `onMainThread` runs the
         // closure SYNCHRONOUSLY (inline `assumeIsolated` on the main thread, or
         // `DispatchQueue.main.sync` otherwise), so every dereference below — up
-        // to and including the `String(cString:)` copy in `textPlainContent` —
+        // to and including the bounded String copy in `textPlainContent` —
         // completes before we return into Zig and the buffer is freed. If
         // `onMainThread` is ever made async, or an `await`/`Task {}` is inserted
         // between here and the read, this becomes a use-after-free that copies
@@ -1036,7 +1036,7 @@ extension GhosttyRuntime {
         isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
     }
 
-    private nonisolated static func textPlainContent(
+    nonisolated static func textPlainContent(
         from content: UnsafePointer<ghostty_clipboard_content_s>,
         count: Int,
         maximumBytes: Int? = nil
@@ -1047,31 +1047,15 @@ extension GhosttyRuntime {
                 continue
             }
 
-            let data = item.data
-            if let maximumBytes,
-               cStringByteCount(data, maximumBytes: maximumBytes) == nil {
-                return nil
-            }
-
-            return String(cString: data)
+            if let maximumBytes, item.len > maximumBytes { return nil }
+            let bytes = UnsafeBufferPointer(
+                start: UnsafeRawPointer(item.data).assumingMemoryBound(to: UInt8.self), count: item.len)
+            return String(decoding: bytes, as: UTF8.self)
         }
 
         return nil
     }
 
-    private nonisolated static func cStringByteCount(
-        _ data: UnsafePointer<CChar>,
-        maximumBytes: Int
-    ) -> Int? {
-        var count = 0
-        while count <= maximumBytes {
-            if data[count] == 0 {
-                return count
-            }
-            count += 1
-        }
-        return nil
-    }
 }
 // Long enough that paths handed to a long-running agent thread (Claude Code,
 // etc.) are still readable when the user comes back to the same session.
