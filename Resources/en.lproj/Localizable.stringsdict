@@ -915,9 +915,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>%lld pane lost its saved selection.</string>
+            <string>The saved pane selection was reset in %lld workspace.</string>
             <key>other</key>
-            <string>%lld panes lost their saved selection.</string>
+            <string>The saved pane selection was reset in %lld workspaces.</string>
         </dict>
     </dict>
     <key>alert.recovery.workspaceSelections</key>
