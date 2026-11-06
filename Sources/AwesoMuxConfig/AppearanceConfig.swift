@@ -9,6 +9,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
     /// via `AwTextScale`. 1.0 is parity with the unscaled tokens.
     @TOMLDefault<DefaultUITextScale> public var uiTextScale: Double
     @TOMLDefault<DefaultGlowStrength> public var glowStrength: Double
+    @TOMLDefault<DefaultAnimateAgentSpinners> public var animateAgentSpinners: Bool
     @TOMLDefault<DefaultCRTScanlines> public var crtScanlines: Bool
     @TOMLDefault<DefaultCursorGlow> public var cursorGlow: Bool
     @TOMLDefault<DefaultAlwaysShowJumpNumbers> public var alwaysShowJumpNumbers: Bool
@@ -34,6 +35,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         fontSize: Double = DefaultFontSize.defaultValue,
         uiTextScale: Double = DefaultUITextScale.defaultValue,
         glowStrength: Double = DefaultGlowStrength.defaultValue,
+        animateAgentSpinners: Bool = DefaultAnimateAgentSpinners.defaultValue,
         crtScanlines: Bool = DefaultCRTScanlines.defaultValue,
         cursorGlow: Bool = DefaultCursorGlow.defaultValue,
         alwaysShowJumpNumbers: Bool = DefaultAlwaysShowJumpNumbers.defaultValue,
@@ -51,6 +53,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         self.fontSize = fontSize
         self.uiTextScale = uiTextScale
         self.glowStrength = glowStrength
+        self.animateAgentSpinners = animateAgentSpinners
         self.crtScanlines = crtScanlines
         self.cursorGlow = cursorGlow
         self.alwaysShowJumpNumbers = alwaysShowJumpNumbers
@@ -70,6 +73,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         case fontSize = "font_size"
         case uiTextScale = "ui_text_scale"
         case glowStrength = "glow_strength"
+        case animateAgentSpinners = "animate_agent_spinners"
         case crtScanlines = "crt_scanlines"
         case cursorGlow = "cursor_glow"
         case alwaysShowJumpNumbers = "always_show_jump_numbers"
@@ -89,6 +93,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         CodingKeys.fontSize.rawValue,
         CodingKeys.uiTextScale.rawValue,
         CodingKeys.glowStrength.rawValue,
+        CodingKeys.animateAgentSpinners.rawValue,
         CodingKeys.crtScanlines.rawValue,
         CodingKeys.cursorGlow.rawValue,
         CodingKeys.alwaysShowJumpNumbers.rawValue,
@@ -127,6 +132,10 @@ public struct DefaultUITextScale: DefaultProvider {
 
 public struct DefaultGlowStrength: DefaultProvider {
     public static let defaultValue = 0.65
+}
+
+public struct DefaultAnimateAgentSpinners: DefaultProvider {
+    public static let defaultValue = true
 }
 
 public struct DefaultCRTScanlines: DefaultProvider {

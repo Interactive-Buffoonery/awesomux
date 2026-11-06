@@ -2,6 +2,8 @@ import AppKit
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxLocalAPI
+import AwesoMuxLocalAPIAccess
 import AwesoMuxTestSupport
 import Foundation
 import Testing
@@ -10,6 +12,100 @@ import Testing
 @MainActor
 @Suite("Bridge preflight lifecycle")
 struct BridgePreflightLifecycleTests {
+    // A phone owns only its hydration request, while a native mount or another
+    // authorized phone can independently need the same cached preflight.
+    @Test(
+        "phone authority is rechecked at spawn after suspended SSH preflight",
+        arguments: ["revoke", "unpair", "revision", "cancel", "target"], ["ready", "degraded", "home-failed"])
+    func phoneLosingAuthorityDuringPreflightDoesNotSpawn(reason: String, outcome: String) async throws {
+        let fixture = try makeFixture()
+        let (authority, state, request) = try phoneAuthority(fixture)
+        let home = SuspendedStage<String?>(fallback: nil)
+        if outcome == "home-failed" {
+            fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
+                resolveRemoteHome: { _, _ in await home.wait() },
+                helperSupportsBridge: { _, _, _ in false },
+                attach: { _, _ in .cancelled })
+        }
+        fixture.view.createSurfaceIfNeeded(companionAuthority: request)
+        if outcome == "home-failed" {
+            await home.waitUntilSuspended()
+        } else {
+            await fixture.preflight.waitForRequestCount(1)
+        }
+        let task = try #require(fixture.view.lifecycleState.bridgePreflightTask)
+        var updated = state
+        switch reason {
+        case "revoke": updated.connections[0].companion?.terminalWatchScope = nil
+        case "unpair": updated.connections = []
+        case "revision": updated.connections[0].revision = UUID()
+        case "cancel": request.cancel()
+        case "target": fixture.store.bindLocalAPIInstance(UUID())
+        default: Issue.record("Unknown authority loss")
+        }
+        authority.replace(with: updated)
+        if outcome == "home-failed" {
+            await home.resume(returning: nil)
+        } else {
+            let channel = BridgeChannel(
+                token: "revoked-token", gen: 1, localSocketPath: "/tmp/revoked-local.sock",
+                remoteSocketPath: "/tmp/revoked-remote.sock", stateFilePath: "/Users/alice/.awesomux/bridge/revoked.json",
+                session: fixture.pane.terminalSessionID)
+            await fixture.preflight.resumeRequest(
+                0, returning: outcome == "ready" ? .ready(channel: channel, command: "ready-command") : .degraded(.forwardFailed))
+        }
+        await task.value
+        #expect(fixture.surfaceCommands.values.isEmpty)
+        #expect(fixture.view.lifecycleState.bridgePreflightTask == nil)
+    }
+
+    @Test(
+        "phone revocation preserves a native or another phone's preflight",
+        arguments: ["native-first", "native-joins", "phone-joins"])
+    func phoneRevocationPreservesOtherPreflightOwners(owner: String) async throws {
+        let fixture = try makeFixture()
+        let (authority, _, request) = try phoneAuthority(fixture)
+        if owner == "native-first" { fixture.view.createSurfaceIfNeeded() }
+        fixture.view.createSurfaceIfNeeded(companionAuthority: request)
+        await fixture.preflight.waitForRequestCount(1)
+        let task = try #require(fixture.view.lifecycleState.bridgePreflightTask)
+        if owner == "native-joins" { fixture.view.createSurfaceIfNeeded() }
+        if owner == "phone-joins" {
+            let (_, _, otherRequest) = try phoneAuthority(fixture)
+            fixture.view.createSurfaceIfNeeded(companionAuthority: otherRequest)
+        }
+        authority.replace(with: LocalAPIAccessState(profile: "development"))
+        await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
+        await task.value
+        #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
+    }
+
+    private func phoneAuthority(_ fixture: Fixture) throws -> (
+        LocalAPIRuntimeAuthority, LocalAPIAccessState, CompanionTerminalOpen.SpawnAuthority
+    ) {
+        let fingerprint = Data(repeating: 7, count: 32)
+        let grant = LocalAPIConnectionGrant(
+            id: UUID(), label: "Phone", createdAt: Date(), credentialVerifier: Data(), revision: UUID(),
+            statusScope: .allWorkspaces, kind: .companion,
+            companion: .init(
+                certificateFingerprint: fingerprint, transport: .lan, pairedAt: Date(), port: 1234,
+                terminalWatchScope: .allWorkspaces))
+        var state = LocalAPIAccessState(profile: "development")
+        state.connections = [grant]
+        let authority = LocalAPIRuntimeAuthority(state: state)
+        let lease = try authority.authorizeCompanion(
+            connectionID: grant.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        let target = try #require(fixture.store.localAPITerminalWatchTarget(paneID: fixture.pane.id))
+        return (
+            authority, state,
+            CompanionTerminalOpen.SpawnAuthority(
+                paneID: fixture.pane.id, targetVersion: target.targetVersion, store: fixture.store,
+                authority: authority, certificateFingerprint: fingerprint, lease: lease,
+                deadline: .now.advanced(by: .seconds(5)))
+        )
+    }
+
     @Test("disabling bridge policy invalidates a suspended preflight")
     func policyDisableInvalidatesSuspendedPreflight() async throws {
         let fixture = try makeFixture()

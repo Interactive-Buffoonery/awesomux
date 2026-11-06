@@ -30,7 +30,7 @@ socket harness retains broader cursor/authentication lifecycle coverage.
 Queue from this checkout (do not run concurrently with another heavy job):
 
 ```sh
-heavy-gate -- swift run local-api-e2e --command-attention-only /private/tmp/command-attention-790
+process-gate -- swift run local-api-e2e --command-attention-only /private/tmp/command-attention-790
 ```
 
 Use a fresh artifact directory. A successful run writes `command-attention.json`

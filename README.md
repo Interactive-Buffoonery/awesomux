@@ -53,6 +53,13 @@ Run `./script/default-terminal-e2e/run.sh` for a non-destructive integration che
 of file validation, shell quoting, registration outcomes, and bundle declarations.
 It uses a fake registrar; it changes no macOS defaults and executes no fixture files.
 
+## Activity indicators
+
+To stop the spinning activity circles, turn off **Settings > Appearance >
+Animate activity indicators**. Status icons and counts stay visible. The setting
+applies immediately, is remembered after relaunch, and still respects macOS
+Reduce Motion when enabled.
+
 ## Named agent setups
 
 Settings > Agents lets you save multiple named launch setups for each provider.

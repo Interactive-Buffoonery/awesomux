@@ -776,6 +776,7 @@ extension SessionStore {
         }
 
         _groups[position.groupIndex].sessions[position.sessionIndex].layout = layout
+        reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
         return true
     }
 
@@ -1038,6 +1039,7 @@ extension SessionStore {
         title: String? = nil,
         workingDirectory: String? = nil,
         progressReport: TerminalProgressReport? = nil,
+        localShellOwnsTerminal: @autoclosure () -> Bool = false,
         now: Date = Date()
     ) {
         guard let position = position(for: sessionID) else {
@@ -1053,7 +1055,8 @@ extension SessionStore {
                 title: title,
                 workingDirectory: workingDirectory,
                 progressReport: progressReport,
-                localHostnames: localHostnames
+                localHostnames: localHostnames,
+                localShellOwnsTerminal: localShellOwnsTerminal()
             )
         else {
             return
@@ -1455,6 +1458,12 @@ extension SessionStore {
         #endif
 
         if effect.needsFullRebuild {
+            let closedCarriers = DaemonGCPlan.closedRemoteCarrierSessionIDs(
+                previous: remoteCarrierSessionIDs, groups: _groups)
+            remoteCarrierSessionIDs = DaemonGCPlan.remoteCarrierSessionIDs(in: _groups)
+            if !closedCarriers.isEmpty {
+                remoteCarrierCloseHandler?(Array(closedCarriers))
+            }
             reconcileLocalAPIAssignments()
             rebuildDerivedState(now: now)
         } else {

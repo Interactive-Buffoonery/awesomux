@@ -220,7 +220,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
 ///
 /// `sessionName` nil means local-amx persistence — an `amx` daemon on this
 /// machine in front of the SSH child. A name means the remote host owns the
-/// session and no local daemon is involved, which is why it cannot be inferred
+/// session; a local carrier only transports SSH. Ownership cannot be inferred
 /// from the destination alone.
 public struct ManagedSSHAlwaysManagedEntry: Codable, Equatable, Sendable {
     public var sessionName: String?

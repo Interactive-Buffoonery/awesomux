@@ -165,6 +165,10 @@ struct AwesoMuxApp: App {
     @State private var remoteWorkspaceGroupCreateRequest: RemoteWorkspaceGroupCreateRequest?
     @State private var sshWorkspaceConnectRequest: SSHWorkspaceConnectRequest?
     @State private var workspaceGroupRenameRequest: WorkspaceGroupRenameRequest?
+    @State private var projectTranscriptBrowserRequest: ProjectTranscriptBrowserRequest?
+    @State private var projectTranscriptOpenTask: Task<Void, Never>?
+    @State private var projectTranscriptFocusIntent: DocumentComposeTabActionHandler.FocusIntent?
+    @State private var projectTranscriptRenderGate = AgentTranscriptRenderGate()
     @State private var quickSettingsRequest: QuickSettingsRequest?
     @State private var remoteMarkdownPathOpenRequest: RemoteMarkdownPathOpenRequest?
     /// Last submitted typed path per SSH destination, used to prefill the
@@ -271,13 +275,6 @@ struct AwesoMuxApp: App {
         // base env. Drop stale launcher-only terminal context once, before the
         // runtime starts, instead of mutating process env around every surface.
         sanitizeInheritedTerminalContextFromProcessEnvironment()
-        // Must run before SessionPersistence.load() and before any
-        // AppDelegate lifecycle callback fires (applicationWillFinishLaunching,
-        // applicationDidFinishLaunching, .onAppear). Non-`@AppStorage`
-        // consumers reading `UserDefaults.standard.bool(forKey:)` directly
-        // otherwise see the type's zero value (false / "" / 0) instead of
-        // the documented `SettingsDefault` — see INT-159.
-        SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
         let supportDirectoryURL = runtimeProfile.supportDirectoryURL
         let localAPIAccessStore = LocalAPIAccessStore(
@@ -372,6 +369,9 @@ struct AwesoMuxApp: App {
         RemoteMarkdownReadRouting.appSettingsStore = appSettingsStore
         _localAPIAccessStore = State(initialValue: localAPIAccessStore)
         _companionPairingCoordinator = State(initialValue: companionPairingCoordinator)
+        loadResult.store.remoteCarrierCloseHandler = {
+            AmxBackend.killSessionsDetached($0, context: "remote-carrier-close")
+        }
         _sessionStore = State(initialValue: loadResult.store)
         _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
         if let warning = loadResult.recoveryWarning {
@@ -414,7 +414,8 @@ struct AwesoMuxApp: App {
             store: loadResult.store,
             runtime: ghosttyRuntime,
             accessStore: localAPIAccessStore,
-            companionPairingCoordinator: companionPairingCoordinator
+            companionPairingCoordinator: companionPairingCoordinator,
+            settings: appSettingsStore
         )
     }
 
@@ -648,6 +649,24 @@ struct AwesoMuxApp: App {
                 )
                 .onAppear { activeSheetDidPresent = true }
             }
+            .sheet(item: $projectTranscriptBrowserRequest, onDismiss: handleRequestSheetDismiss) { request in
+                AgentProjectTranscriptBrowser(
+                    projectDirectory: URL(fileURLWithPath: request.context.directory),
+                    roots: request.roots,
+                    onCancel: { projectTranscriptBrowserRequest = nil },
+                    onOpen: { entry in openProjectTranscript(entry, request: request) }
+                )
+                .onAppear { activeSheetDidPresent = true }
+            }
+            .onChange(of: projectTranscriptBrowserContext) { _, context in
+                projectTranscriptOpenTask?.cancel()
+                projectTranscriptFocusIntent?.cancel()
+                projectTranscriptFocusIntent = nil
+                projectTranscriptRenderGate.invalidate()
+                if projectTranscriptBrowserRequest?.context != context {
+                    projectTranscriptBrowserRequest = nil
+                }
+            }
             .sheet(item: $quickSettingsRequest, onDismiss: handleRequestSheetDismiss) { _ in
                 QuickSettingsSheet()
                     .environment(appSettingsStore)
@@ -823,9 +842,8 @@ struct AwesoMuxApp: App {
 
             let rootContentAfterGroupsWatch =
                 rootContentAfterSaveStatus
-            .onChange(of: sessionStore.groups) { _, _ in
-                    companionPairingCoordinator.reconcileDecisionWorkspaces()
-                saveSessionIfRestoreEnabled()
+                .onChange(of: sessionStore.groups) { _, _ in
+                    saveSessionIfRestoreEnabled()
                     Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()
@@ -1479,6 +1497,16 @@ struct AwesoMuxApp: App {
                     presentScrollbackDumpForActivePane()
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                Button(
+                    String(
+                        localized: "Browse Project Transcripts",
+                        comment: "Heading of the current-project agent transcript browser"
+                    )
+                ) {
+                    browseProjectTranscripts()
+                }
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
 
                 // Gated exactly like its neighbours and no further. Whether the
@@ -3041,6 +3069,7 @@ struct AwesoMuxApp: App {
             || remoteWorkspaceGroupCreateRequest != nil
             || sshWorkspaceConnectRequest != nil
             || workspaceGroupRenameRequest != nil
+            || projectTranscriptBrowserRequest != nil
             || quickSettingsRequest != nil
             || remoteMarkdownPathOpenRequest != nil
             || remoteFileContextEditor.isPresented
@@ -3667,7 +3696,7 @@ struct AwesoMuxApp: App {
         // it — least of all silently, over a decline the user made later in
         // Settings. Refusing routes the ask-free path back to the prompt,
         // whose button says "Enable and Reconnect" and asks properly.
-        // A remote-owned session runs with no local daemon and never needs it.
+        // Remote-owned sessions use a carrier independently of the bridge toggle.
         if sessionName == nil, !appSettingsStore.terminal.value.commandBridgeEnabled {
             return false
         }
@@ -3764,6 +3793,7 @@ struct AwesoMuxApp: App {
                 remoteWorkspaceGroupCreate: remoteWorkspaceGroupCreateRequest != nil,
                 sshWorkspaceConnect: sshWorkspaceConnectRequest != nil,
                 workspaceGroupRename: workspaceGroupRenameRequest != nil,
+                projectTranscripts: projectTranscriptBrowserRequest != nil,
                 quickSettings: quickSettingsRequest != nil,
                 remoteMarkdownPathOpen: remoteMarkdownPathOpenRequest != nil
             ),
@@ -3859,6 +3889,7 @@ struct AwesoMuxApp: App {
         if keys.contains(Key.remoteWorkspaceGroupCreate) { remoteWorkspaceGroupCreateRequest = nil }
         if keys.contains(Key.sshWorkspaceConnect) { sshWorkspaceConnectRequest = nil }
         if keys.contains(Key.workspaceGroupRename) { workspaceGroupRenameRequest = nil }
+        if keys.contains(Key.projectTranscripts) { projectTranscriptBrowserRequest = nil }
         if keys.contains(Key.quickSettings) { quickSettingsRequest = nil }
         if keys.contains(Key.remoteMarkdownPathOpen) { remoteMarkdownPathOpenRequest = nil }
         for paneID in scrollbackPaneIDs {
@@ -4057,6 +4088,122 @@ struct AwesoMuxApp: App {
             return
         }
         _ = ghosttyRuntime.presentScrollbackDump(in: session.activePaneID)
+    }
+
+    private var projectTranscriptBrowserContext: ProjectTranscriptBrowserContext? {
+        Self.projectTranscriptBrowserContext(
+            store: sessionStore, integrations: appSettingsStore.agentIntegrations.value
+        )
+    }
+
+    @MainActor
+    private static func projectTranscriptBrowserContext(
+        store: SessionStore, integrations: AgentIntegrationsConfig
+    ) -> ProjectTranscriptBrowserContext? {
+        guard let session = store.selectedSession,
+            let pane = session.activePane,
+            WorkspacePaneCapabilities.terminal(pane).localFileAccess,
+            pane.workingDirectory.hasPrefix("/"),
+            pane.workingDirectory.utf8.count <= 4096
+        else { return nil }
+        return ProjectTranscriptBrowserContext(
+            sessionID: session.id, paneID: pane.id, directory: pane.workingDirectory,
+            integrations: integrations
+        )
+    }
+
+    private func browseProjectTranscripts() {
+        healSheetWedgeBeforeGatedCommand()
+        guard !isAnySheetPresented else { return }
+        guard let context = projectTranscriptBrowserContext else {
+            if let pane = sessionStore.selectedSession?.activePane,
+                !WorkspacePaneCapabilities.terminal(pane).localFileAccess
+            {
+                showAgentTranscriptFailureAlert(.unavailable(.remoteExecution))
+            } else {
+                let alert = NSAlert()
+                alert.messageText = String(
+                    localized: "No Project Directory",
+                    comment: "Alert title when project transcripts have no local directory to inspect"
+                )
+                alert.informativeText = String(
+                    localized: "Choose a local terminal with a reported working directory, then try again.",
+                    comment: "Explanation when project transcript browsing has no local directory"
+                )
+                alert.runModal()
+            }
+            return
+        }
+        projectTranscriptOpenTask?.cancel()
+        projectTranscriptFocusIntent?.cancel()
+        projectTranscriptFocusIntent = nil
+        projectTranscriptRenderGate.invalidate()
+        projectTranscriptBrowserRequest = ProjectTranscriptBrowserRequest(context: context)
+    }
+
+    private func openProjectTranscript(
+        _ entry: AgentProjectTranscriptEntry,
+        request: ProjectTranscriptBrowserRequest
+    ) {
+        guard projectTranscriptBrowserRequest?.id == request.id,
+            projectTranscriptBrowserContext == request.context
+        else { return }
+        projectTranscriptOpenTask?.cancel()
+        projectTranscriptFocusIntent?.cancel()
+        let context = request.context
+        var focusIntent = documentTabActions.beginFocusIntentDismissingSheet(
+            in: NSApp.awesoMuxPrimaryContentWindow, initiatingEvent: NSApp.currentEvent,
+            isContextCurrent: { [sessionStore, appSettingsStore] in
+                Self.projectTranscriptBrowserContext(
+                    store: sessionStore, integrations: appSettingsStore.agentIntegrations.value
+                ) == context
+            }
+        )
+        projectTranscriptFocusIntent = focusIntent
+        projectTranscriptBrowserRequest = nil
+        let gate = projectTranscriptRenderGate
+        let stamp = gate.claim()
+        projectTranscriptOpenTask = Task { @MainActor in
+            defer { focusIntent?.cancel() }
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Opening agent transcript.",
+                    comment: "VoiceOver announcement when rendering a pane's agent transcript starts"
+                ))
+            let worker = Task.detached(priority: .userInitiated) {
+                AgentTranscriptOpener.openProjectTranscript(
+                    entry, projectDirectory: URL(fileURLWithPath: request.context.directory),
+                    shouldCommit: { !Task.isCancelled && gate.isCurrent(stamp) }
+                )
+            }
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, gate.isCurrent(stamp),
+                projectTranscriptBrowserContext == request.context
+            else {
+                if case .success(let opened) = result {
+                    AgentTranscriptStore().completeWrite(at: opened.fileURL)
+                    SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                }
+                return
+            }
+            AgentTranscriptCompletion.apply(
+                result,
+                paneID: request.context.paneID,
+                store: sessionStore,
+                completeWrite: { AgentTranscriptStore().completeWrite(at: $0) },
+                schedulePrune: { SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore) },
+                alert: showAgentTranscriptFailureAlert,
+                requestFocus: { tabID, sessionID in
+                    if documentTabActions.requestFocusAfterSheet(for: tabID, in: sessionID, intent: focusIntent) {
+                        focusIntent = nil
+                    }
+                }
+            )
+        }
     }
 
     /// Renders the active pane's agent session to Markdown and opens it beside
@@ -5167,6 +5314,7 @@ struct AwesoMuxApp: App {
             restartShell: restartActiveShell,
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
+            browseProjectTranscripts: browseProjectTranscripts,
             openAgentTranscript: openAgentTranscriptForActivePane,
             showBranchChanges: showBranchChangesForActivePane,
             openPullRequest: openPullRequestForActivePane,
@@ -6245,6 +6393,26 @@ private struct RemoteMarkdownPathOpenRequest: Identifiable, Sendable {
     let target: RemoteTarget
     let associatedPaneID: TerminalPane.ID?
     let origin: RemoteMarkdownReadOrigin?
+}
+
+private struct ProjectTranscriptBrowserContext: Equatable, Sendable {
+    let sessionID: TerminalSession.ID
+    let paneID: TerminalPane.ID
+    let directory: String
+    let integrations: AgentIntegrationsConfig
+}
+
+private struct ProjectTranscriptBrowserRequest: Identifiable, Sendable {
+    let id = UUID()
+    let context: ProjectTranscriptBrowserContext
+
+    var roots: [AgentProjectTranscripts.Root] {
+        [AgentKind.claudeCode, .codex].flatMap { kind in
+            AgentTranscriptPaneInputs.resolutionAttempts(
+                for: kind, integrations: context.integrations
+            ).map { AgentProjectTranscripts.Root(agentKind: $0.kind, configHome: $0.configHome) }
+        }
+    }
 }
 
 private struct QuickSettingsRequest: Identifiable, Sendable {

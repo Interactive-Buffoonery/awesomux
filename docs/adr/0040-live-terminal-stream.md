@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-20
 - **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
+- **Amended:** 2026-10-26 — lazy-pane opening and initial phone claims (ADR-0042)
 - **Deciders:** Sarah
 - **Issue:** [#826](https://github.com/Interactive-Buffoonery/awesomux/issues/826)
 
@@ -54,6 +55,10 @@ the Mac opens for that device and pane. The stream always begins with a
 snapshot, then carries output in daemon order. Every reconnect is a new attach
 with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 
+[ADR-0042](0042-phone-terminals.md) adds authorized lazy-pane hydration before
+acceptance and changes the phone's Input-on opening default to a fresh `claim`
+after the snapshot. The stream format and daemon attach semantics are unchanged.
+
 ### Stream source and the emulator boundary
 
 - For each accepted stream the Mac relay attaches its own zmx client to the
@@ -69,6 +74,12 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 - The Mac relay never exposes the zmx socket, forwards arbitrary zmx messages
   or passes bytes from a Watch stream to the PTY. The daemon enforces the role
   as well ([ADR-0036](0036-multi-client-terminal-leadership.md)).
+
+Remote-owned panes use a local amx carrier for their SSH connection when
+available. The phone joins that carrier as a sibling client, using the same
+snapshot, output, input, grid and leadership relay. Only direct-SSH fallback
+panes lack a local stream source and report Watch/`remote_pane` followed by
+`pane_unavailable`.
 
 ### Handshake and versioning
 
@@ -183,8 +194,14 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
   resume token, no sequence-based replay and no cross-route handoff of a live
   stream. The Mac learns of the drop from the socket or the heartbeat deadline
   and detaches the old zmx client; a reconnect before that detach supersedes it.
+  If the device was leading, the daemon waits 5 seconds before handing the
+  grid to a Mac pane, so a reconnect that claims within that wait reflows
+  only once. A Mac keystroke, resize or focus ends the wait early
+  (ADR-0036 amendment).
 - Reconnect never restores leadership. A device that led before the drop
-  attaches as a follower until its next accepted input or explicit Take over.
+  attaches as a follower until a fresh accepted input or claim. ADR-0042's
+  Input-on opening policy sends that new claim after the new snapshot; it never
+  restores queued input or an old claim.
 - **Input after failover is never replayed.** Each `input` frame carries its
   generation and sequence; the Mac answers `ack` with the highest input
   sequence it forwarded to the daemon within that generation. Input that is

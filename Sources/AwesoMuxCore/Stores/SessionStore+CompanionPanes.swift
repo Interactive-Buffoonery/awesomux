@@ -1,5 +1,4 @@
 import AwesoMuxCompanionProtocol
-import AwesoMuxLocalAPI
 import Foundation
 import UnicodeHygiene
 
@@ -27,10 +26,9 @@ public enum CompanionPanePreview {
 }
 
 public extension SessionStore {
-    /// A synchronous native-state projection: filter before accessing a surface,
+    /// A synchronous native-state projection across every workspace,
     /// without mounting panes, reading files, or acknowledging attention.
     func companionWorkspaces(
-        scope: LocalAPITargetScope,
         terminalPreviewAllowed: Bool = false,
         preview: (UUID) -> String?
     ) -> [CompanionAPIResponse.Workspace] {
@@ -40,21 +38,12 @@ public extension SessionStore {
             reconcileLocalAPIAssignments()
         }
         let titles = sidebarResolvedTitles()
-        return groups.flatMap(\.sessions).compactMap { session in
-            let panes = session.layout.leaves.compactMap { leaf -> CompanionAPIResponse.Pane? in
+        return groups.flatMap(\.sessions).map { session in
+            let panes = session.layout.leaves.map { leaf -> CompanionAPIResponse.Pane in
                 let id: UUID
                 switch leaf {
                 case .terminal(let pane): id = pane.id
                 case .documentGroup(let group): id = group.id
-                }
-                switch scope {
-                case .allWorkspaces: break
-                case .persistentWorkspaces(let ids):
-                    guard ids.contains(session.id) else { return nil }
-                case .persistentPanes(let ids):
-                    guard ids.contains(id) else { return nil }
-                case .exactTarget(let paneID, let version):
-                    guard paneID == id, localAPITargets[id]?.version == version else { return nil }
                 }
                 let availability = PaneAvailability.of(leaf).rawValue
                 switch leaf {
@@ -71,14 +60,6 @@ public extension SessionStore {
                         title: group.selectedTab?.title ?? String(localized: "Files", comment: "Empty document pane title."),
                         availability: availability
                     )
-                }
-            }
-            if panes.isEmpty {
-                switch scope {
-                case .allWorkspaces: break
-                case .persistentWorkspaces(let ids):
-                    guard ids.contains(session.id) else { return nil }
-                case .persistentPanes, .exactTarget: return nil
                 }
             }
             return .init(workspaceID: session.id.uuidString, name: titles[session.id] ?? session.title, panes: panes)

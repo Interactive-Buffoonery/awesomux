@@ -22,10 +22,6 @@ final class SidebarPresentationModel {
         proximityState == .revealed
     }
 
-    var isCueVisible: Bool {
-        userWantsHidden && proximityState == .cue
-    }
-
     var isSidebarVisible: Bool {
         !userWantsHidden || proximityState == .revealed
     }

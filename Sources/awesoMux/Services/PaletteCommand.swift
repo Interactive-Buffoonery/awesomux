@@ -128,6 +128,7 @@ struct PaletteAppActions {
     let restartShell: @MainActor () -> Void
     let find: @MainActor () -> Void
     let scrollbackDump: @MainActor () -> Void
+    let browseProjectTranscripts: @MainActor () -> Void
     let openAgentTranscript: @MainActor () -> Void
     let showBranchChanges: @MainActor () -> Void
     let openPullRequest: @MainActor () -> Void
@@ -210,6 +211,7 @@ struct PaletteAppActions {
             restartShell: action,
             find: action,
             scrollbackDump: action,
+            browseProjectTranscripts: action,
             openAgentTranscript: action,
             showBranchChanges: action,
             openPullRequest: action,
@@ -532,6 +534,19 @@ enum PaletteCommandRegistry {
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
                 run: actions.scrollbackDump
+            ),
+            PaletteCommand(
+                id: "browseProjectTranscripts",
+                title: String(
+                    localized: "Browse Project Transcripts",
+                    comment: "Heading of the current-project agent transcript browser"
+                ),
+                subtitle: selected?.activePane?.workingDirectory,
+                keywords: ["agent", "transcript", "project", "history", "claude", "codex"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
+                run: actions.browseProjectTranscripts
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.openAgentTranscript.id,

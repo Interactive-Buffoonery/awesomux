@@ -135,7 +135,10 @@ extension GhosttySurfaceNSView {
         }
     }
 
-    func createSurfaceIfNeeded() {
+    func createSurfaceIfNeeded(companionAuthority: CompanionTerminalOpen.SpawnAuthority? = nil) {
+        if lifecycleState.bridgePreflightTask != nil {
+            retainBridgePreflightOwner(companionAuthority)
+        }
         let commandBridgeEnabled = runtime.isCommandBridgeEnabled
         if lifecycleState.bridgePreflightTask != nil,
             !BridgeAttachDecision.shouldRunPreflight(
@@ -209,9 +212,8 @@ extension GhosttySurfaceNSView {
 
         // INT-698 D4: a local-amx remote pane takes the
         // async make-before-break bridge preflight instead of the synchronous
-        // spawn. Every other pane (local, remote-owned, or bridge chrome off) is
-        // byte-identical to today — the sync `finishSurfaceCreation` below is
-        // the untouched path.
+        // spawn. Local panes, remote-owned carriers and direct-SSH fallback
+        // use synchronous surface creation without managed bridge helpers.
         let shouldRunBridgePreflight = BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
             executionPlan: pane.executionPlan,
@@ -219,7 +221,7 @@ extension GhosttySurfaceNSView {
             errorLatched: commandBridgeEnactor.errorLatched
         )
         if shouldRunBridgePreflight, case .bridgeAttach(let baseCommand) = launch {
-            beginBridgePreflight(baseCommand: baseCommand)
+            beginBridgePreflight(baseCommand: baseCommand, companionAuthority: companionAuthority)
             return
         }
 
@@ -283,6 +285,11 @@ extension GhosttySurfaceNSView {
         runtime.refreshShellActivity(in: sessionStore)
         sizeDidChange(contentSize)
         needsDisplay = true
+        if createdSurface != nil {
+            deliverPendingSurfaceKeyEvents()
+        } else {
+            discardPendingSurfaceKeyEvents()
+        }
         return createdSurface != nil
     }
 
@@ -317,6 +324,15 @@ extension GhosttySurfaceNSView {
             guard pane.terminalBackendMetadata.amxAttachDisposition != .existingOnly else {
                 return
             }
+            if pane.executionPlan.remoteOwnedExecution != nil {
+                // Keep carrier reachability separate from established shell
+                // metadata: amx cwd here would be the LOCAL ssh client's cwd.
+                sessionStore.updateTerminalBackendMetadata(
+                    sessionID: sessionID, paneID: paneID, metadata: .amxRemoteCarrier
+                )
+                commandBridgeEnactor.confirmRemoteOwnedAttach()
+                return
+            }
             // Records a successful surface spawn, not a confirmed daemon attach.
             // The next launch uses the pre-spawn value to distinguish a saved
             // pane from its first creation when the status reports a fresh shell.
@@ -326,18 +342,11 @@ extension GhosttySurfaceNSView {
                 metadata: AmxBackend.establishedSessionMetadata
             )
         case .remoteOwnedAttach:
-            // Deliberately neither of the other two. NOT `established`: that
-            // metadata names a LOCAL amx session, and stamping it would point
-            // the Path Bar's periodic `amx cwd` refresh (and
-            // `recoverAttachedRuntimeDeathIfNeeded`) at an id no local daemon
-            // has. NOT a chrome reset either: this is a reattach to a session
-            // that survives on the far host, so a live agent's identity must
-            // survive with it, exactly as a bridge reattach preserves it.
-            //
-            // Ceiling: if the remote session was gone and zmx created a fresh
-            // one, restored chrome stays stale until the pane produces new
-            // agent output — there is no `created` signal to read without a
-            // remote status channel. Revisit if remote-owned grows one.
+            // Direct SSH has no local daemon. Clear any saved carrier marker,
+            // while preserving the remote session's agent chrome.
+            sessionStore.updateTerminalBackendMetadata(
+                sessionID: sessionID, paneID: paneID, metadata: .empty
+            )
             commandBridgeEnactor.confirmRemoteOwnedAttach()
         case .localShell:
             // Fresh local shell, no bridge reattach: any restored `.waiting`
@@ -355,13 +364,14 @@ extension GhosttySurfaceNSView {
     /// is one MainActor task whose `await`s yield rather than pin the main thread
     /// (the ssh work runs off-main inside `BridgeExecChannel`), mirroring
     /// `beginExitSupervision`'s `Task { @MainActor … await AmxBackend.sessionExists }`.
-    private func beginBridgePreflight(baseCommand: String) {
+    private func beginBridgePreflight(baseCommand: String, companionAuthority: CompanionTerminalOpen.SpawnAuthority?) {
         guard let remote = pane.executionPlan.remoteTarget else {
             // Lost the remote target between the gate and here — fail open.
             finishSurfaceCreation(launch: .bridgeAttach(baseCommand))
             return
         }
         invalidateBridgePreflight()
+        retainBridgePreflightOwner(companionAuthority)
         lifecycleState.bridgePreflightGeneration &+= 1
         let generation = lifecycleState.bridgePreflightGeneration
         if pane.terminalBackendMetadata.amxAttachDisposition == .existingOnly,
@@ -548,6 +558,8 @@ extension GhosttySurfaceNSView {
         lifecycleState.bridgePreflightGeneration &+= 1
         lifecycleState.bridgePreflightTask?.cancel()
         lifecycleState.bridgePreflightTask = nil
+        lifecycleState.bridgePreflightNativeOwner = false
+        lifecycleState.bridgePreflightCompanionAuthorities = []
         commandBridgeEnactor.bridgePreflightInFlight = false
         if let recovery = lifecycleState.recoveryBridgePreflight {
             SessionRecoveryConfirmationCenter.shared.cancel(
@@ -652,7 +664,12 @@ extension GhosttySurfaceNSView {
         // `createSurfaceIfNeeded` while `surface` is still nil (review R-4).
         defer {
             if lifecycleState.bridgePreflightGeneration == generation {
+                if surface == nil {
+                    discardPendingSurfaceKeyEvents()
+                }
                 lifecycleState.bridgePreflightTask = nil
+                lifecycleState.bridgePreflightNativeOwner = false
+                lifecycleState.bridgePreflightCompanionAuthorities = []
                 commandBridgeEnactor.bridgePreflightInFlight = false
                 lifecycleState.recoveryBridgePreflight = nil
             }
@@ -703,7 +720,7 @@ extension GhosttySurfaceNSView {
 
         guard let outcome else {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-failed")
-            finishSurfaceCreation(launch: .bridgeAttach(baseCommand))
+            finishBridgeSurfaceCreation(launch: .bridgeAttach(baseCommand))
             return
         }
         guard let command = BridgeAttachDecision.finalCommand(for: outcome, baseCommand: baseCommand) else {
@@ -714,7 +731,7 @@ extension GhosttySurfaceNSView {
         }
         if case .ready(let channel, _) = outcome, let helperPath {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-ready")
-            if finishSurfaceCreation(launch: .bridgeAttach(command)) {
+            if finishBridgeSurfaceCreation(launch: .bridgeAttach(command)) {
                 runtime.promoteBridgeGeneration(
                     session: expectedTerminalSessionID,
                     channel: channel,
@@ -743,7 +760,34 @@ extension GhosttySurfaceNSView {
                 event: "surface-create-bridge-preflight-degraded-\(reason)"
             )
         }
-        finishSurfaceCreation(launch: .bridgeAttach(command))
+        finishBridgeSurfaceCreation(launch: .bridgeAttach(command))
+    }
+
+    private func retainBridgePreflightOwner(_ companionAuthority: CompanionTerminalOpen.SpawnAuthority?) {
+        if let companionAuthority {
+            lifecycleState.bridgePreflightCompanionAuthorities.append(companionAuthority)
+        } else {
+            lifecycleState.bridgePreflightNativeOwner = true
+        }
+    }
+
+    @discardableResult
+    private func finishBridgeSurfaceCreation(launch: SurfaceLaunchCommand) -> Bool {
+        if lifecycleState.bridgePreflightNativeOwner {
+            return finishSurfaceCreation(launch: launch)
+        }
+        for authority in lifecycleState.bridgePreflightCompanionAuthorities {
+            do {
+                var created = false
+                try authority.perform { created = finishSurfaceCreation(launch: launch) }
+                return created
+            } catch {
+                // Another phone or a native mount may still own this preflight.
+                continue
+            }
+        }
+        cancelRecoveryBridgePreflight(generation: lifecycleState.bridgePreflightGeneration)
+        return false
     }
 
     private func cancelRecoveryBridgePreflight(generation: UInt64) {
@@ -913,6 +957,10 @@ extension GhosttySurfaceNSView {
             lifecycleState.windowFrameSettleState = WindowFrameSettleState()
             logSurfaceGeometryDiagnostics(event: "surface-create-hidden-deferred")
             return
+        }
+
+        if lifecycleState.bridgePreflightTask != nil {
+            lifecycleState.bridgePreflightNativeOwner = true
         }
 
         // A genuinely warm pane (a surface already exists, this pane never
@@ -1114,6 +1162,9 @@ extension GhosttySurfaceNSView {
     }
 
     func updateWindowObservation() {
+        if lifecycleState.observedWindow !== window {
+            clearPendingSurfaceKeyEvents()
+        }
         // Scope removal to the previously-observed window so we don't sweep
         // away unrelated occlusion observers if any are added later.
         if let observedWindow = lifecycleState.observedWindow {
@@ -1125,6 +1176,11 @@ extension GhosttySurfaceNSView {
             NotificationCenter.default.removeObserver(
                 self,
                 name: NSWindow.didBecomeKeyNotification,
+                object: observedWindow
+            )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didResignKeyNotification,
                 object: observedWindow
             )
             NotificationCenter.default.removeObserver(
@@ -1160,6 +1216,12 @@ extension GhosttySurfaceNSView {
             self,
             selector: #selector(windowDidBecomeKey),
             name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResignKey),
+            name: NSWindow.didResignKeyNotification,
             object: window
         )
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -1233,6 +1295,10 @@ extension GhosttySurfaceNSView {
         }
     }
 
+    @objc func windowDidResignKey(_ notification: Notification) {
+        resetPendingSurfaceKeyEvents()
+    }
+
     @objc func windowDidBecomeKey(_ notification: Notification) {
         // Tiling-WM safety net: AeroSpace/yabai may bring the window forward
         // via paths that don't toggle NSWindowOcclusionState. didBecomeKey
@@ -1249,6 +1315,8 @@ extension GhosttySurfaceNSView {
         updateSurfaceDisplayID()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
         replenishPendingSSHForegroundProbeBudget()
+        // Re-keying a window keeps its first responder, so focus is not re-sent.
+        if window?.firstResponder === self { nudgeAmxAttachAttention() }
     }
 
     @objc func activeSpaceDidChange(_ notification: Notification) {

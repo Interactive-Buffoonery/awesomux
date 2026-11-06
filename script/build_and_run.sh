@@ -681,7 +681,8 @@ required_license_files=(
   "DearImGui/LICENSE.txt"
   "sentry-native/LICENSE"
   "MPack/LICENSE"
-  "stb-sprintf/LICENSE"
+  "stb-image/LICENSE"
+  "stb-image-resize/LICENSE"
   "Breakpad/LICENSE"
   "simdutf/LICENSE-MIT"
   "simdutf/LICENSE-APACHE"
@@ -694,6 +695,9 @@ required_license_files=(
   "Wuffs/LICENSE"
   "Wuffs/LICENSE-APACHE"
   "Wuffs/LICENSE-MIT"
+  "z2d/COPYING"
+  "z2d/LICENSE"
+  "z2d/SOURCE.txt"
   "Zig/LICENSE"
 )
 for license_file in "${required_license_files[@]}"; do

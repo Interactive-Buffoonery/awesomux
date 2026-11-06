@@ -7,7 +7,7 @@ import Testing
 @Suite("Companion preview and rename grant coexistence")
 struct CompanionGrantCoexistenceTests {
     @Test func metadataRoundTripPreservesBothPermissions() throws {
-        let scope = LocalAPITargetScope.persistentWorkspaces([UUID()])
+        let scope = LocalAPITargetScope.allWorkspaces
         let metadata = LocalAPICompanionMetadata(
             certificateFingerprint: Data(repeating: 5, count: 32), transport: .lan,
             pairedAt: Date(timeIntervalSince1970: 0), port: 1234,
@@ -47,7 +47,7 @@ struct CompanionGrantCoexistenceTests {
             }
         }
         access = nil
-        access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        access = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         #expect(try #require(access).loadFailure == nil)
         #expect(try lease(#require(access)) == both)
         try #require(access).updateCompanionPaneRenameScope(connectionID: phone.id, scope: nil)
@@ -64,7 +64,7 @@ struct CompanionGrantCoexistenceTests {
         let renameAgain = try lease(#require(access))
         #expect(renameAgain.paneRenameScope == .allWorkspaces && !renameAgain.terminalPreviewAllowed)
         access = nil
-        let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let restored = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         #expect(restored.loadFailure == nil)
         #expect(try lease(restored) == renameAgain)
         #expect(restored.state.connections.first?.companion?.pairingVersion == 2)

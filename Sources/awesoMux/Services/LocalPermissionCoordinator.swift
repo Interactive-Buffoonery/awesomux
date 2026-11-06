@@ -236,7 +236,7 @@ final class LocalPermissionCoordinator {
 
     func remoteResponse(
         answer: CompanionDecisionAnswer?, deviceID: UUID, deviceName: String,
-        workspaceIDs: [UUID], authorize: @escaping RemoteAuthority,
+        authorize: @escaping RemoteAuthority,
         eligible: @escaping (LocalPermissionTarget) -> Bool,
         fixture: Bool = false
     ) throws -> (pending: [CompanionPendingDecision], outcomes: [CompanionDecisionReceipt], receipt: CompanionDecisionReceipt?) {
@@ -249,7 +249,7 @@ final class LocalPermissionCoordinator {
         #endif
         core.sweep(now: Date())
         let allowed: (LocalPermissionTarget) -> Bool = { [weak self] target in
-            workspaceIDs.contains(target.workspaceID) && self?.endpoints[target.paneID]?.target == target && eligible(target)
+            self?.endpoints[target.paneID]?.target == target && eligible(target)
         }
         var receipt: CompanionDecisionReceipt?
         try authorize {
@@ -290,12 +290,12 @@ final class LocalPermissionCoordinator {
         return (pending, outcomes, receipt)
     }
 
-    func validateRemoteTargets(_ identities: [CompanionDecisionIdentity], workspaceIDs: [UUID], eligible: (LocalPermissionTarget) -> Bool)
+    func validateRemoteTargets(_ identities: [CompanionDecisionIdentity], eligible: (LocalPermissionTarget) -> Bool)
         throws
     {
         for identity in identities {
             let target = identity.localIdentity.target
-            guard workspaceIDs.contains(target.workspaceID), endpoints[target.paneID]?.target == target, eligible(target) else {
+            guard endpoints[target.paneID]?.target == target, eligible(target) else {
                 throw LocalAPIError.permissionDenied
             }
         }

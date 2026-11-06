@@ -142,6 +142,7 @@ public struct VisibleTextAgentStateReducer: Sendable {
         detectedAgentKind: AgentKind?,
         detectedKindIsAuthoritative: Bool = false,
         liveAgentKind: AgentKind,
+        liveAgentHooksDelivered: Bool = true,
         liveExecutionState: AgentExecutionState,
         liveDisplayState: AgentState,
         terminalIsActiveForAttention: Bool
@@ -154,6 +155,9 @@ public struct VisibleTextAgentStateReducer: Sendable {
         let shouldApplyState = shouldApplyVisibleTextState(
             detectedState: detectedState,
             liveAgentKind: liveAgentKind,
+            // Process recognition proves identity, not an idle composer, so it
+            // must not clear thinking in a pane without delivered hooks.
+            liveAgentHooksDelivered: liveAgentHooksDelivered || detectedKindIsAuthoritative,
             liveExecutionState: liveExecutionState,
             liveDisplayState: liveDisplayState
         )
@@ -238,16 +242,20 @@ public struct VisibleTextAgentStateReducer: Sendable {
     public func shouldApplyVisibleTextState(
         detectedState: AgentState,
         liveAgentKind: AgentKind,
+        liveAgentHooksDelivered: Bool = true,
         liveExecutionState: AgentExecutionState,
         liveDisplayState: AgentState
     ) -> Bool {
+        let hooksAreAuthoritative =
+            liveAgentHooksDelivered || !liveAgentKind.requiresDeliveredHooksForAuthority
         guard detectedState != .waiting else {
             // Text → waiting is normally forbidden (ADR-0007): waiting requires
             // an explicit runtime Stop. Grok Build 0.2.x never fires those hooks,
             // and Hermes has none, so without this carve-out a pane that entered
             // `.thinking` via viewport cues can never leave until idle-shell/SSH
-            // wipe. Allow identity-only waiting to clear sticky thinking.
-            if liveAgentKind.usesIdentityWaitingToClearThinking,
+            // wipe. Allow identity-only waiting to clear sticky thinking. The same
+            // applies to a Codex pane whose hooks never arrive.
+            if liveAgentKind.usesIdentityWaitingToClearThinking || !hooksAreAuthoritative,
                 (liveDisplayState == .thinking || liveExecutionState == .thinking)
             {
                 return liveDisplayState != .waiting
@@ -277,11 +285,13 @@ public struct VisibleTextAgentStateReducer: Sendable {
         // Permission hooks).
         //
         // Scoped to these two states, so an exit-nonzero `.error` still
-        // applies. See AgentKind.usesReliableHooks.
+        // applies. See AgentKind.usesReliableHooks. A Codex pane that has not
+        // received hooks keeps this fallback (requiresDeliveredHooksForAuthority).
         let blockedByReliableHook =
-            detectedState == .done
-            ? liveAgentKind.usesReliableHooks
-            : detectedState == .needsAttention && liveAgentKind.usesReliableAttentionHooks
+            hooksAreAuthoritative
+            && (detectedState == .done
+                ? liveAgentKind.usesReliableHooks
+                : detectedState == .needsAttention && liveAgentKind.usesReliableAttentionHooks)
         guard !blockedByReliableHook else {
             return false
         }
