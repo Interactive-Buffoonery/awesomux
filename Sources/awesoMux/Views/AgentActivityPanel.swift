@@ -135,6 +135,7 @@ struct AgentActivityPanel: View {
                 guard !navigable.isEmpty else {
                     if hasPlacementUpdates {
                         updatesFocused = true
+                        if voiceOverEnabled { updatesAccessibilityFocused = true }
                         proxy.scrollTo("agent-placement-updates", anchor: .top)
                     }
                     return
