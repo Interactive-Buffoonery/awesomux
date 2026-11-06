@@ -824,16 +824,17 @@ struct SidebarView: View {
                 // An unpinned workspace that still needs input moves to the Needs
                 // Input section, not back to its group — announcing a return and
                 // expanding the group would both be wrong.
-                if sessionStore.needsInputSectionEnabled,
-                    SidebarAttentionProjection.isLifted(
-                        session,
-                        stickySessionID: nil,
-                        unansweredTurnPaneIDs: sessionStore.unansweredTurnPaneIDs
-                    )
-                {
+                    if sessionStore.needsInputSectionEnabled,
+                        SidebarAttentionProjection.isLifted(
+                            session,
+                            stickySessionID: nil,
+                            unansweredTurnPaneIDs: sessionStore.unansweredTurnPaneIDs
+                        )
+                    {
                     accessibilityAnnouncer.announce(
                         String(
-                            localized: "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Attention",
+                                localized:
+                                    "Unpinned \(sidebarTitle(for: session, displayedTitles: displayedTitles)), moved to Needs Attention",
                             comment:
                                 "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
                         )
@@ -852,7 +853,7 @@ struct SidebarView: View {
         .onChange(of: sessionStore.liftedSessionIDs) { oldIDs, newIDs in
                 guard isWorkspacesMode else { return }
             // Twin of the pin handler above, for the other synthetic section. A
-            // workspace leaving Needs Attention while its origin group is collapsed
+                // workspace leaving Needs Attention while its origin group is collapsed
             // otherwise just vanishes — no expand, nothing spoken.
             // An addition driven by an attention reason stays silent, because
             // WorkspaceAttentionAnnouncementTracker already speaks a workspace
@@ -878,9 +879,9 @@ struct SidebarView: View {
                 accessibilityAnnouncer.announce(
                     String(
                         localized:
-                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is waiting for a reply, moved to Needs Attention",
+                                "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is waiting for a reply, moved to Needs Attention",
                         comment:
-                            "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Attention section; the placeholder is the workspace title"
+                                "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Attention section; the placeholder is the workspace title"
                     )
                 )
             }
@@ -905,7 +906,7 @@ struct SidebarView: View {
             accessibilityAnnouncer.announce(
                 String(
                     localized:
-                        "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Attention, returned to \(group.name)",
+                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) left Needs Attention, returned to \(group.name)",
                     comment:
                         "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name"
                 )
