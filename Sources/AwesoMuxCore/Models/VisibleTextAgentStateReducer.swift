@@ -239,6 +239,11 @@ public struct VisibleTextAgentStateReducer: Sendable {
         return nil
     }
 
+    public func canObserveAttentionCue(liveAgentKind: AgentKind, liveAgentHooksDelivered: Bool) -> Bool {
+        let hooksAreAuthoritative = liveAgentHooksDelivered || !liveAgentKind.requiresDeliveredHooksForAuthority
+        return !(hooksAreAuthoritative && liveAgentKind.usesReliableAttentionHooks)
+    }
+
     public func shouldApplyVisibleTextState(
         detectedState: AgentState,
         liveAgentKind: AgentKind,
@@ -291,7 +296,8 @@ public struct VisibleTextAgentStateReducer: Sendable {
             hooksAreAuthoritative
             && (detectedState == .done
                 ? liveAgentKind.usesReliableHooks
-                : detectedState == .needsAttention && liveAgentKind.usesReliableAttentionHooks)
+                : detectedState == .needsAttention
+                    && !canObserveAttentionCue(liveAgentKind: liveAgentKind, liveAgentHooksDelivered: liveAgentHooksDelivered))
         guard !blockedByReliableHook else {
             return false
         }

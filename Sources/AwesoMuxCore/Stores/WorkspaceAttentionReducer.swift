@@ -244,6 +244,40 @@ struct WorkspaceAttentionReducer: Sendable {
         )
     }
 
+    /// Bells and desktop notifications have no request identity: one pending credit,
+    /// with a ten-second quiet gap before a seen burst may notify again.
+    static func recordOutputNotification(
+        _ session: inout TerminalSession,
+        paneID: TerminalPane.ID,
+        reason: AttentionReason,
+        observedAt: TimeInterval,
+        canNotify: Bool
+    ) -> PaneUpdateOutcome {
+        let oldCount = session.unreadNotificationCount
+        guard reason == .bell || reason == .desktopNotification,
+            observedAt.isFinite,
+            var pane = session.layout.pane(id: paneID),
+            observedAt >= (pane.lastOutputNotificationAt ?? -.infinity)
+        else { return PaneUpdateOutcome(unreadChange: nil, didMutate: false) }
+        // Ghostty already spaces identical desktop callbacks five seconds apart.
+        // shortcut: no request IDs; ten seconds quiet separates bursts until the protocol supplies identity.
+        let quiet = observedAt - (pane.lastOutputNotificationAt ?? -.infinity) >= 10
+        pane.lastOutputNotificationAt = observedAt
+        var changed = false
+        if observedAt > (pane.outputNotificationSeenAt ?? -.infinity),
+            canNotify, quiet, pane.unreadOutputNotificationReason == nil,
+            pane.attentionReason?.awaitsExplicitAnswer != true
+        {
+            pane.unreadOutputNotificationReason = reason
+            pane.unreadNotificationCount += 1
+            _ = pane.applyAttentionReasonWithoutDowngrade(reason)
+            changed = true
+        }
+        session.layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) ?? session.layout
+        return PaneUpdateOutcome(
+            unreadChange: unreadChange(from: oldCount, to: session.unreadNotificationCount), didMutate: changed)
+    }
+
     /// Acknowledges a single pane — drops its unread badge and attention. The
     /// selection-dwell ack and the per-row ⌘K clear the *active* pane only, so a
     /// sibling pane still needing input keeps the workspace row loud (ADR-0003
@@ -256,6 +290,7 @@ struct WorkspaceAttentionReducer: Sendable {
         session.layout = session.layout.mappingPanes { pane in
             guard pane.id == paneID else { return pane }
             var pane = pane
+            pane.outputNotificationSeenAt = ProcessInfo.processInfo.systemUptime
             pane.unreadNotificationCount = 0
             pane.attentionReason = nil
             return pane
@@ -271,6 +306,7 @@ struct WorkspaceAttentionReducer: Sendable {
         session.layout = session.layout.mappingPanes { pane in
             guard pane.id == paneID else { return pane }
             var pane = pane
+            pane.outputNotificationSeenAt = ProcessInfo.processInfo.systemUptime
             pane.unreadNotificationCount = 0
             if pane.attentionReason?.awaitsExplicitAnswer != true { pane.attentionReason = nil }
             return pane
@@ -320,7 +356,7 @@ struct WorkspaceAttentionReducer: Sendable {
                 didMutate = true
             }
         } else if pane.attentionReason == .permissionPrompt {
-            pane.attentionReason = nil
+            pane.attentionReason = pane.unreadOutputNotificationReason
             didMutate = true
         }
 
@@ -340,10 +376,8 @@ struct WorkspaceAttentionReducer: Sendable {
     static func acknowledgeAllPanes(in session: inout TerminalSession) -> UnreadChange? {
         let oldUnreadCount = session.unreadNotificationCount
         session.layout = session.layout.mappingPanes { pane in
-            guard pane.attentionReason != nil || pane.unreadNotificationCount != 0 else {
-                return pane
-            }
             var pane = pane
+            pane.outputNotificationSeenAt = ProcessInfo.processInfo.systemUptime
             pane.unreadNotificationCount = 0
             pane.attentionReason = nil
             return pane
@@ -359,6 +393,7 @@ struct WorkspaceAttentionReducer: Sendable {
                 groups[groupIndex].sessions[sessionIndex].layout =
                     groups[groupIndex].sessions[sessionIndex].layout.mappingPanes { pane in
                         var pane = pane
+                        pane.outputNotificationSeenAt = ProcessInfo.processInfo.systemUptime
                         pane.unreadNotificationCount = 0
                         pane.attentionReason = nil
                         return pane
