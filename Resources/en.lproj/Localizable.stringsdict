@@ -808,5 +808,133 @@
             <key>other</key><string>%lld workspaces</string>
         </dict>
     </dict>
+    <key>alert.recovery.removedGroups</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Removed %lld workspace group that could not be restored.</string>
+            <key>other</key>
+            <string>Removed %lld workspace groups that could not be restored.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.replacedLayouts</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Replaced %lld saved workspace layout.</string>
+            <key>other</key>
+            <string>Replaced %lld saved workspace layouts.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.skippedDocumentTabs</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Skipped %lld document tab that could not be restored.</string>
+            <key>other</key>
+            <string>Skipped %lld document tabs that could not be restored.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.nameAdjustments</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Made %lld adjustment to saved names or titles.</string>
+            <key>other</key>
+            <string>Made %lld adjustments to saved names or titles.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.mergedGroups</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Merged %lld duplicate workspace group.</string>
+            <key>other</key>
+            <string>Merged %lld duplicate workspace groups.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.workingDirectories</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Reset %lld saved working directory to home.</string>
+            <key>other</key>
+            <string>Reset %lld saved working directories to home.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.paneSelections</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Replaced %lld saved pane selection.</string>
+            <key>other</key>
+            <string>Replaced %lld saved pane selections.</string>
+        </dict>
+    </dict>
+    <key>alert.recovery.workspaceSelections</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@adjustments@</string>
+        <key>adjustments</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>Replaced %lld saved workspace selection.</string>
+            <key>other</key>
+            <string>Replaced %lld saved workspace selections.</string>
+        </dict>
+    </dict>
 </dict>
 </plist>

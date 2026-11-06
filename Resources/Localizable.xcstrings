@@ -1234,6 +1234,9 @@
     "Changes for %arg opened in another tab." : {
       "comment" : "Notice text when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
     },
+    "Changes needed to restore the saved data:" : {
+      "comment" : "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
+    },
     "Changes: %arg vs %arg — %arg" : {
       "comment" : "Document tab title for a rendered branch diff, e.g. 'Changes: feature/x vs origin/main — awesomux'",
       "localizations" : {

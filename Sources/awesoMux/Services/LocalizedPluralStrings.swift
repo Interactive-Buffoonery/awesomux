@@ -1,3 +1,4 @@
+import AwesoMuxCore
 import Foundation
 
 enum LocalizedPluralStrings {
@@ -427,6 +428,37 @@ enum LocalizedPluralStrings {
             bundle: bundle,
             comment: "Collapsed group accessibility phrase; argument is the error-state agent count."
         )
+    }
+
+    static func recoverySummaryLines(
+        _ summary: SessionRestoreSanitizationSummary,
+        bundle: Bundle = .main
+    ) -> [String] {
+        let nameAdjustments =
+            summary.groupNameAdjustments
+            + summary.sessionTitleAdjustments + summary.paneTitleAdjustments
+        let directoryAdjustments =
+            summary.sessionWorkingDirectoryAdjustments
+            + summary.paneWorkingDirectoryAdjustments
+        let categories: [(count: Int, key: String)] = [
+            (summary.droppedGroups, "alert.recovery.removedGroups"),
+            (summary.collapsedLayouts, "alert.recovery.replacedLayouts"),
+            (summary.droppedDocumentTabs, "alert.recovery.skippedDocumentTabs"),
+            (nameAdjustments, "alert.recovery.nameAdjustments"),
+            (summary.mergedGroups, "alert.recovery.mergedGroups"),
+            (directoryAdjustments, "alert.recovery.workingDirectories"),
+            (summary.activePaneFallbacks, "alert.recovery.paneSelections"),
+            (summary.selectedSessionFallbacks, "alert.recovery.workspaceSelections"),
+        ]
+        return categories.compactMap { category in
+            guard category.count > 0 else { return nil }
+            return localizedPlural(
+                key: category.key,
+                count: category.count,
+                bundle: bundle,
+                comment: "Saved workspace recovery adjustment; argument is the recorded adjustment count."
+            )
+        }
     }
 
     private static func localizedPlural(
