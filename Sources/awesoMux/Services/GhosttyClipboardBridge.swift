@@ -76,7 +76,7 @@ extension GhosttyRuntime {
         _ userdata: UnsafeMutableRawPointer?,
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?,
-        mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+        mimes: UnsafePointer<UnsafePointer<CChar>>?,
         mimesLen: Int,
         list: Bool
     ) -> ghostty_clipboard_read_result_e {
@@ -106,7 +106,7 @@ extension GhosttyRuntime {
         var requestedMimes: [String] = []
         if let mimes {
             for index in 0..<mimesLen {
-                guard let mimePtr = mimes[index] else { continue }
+                let mimePtr = mimes[index]
                 let mime = String(cString: mimePtr)
                 guard !requestedMimes.contains(mime) else { continue }
                 requestedMimes.append(mime)
@@ -346,17 +346,9 @@ extension GhosttyRuntime {
         if let contents = confirm.contents {
             for index in 0..<confirm.contents_len {
                 let content = contents[index]
-                guard let mimePtr = content.mime else { continue }
+                let mimePtr = content.mime
                 let mime = String(cString: mimePtr)
-                // libghostty owns this memory only for the callback duration;
-                // a nil pointer with a non-zero length must degrade to empty
-                // bytes rather than crash the confirm path.
-                let data: Data
-                if content.len > 0, let bytes = content.data {
-                    data = Data(bytes: bytes, count: content.len)
-                } else {
-                    data = Data()
-                }
+                let data = Data(bytes: content.data, count: content.len)
                 representations.append((mime, data))
             }
         }
@@ -744,7 +736,7 @@ extension GhosttyRuntime {
         // Surface.clipboardWrite in vendor/ghostty. `onMainThread` runs the
         // closure SYNCHRONOUSLY (inline `assumeIsolated` on the main thread, or
         // `DispatchQueue.main.sync` otherwise), so every dereference below — up
-        // to and including the `String(cString:)` copy in `textPlainContent` —
+        // to and including the bounded String copy in `textPlainContent` —
         // completes before we return into Zig and the buffer is freed. If
         // `onMainThread` is ever made async, or an `await`/`Task {}` is inserted
         // between here and the read, this becomes a use-after-free that copies
@@ -1044,43 +1036,26 @@ extension GhosttyRuntime {
         isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
     }
 
-    private nonisolated static func textPlainContent(
+    nonisolated static func textPlainContent(
         from content: UnsafePointer<ghostty_clipboard_content_s>,
         count: Int,
         maximumBytes: Int? = nil
     ) -> String? {
         for index in 0..<count {
             let item = content[index]
-            guard let mime = item.mime,
-                  String(cString: mime) == "text/plain",
-                  let data = item.data else {
+            guard String(cString: item.mime) == "text/plain" else {
                 continue
             }
 
-            if let maximumBytes,
-               cStringByteCount(data, maximumBytes: maximumBytes) == nil {
-                return nil
-            }
-
-            return String(cString: data)
+            if let maximumBytes, item.len > maximumBytes { return nil }
+            let bytes = UnsafeBufferPointer(
+                start: UnsafeRawPointer(item.data).assumingMemoryBound(to: UInt8.self), count: item.len)
+            return String(decoding: bytes, as: UTF8.self)
         }
 
         return nil
     }
 
-    private nonisolated static func cStringByteCount(
-        _ data: UnsafePointer<CChar>,
-        maximumBytes: Int
-    ) -> Int? {
-        var count = 0
-        while count <= maximumBytes {
-            if data[count] == 0 {
-                return count
-            }
-            count += 1
-        }
-        return nil
-    }
 }
 // Long enough that paths handed to a long-running agent thread (Claude Code,
 // etc.) are still readable when the user comes back to the same session.

@@ -287,8 +287,7 @@ struct GhosttyConfigManager {
     nonisolated static func diagnostics(from config: ghostty_config_t) -> [String] {
         (0..<ghostty_config_diagnostics_count(config)).map { index in
             let diagnostic = ghostty_config_get_diagnostic(config, index)
-            return diagnostic.message.map { String(cString: $0) }
-                ?? String(localized: "Unknown Ghostty configuration problem.")
+            return String(cString: diagnostic.message)
         }
     }
 
@@ -298,9 +297,8 @@ struct GhosttyConfigManager {
         guard count > 0 else { return }
         for index in 0..<count {
             let diag = ghostty_config_get_diagnostic(config, index)
-            if let message = diag.message.map({ String(cString: $0) }) {
+                let message = String(cString: diag.message)
                 Self.diagnosticsLogger.debug("ghostty config diagnostic: \(message, privacy: .public)")
-            }
         }
     }
 #else
@@ -409,9 +407,7 @@ struct GhosttyConfigManager {
 
         for index in firstNewDiagnosticIndex..<count {
             let diag = ghostty_config_get_diagnostic(config, index)
-            // Log a sentinel for a null/empty message so the diagnostic count and the
-            // logged lines stay reconcilable.
-            let message = diag.message.map { String(cString: $0) } ?? "<no message>"
+            let message = String(cString: diag.message)
             Self.configLoadLogger.warning(
                 "ghostty config diagnostic source=\(source, privacy: .public) message=\(message, privacy: .public)"
             )
