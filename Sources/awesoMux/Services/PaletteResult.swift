@@ -92,7 +92,14 @@ enum PaletteSearch {
         let query = resolved.query
         var outputGroups: [PaletteResultGroup] = []
 
+        let sessionResults =
+            resolved.mode == .unified
+            ? sessions(in: groups, query: query, titles: titles, limit: sessionLimit)
+            : []
+
         if resolved.mode == .unified,
+            // Existing workspace matches take precedence over executable detection.
+            sessionResults.isEmpty,
             // Executables such as `view` must not hide matching app actions.
             !commands.contains(where: {
                 $0.isEnabled && $0.title.range(of: query, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil
@@ -112,16 +119,8 @@ enum PaletteSearch {
             )
         }
 
-        if resolved.mode == .unified {
-            let sessionResults = sessions(
-                in: groups,
-                query: query,
-                titles: titles,
-                limit: sessionLimit
-            )
-            if !sessionResults.isEmpty {
-                outputGroups.append(PaletteResultGroup(title: "Sessions", results: sessionResults.map(PaletteResult.session)))
-            }
+        if !sessionResults.isEmpty {
+            outputGroups.append(PaletteResultGroup(title: "Sessions", results: sessionResults.map(PaletteResult.session)))
         }
 
         let enabledCommands = commands.filter(\.isEnabled)
