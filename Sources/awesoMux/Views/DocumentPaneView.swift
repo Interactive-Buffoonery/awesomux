@@ -27,6 +27,7 @@ struct DocumentPaneSendBar: View {
     /// draft survives the bar being torn down and rebuilt when the target pane's
     /// shell activity flips.
     let onCompose: () -> Void
+    var handoffStatus: String? = nil
 
     /// Branch-diff file-section keys in document order, and this tab's folded
     /// set — the footer's Collapse All / Expand All writes the whole set back
@@ -122,7 +123,7 @@ struct DocumentPaneSendBar: View {
 
     private var resolvedNudgeTarget: DocumentNudgeTargetResolution {
         let integrations = appSettingsStore.agentIntegrations.value
-        return Self.resolveNudgeTarget(
+        return Self.resolveHandoffTarget(
             in: session.layout,
             for: pane.id,
             isIntegrationEnabled: { AgentConfigHome.setup(for: $0, in: integrations).enabled },
@@ -133,7 +134,7 @@ struct DocumentPaneSendBar: View {
         )
     }
 
-    static func resolveNudgeTarget(
+    static func resolveHandoffTarget(
         in layout: TerminalPaneLayout,
         for documentID: DocumentPane.ID,
         isIntegrationEnabled: (AgentKind) -> Bool,
@@ -156,6 +157,19 @@ struct DocumentPaneSendBar: View {
         // would show them the generic denial instead of "exit SSH".
         if AgentPromptGate.normalizedForegroundName(observedComm) == "ssh" {
             return .unavailable(.foregroundSSH)
+        }
+        // Clipboard handoff never writes terminal input, so Codex does not need
+        // trusted Waiting evidence. Every other provider retains the send gate.
+        if target.agentKind == .codex {
+            guard
+                AgentPromptGate.foregroundCommandMatches(
+                    .codex, observedCommand: observedComm,
+                    configuredBinaryCandidate: {
+                        guard let path = agentBinaryPath(.codex), !path.isEmpty else { return nil }
+                        return URL(fileURLWithPath: path).resolvingSymlinksInPath().lastPathComponent
+                    })
+            else { return .unavailable(.noVerifiedAgent) }
+            return resolution
         }
         // Verified-agent-prompt gate (INT-569).
         switch AgentPromptGate.verdict(
@@ -182,17 +196,34 @@ struct DocumentPaneSendBar: View {
         }
     }
 
+    private var isCodexCopy: Bool {
+        session.layout.documentSendTarget(for: pane.id)?.agentKind == .codex
+    }
+
     private func sendUnavailableDescription(
         for resolution: DocumentNudgeTargetResolution
     ) -> String? {
         guard case .unavailable(let reason) = resolution else { return nil }
-        return Self.unavailableDescription(for: reason)
+        return Self.unavailableDescription(for: reason, forCodexCopy: isCodexCopy)
     }
 
     /// Localized reason a document can't be sent. Shared with the composer sheet
     /// (hosted above the send bar's churning identity) so both surfaces speak the
     /// same language for an unavailable target.
-    static func unavailableDescription(for reason: DocumentNudgeUnavailableReason) -> String {
+    static func unavailableDescription(for reason: DocumentNudgeUnavailableReason, forCodexCopy: Bool = false) -> String {
+        if forCodexCopy {
+            switch reason {
+            case .noVerifiedAgent:
+                return String(
+                    localized: "Couldn't verify Codex in this document's terminal",
+                    comment: "Copy refusal when the foreground executable is not Codex")
+            case .foregroundSSH:
+                return String(
+                    localized: "Exit SSH to copy this local document path for Codex",
+                    comment: "Copy refusal while the associated terminal is inside SSH")
+            default: break
+            }
+        }
         switch reason {
         case .foregroundSSH:
             return String(
@@ -262,6 +293,9 @@ struct DocumentPaneSendBar: View {
                 localized: "Send to Agent",
                 comment: "Generic send-bar button title when no agent was identified in the target terminal"
             )
+        }
+        if namedKind == .codex {
+            return String(localized: "Copy for Codex", comment: "Document handoff button that opens a clipboard prompt composer")
         }
         return String(
             localized: "Send to \(namedKind.displayName)",
@@ -520,12 +554,20 @@ struct DocumentPaneSendBar: View {
                 let unavailableDescription = sendUnavailableDescription(for: resolution)
                 VStack(spacing: 3) {
                     SendToAgentButton(
-                        title: Self.sendButtonTitle(for: resolution),
+                        purpose: isCodexCopy ? .copyForCodex : .sendToAgent,
+                        title: isCodexCopy
+                            ? String(localized: "Copy for Codex", comment: "Document handoff action for the associated Codex terminal")
+                            : Self.sendButtonTitle(for: resolution),
                         failed: nudgeFailed,
                         unavailableDescription: unavailableDescription,
                         action: requestCompose
                     )
                     .frame(height: 28)
+                    if let handoffStatus, case .available(let target) = resolution, target.agentKind == .codex {
+                        Text(handoffStatus)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.aw.text2)
+                    }
                     if let unavailableDescription {
                         // Visible "why" for the disabled state. The button's
                         // accessibility label already speaks the same string,
@@ -889,6 +931,7 @@ private struct SendToAgentButton: NSViewRepresentable {
     /// focus-safety, layer-color, and inline-attachment reasoning to maintain.
     enum Purpose {
         case sendToAgent
+        case copyForCodex
         case resumeSession
         case refreshBranchChanges
         case refreshRemoteSnapshot
@@ -896,6 +939,7 @@ private struct SendToAgentButton: NSViewRepresentable {
         var symbolName: String {
             switch self {
             case .sendToAgent: "paperplane.fill"
+            case .copyForCodex: "doc.on.doc"
             case .resumeSession: "play.fill"
             case .refreshBranchChanges, .refreshRemoteSnapshot: "arrow.clockwise"
             }
@@ -904,6 +948,10 @@ private struct SendToAgentButton: NSViewRepresentable {
         /// Spoken and tooltip copy for the enabled state.
         var affordanceDescription: String {
             switch self {
+            case .copyForCodex:
+                String(
+                    localized: "opens a prompt to copy and paste into Codex when ready",
+                    comment: "Accessibility and tooltip description of the Codex clipboard handoff")
             case .sendToAgent:
                 String(
                     localized: "sends your review comments to this document's terminal",
@@ -942,7 +990,7 @@ private struct SendToAgentButton: NSViewRepresentable {
                     comment:
                         "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
                 )
-            case .sendToAgent, .resumeSession, .refreshBranchChanges:
+            case .sendToAgent, .copyForCodex, .resumeSession, .refreshBranchChanges:
                 nil
             }
         }
@@ -953,6 +1001,8 @@ private struct SendToAgentButton: NSViewRepresentable {
         /// purpose but the one it was written for.
         var busyDescription: String {
             switch self {
+            case .copyForCodex:
+                String(localized: "copying", comment: "Accessibility phrase while copying a Codex prompt")
             case .sendToAgent:
                 // Send is never busy today — `isBusy` is left at its default at
                 // that call site, because the compose sheet, not the button,

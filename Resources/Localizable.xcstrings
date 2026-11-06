@@ -284,35 +284,13 @@
         }
       }
     },
-    "%arg opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. %arg opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch." : {
+    "%arg opens a temporary Floating Panel for this workspace. %arg opens the Terminal Companion, a single shell that keeps running as you switch workspaces." : {
       "comment" : "Spoken form of beat four. Arguments are those two shortcuts spelled out.\nWelcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$arg opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. %2$arg opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch."
-          }
-        }
-      }
-    },
-    "%arg opens the command palette — every command awesoMux has, searchable. %arg shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
-      "comment" : "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg opens the command palette — every command awesoMux has, searchable. %2$arg shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
-          }
-        }
-      }
-    },
-    "%arg opens the command palette — every command awesoMux has, searchable. %arg shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
-      "comment" : "Spoken form of beat five. Arguments are those two shortcuts spelled out.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg opens the command palette — every command awesoMux has, searchable. %2$arg shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+            "value" : "%1$arg opens a temporary Floating Panel for this workspace. %2$arg opens the Terminal Companion, a single shell that keeps running as you switch workspaces."
           }
         }
       }
@@ -601,6 +579,9 @@
     },
     "1h" : {
       "comment" : "Compact Diagnostics history window"
+    },
+    "2D rasterization — MPL-2.0" : {
+      "comment" : "About credit for the z2d rasterization library and its license"
     },
     "30 minutes" : {
       "comment" : "VoiceOver Diagnostics history window"
@@ -1051,6 +1032,9 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
+    },
+    "Associated terminal" : {
+      "comment" : "Composer label for the terminal where the user can manually paste the copied prompt"
     },
     "Attention requested" : {
       "comment" : "Fallback event description in the companion away activity summary."
@@ -1700,6 +1684,9 @@
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
     },
+    "Copied for Codex — paste when ready" : {
+      "comment" : "Visible and spoken confirmation after copying a document prompt"
+    },
     "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)." : {
       "comment" : "Terminal settings hint."
     },
@@ -1707,7 +1694,7 @@
 
     },
     "Copy" : {
-      "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
+      "comment" : "Button that copies the text shown in the scrollback sheet\nButton to copy the composed Codex prompt\nTerminal context menu item that copies the selection"
     },
     "Copy Alias" : {
       "comment" : "Button that copies the codex --no-daemon shell alias."
@@ -1747,6 +1734,9 @@
     },
     "Copy failed" : {
       "comment" : "Outside app setup-command copy error label."
+    },
+    "Copy for Codex" : {
+      "comment" : "Annotation handoff action for Codex\nDocument handoff action for the associated Codex terminal\nDocument handoff button that opens a clipboard prompt composer\nTitle of the Codex clipboard prompt composer\nUnavailable Codex annotation handoff action"
     },
     "Copy mode enabled. Selecting text will not create comments." : {
       "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
@@ -1849,6 +1839,21 @@
     "Couldn't check whether an installed file exists." : {
       "comment" : "Remove button hint after checking timed out"
     },
+    "Couldn't copy — the reviewed document changed or is no longer editable. Close this composer and reopen Copy for Codex." : {
+      "comment" : "Copy refusal when the pinned document changed"
+    },
+    "Couldn't copy — this document's agent changed. Close this composer and reopen the handoff action." : {
+      "comment" : "Copy refusal when the pinned provider changed"
+    },
+    "Couldn't copy — this document's terminal isn't available" : {
+      "comment" : "Copy refusal when the associated terminal is unavailable"
+    },
+    "Couldn't copy — this file path contains control or direction-formatting characters. Your draft is preserved." : {
+      "comment" : "Copy refusal when the exact document path is unsafe"
+    },
+    "Couldn't copy — your draft is preserved. Try again." : {
+      "comment" : "Clipboard handoff failure with the composer still open"
+    },
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
     },
@@ -1889,6 +1894,9 @@
     },
     "Couldn't send — this file path contains control or direction-formatting characters that cannot be pasted exactly. Your draft is preserved." : {
       "comment" : "Composer refusal when path sanitization would name a different file"
+    },
+    "Couldn't verify Codex in this document's terminal" : {
+      "comment" : "Copy refusal when the foreground executable is not Codex"
     },
     "Couldn't verify a local terminal for this document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
@@ -2271,6 +2279,9 @@
     "Drag to reorder. The top installed editor opens by default." : {
       "comment" : "Workspace settings hint."
     },
+    "Drag workspaces into groups to keep a project together. Split a workspace for terminals side by side — its panes still share one sidebar row. Go wild!" : {
+      "comment" : "Welcome tour beat two, explaining the sidebar and panes."
+    },
     "During Focus" : {
       "comment" : "Notification settings label."
     },
@@ -2453,9 +2464,6 @@
     "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt, except destinations on the don’t-ask list below. Turning this on needs background terminal sessions; awesoMux asks before switching them on." : {
       "comment" : "Workspace settings hint."
     },
-    "Every project gets a workspace — its own shell, its own name in the sidebar. Press %arg to make one." : {
-      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
-    },
     "Every session is attached to an open pane. When you quit with a session running, it keeps the shell and scrollback alive — and shows up here to pin or end." : {
 
     },
@@ -2470,6 +2478,9 @@
     },
     "Existing local branch" : {
       "comment" : "Existing branch create mode."
+    },
+    "Exit SSH to copy this local document path for Codex" : {
+      "comment" : "Copy refusal while the associated terminal is inside SSH"
     },
     "Exit SSH to send this local document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path while the terminal is inside manual SSH"
@@ -2532,6 +2543,28 @@
     },
     "Find" : {
 
+    },
+    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+          }
+        }
+      }
+    },
+    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Spoken form of beat five. Arguments are those two shortcuts spelled out.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+          }
+        }
+      }
     },
     "Find in Pane" : {
 
@@ -2745,6 +2778,12 @@
     },
     "Idle threshold in days" : {
 
+    },
+    "Image decoding — MIT or public domain" : {
+      "comment" : "About credit for the stb_image library and its license choices"
+    },
+    "Image resizing — MIT or public domain" : {
+      "comment" : "About credit for the stb_image_resize library and its license choices"
     },
     "Immediately resets all appearance settings on this page to their shipped defaults. This cannot be undone." : {
 
@@ -2970,9 +3009,6 @@
     },
     "Live processes" : {
       "comment" : "Diagnostics settings section title"
-    },
-    "Live status from coding agents running in your panes." : {
-      "comment" : "Agents settings subtitle."
     },
     "Loading Markdown files" : {
 
@@ -3216,9 +3252,6 @@
     },
     "Name" : {
       "comment" : "Diagnostics process table column"
-    },
-    "Named launch choices for the command palette." : {
-
     },
     "Named, the remote host keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
       "comment" : "Caption explaining what naming a remote session does, before a destination has been entered"
@@ -3483,6 +3516,9 @@
     "Note…" : {
 
     },
+    "Nothing to copy" : {
+      "comment" : "Copy refusal for an empty sanitized prompt"
+    },
     "Nothing to send" : {
       "comment" : "Composer failure when the draft is empty after sanitizing"
     },
@@ -3668,6 +3704,9 @@
     },
     "Opens workspace creation options" : {
 
+    },
+    "Optional named launch choices for installed agents in the command palette. Saving a setup does not verify that it launches. Status integrations are managed separately." : {
+      "comment" : "Explains that launch setups are optional and separate from status integration or launch verification."
     },
     "Optional retro overlay on the terminal pane." : {
       "comment" : "CRT effect section subtitle"
@@ -4663,6 +4702,12 @@
     "Return Pane to Source Workspace" : {
       "comment" : "Pane menu command that puts a moved pane back into the workspace it came from. 'Return' is the verb, not the Return key."
     },
+    "Return copies the prompt. Paste into Codex when ready. Shift-Return or Option-Return inserts a new line." : {
+      "comment" : "Accessibility help for the copy composer's Return key"
+    },
+    "Return copies · paste into Codex when ready · ⇧Return or ⌥Return for a new line" : {
+      "comment" : "Keyboard and manual paste instructions in the Codex copy composer"
+    },
     "Return inserts a new line · ⌘Return submits" : {
       "comment" : "Document note editor keyboard help"
     },
@@ -4722,6 +4767,9 @@
     },
     "Run Shortcut" : {
 
+    },
+    "Run an agent you've already installed, such as Claude Code or Codex. Set up its integration in Agents settings for more reliable activity updates. Allow notifications for alerts while you're in another app; delivery follows your notification settings." : {
+      "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
     },
     "Running" : {
       "comment" : "Agent state label",
@@ -5185,6 +5233,9 @@
     },
     "Start with a Catppuccin preset, then adjust the color if needed." : {
 
+    },
+    "Start with a workspace — a shell with its own name in the sidebar. Press %arg to make one. Use it like any terminal. No agent required." : {
+      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
     },
     "Startup" : {
       "comment" : "General settings title."
@@ -5758,9 +5809,6 @@
     "This generated document cannot be edited." : {
       "comment" : "Alert body when a generated document has unknown provenance"
     },
-    "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app." : {
-      "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
-    },
     "This link prefills the recipient, body, or subject. Verify before opening." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
     },
@@ -5928,6 +5976,9 @@
     },
     "Turn On" : {
 
+    },
+    "Turn a provider on for status checks and updates. Set up its integration separately for each config folder where shown. This does not install the agent itself." : {
+      "comment" : "Agents settings subtitle."
     },
     "Turn off to stop the spinning activity circles." : {
       "comment" : "Settings field hint for the agent spinner toggle"
@@ -6216,9 +6267,6 @@
         }
       }
     },
-    "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, as many panes as your heart desires. Go wild!" : {
-      "comment" : "Welcome tour beat two, explaining the sidebar and panes."
-    },
     "Worktree Manager" : {
       "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel title bar.\nWorktree Manager panel title."
     },
@@ -6234,8 +6282,11 @@
     "Write a note about the whole document…" : {
 
     },
+    "Write a prompt to copy for Codex…" : {
+      "comment" : "Placeholder in the Codex clipboard composer"
+    },
     "Write a prompt to send to this document's terminal…" : {
-
+      "comment" : "Placeholder in the composer that stages a prompt into the document's associated terminal"
     },
     "Yellow" : {
       "comment" : "Workspace group tint color",
@@ -6484,6 +6535,9 @@
     "column header" : {
       "comment" : "VoiceOver label for an empty table header cell"
     },
+    "copying" : {
+      "comment" : "Accessibility phrase while copying a Codex prompt"
+    },
     "current worktree" : {
       "comment" : "Accessibility state for the main worktree."
     },
@@ -6596,6 +6650,9 @@
     },
     "open" : {
       "comment" : "Accessibility state for a worktree with a live workspace."
+    },
+    "opens a prompt to copy and paste into Codex when ready" : {
+      "comment" : "Accessibility and tooltip description of the Codex clipboard handoff"
     },
     "or" : {
 

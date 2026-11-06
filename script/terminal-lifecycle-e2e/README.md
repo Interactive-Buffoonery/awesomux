@@ -114,9 +114,10 @@ values block. This convention is observed macOS behavior, not a documented API
 guarantee; recheck it when host behavior changes. A prerequisite or readiness run
 provides no journey pass.
 
-The runner launches the copied `.app` through LaunchServices using
+The runner launches and activates the copied `.app` through LaunchServices using
 `NSWorkspace.OpenConfiguration`, a new application instance, explicit arguments,
-and the fixture environment. It verifies the returned PID, executable path,
+and the fixture environment. Activation precedes window discovery because a
+background launch can leave its content window absent from Accessibility. It verifies the returned PID, executable path,
 bundle identity, and process start before native operations. Cleanup verifies
 executable and process start again before both TERM and KILL; lost launch replies
 recover only the exclusive copied executable. An unresolved launch retains state

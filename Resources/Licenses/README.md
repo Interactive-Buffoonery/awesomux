@@ -11,7 +11,7 @@ named in the table:
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
-| Ghostty | `8ef0ec1238220a5a714be452ed2844f0691fcf83` | `Ghostty/LICENSE` |
+| Ghostty | `cf0ab14aed55315a53de668bc1bbcf4a13ce0ddd` | `Ghostty/LICENSE` |
 | zmx / amx | `480fc5eae888d0dca7cefc80aff913efeb2eb88c` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
@@ -28,13 +28,15 @@ named in the table:
 | Dear ImGui | 1.92.5-docking / `3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c` | `DearImGui/LICENSE.txt` |
 | sentry-native | 0.7.8 (`N-V-__8AAPlZGwBEa-gxrcypGBZ2R8Bse4JYSfo_ul8i2jlG`) | `sentry-native/LICENSE` |
 | MPack | 1.0 (vendored by sentry-native 0.7.8) | `MPack/LICENSE` |
-| stb_sprintf | 1.09 (vendored by sentry-native 0.7.8) | `stb-sprintf/LICENSE` |
+| stb_image | 2.28 (vendored by the Ghostty pin above) | `stb-image/LICENSE` |
+| stb_image_resize | 0.97 (vendored by the Ghostty pin above) | `stb-image-resize/LICENSE` |
 | Google Breakpad | `b99f444ba5f6b98cac261cbb391d8766b34a5918` | `Breakpad/LICENSE` |
 | simdutf | 9.0.0 / `ca7acbcea967b5dcbab490066e99e3a6e6925539` | `simdutf/LICENSE-MIT`, `simdutf/LICENSE-APACHE`, `simdutf/NOTICE-BSD3` |
 | Highway | 1.2.0 / `66486a10623fa0d72fe91260f96c892e41aceb06` | `Highway/LICENSE`, `Highway/LICENSE-BSD3` |
 | glslang | 14.2.0 (`N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy`) | `glslang/LICENSE.txt` |
 | SPIRV-Cross | 13.1.1 (`N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv`) | `SPIRV-Cross/LICENSE`, `SPIRV-Cross/KhronosFreeUse.txt` |
 | Wuffs | `7411f488fe2e2c205c3d3b3d28638b7356522930` (`N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`) | `Wuffs/LICENSE`, `Wuffs/LICENSE-APACHE`, `Wuffs/LICENSE-MIT` |
+| z2d | 0.13.2 / `8787d71bac42d9aab00428ccb37a4fd453418761` | `z2d/COPYING`, `z2d/LICENSE`, `z2d/SOURCE.txt` |
 | Zig compiler runtime | Compatible 0.17.x toolchain (exact artifact version stamped at build time; license matches 0.17.0) | `Zig/LICENSE` |
 
 When a dependency pin changes, refresh its corresponding files from that exact
@@ -83,3 +85,7 @@ the producing archive and Ghostty's exact pinned package source, and refresh
 the component row, license copies, bundle staging, About actions, and notices
 together. Finish with `./script/check_ghostty_third_party_licenses.sh` before
 the full preflight.
+
+The z2d row covers Zig rasterization code compiled into `ghostty_zcu.o`. Its
+MPL-2.0 terms and upstream notices are bundled unchanged. `z2d/SOURCE.txt` links
+the exact unmodified source and archive used by this pin.
