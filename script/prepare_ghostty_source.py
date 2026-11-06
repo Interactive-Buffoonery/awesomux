@@ -36,6 +36,7 @@ INPUTS = (
     ROOT / "native/libxev/batch-regression.zig.inc",
     ROOT / "native/libxev/machport.patch",
     ROOT / "native/libxev/machport-regressions.zig.inc",
+    ROOT / "native/shell-integration/awesomux-ssh.sh",
 )
 
 
@@ -231,6 +232,8 @@ def prepare(vendor, destination, zig="zig"):
             INPUTS[7],
             staging / "src/shell-integration/fish/vendor_conf.d/awesomux-ssh-compat.fish",
         )
+        # Run as `/bin/sh <path>`: Ghostty installs resources without the executable bit.
+        shutil.copyfile(ROOT / "native/shell-integration/awesomux-ssh.sh", staging / "src/shell-integration/awesomux-ssh")
         with (integration / ".zshenv").open("a") as file:
             file.write(
                 '\nif [[ -o interactive ]]; then\n'

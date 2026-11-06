@@ -100,7 +100,7 @@ public enum AgentDisplayState: String, CaseIterable, Codable, Hashable, Sendable
             // Matches the design-system `AwState.needs` wording so every spoken
             // surface (sidebar row, peek card, VoiceOver rotor) agrees. Locked by
             // a test that asserts `label == awState.label` for every case.
-            String(localized: "Needs input", bundle: bundle, locale: locale, comment: "Agent state label")
+            String(localized: "Needs attention", bundle: bundle, locale: locale, comment: "Agent state label")
         case .done:
             String(localized: "Done", bundle: bundle, locale: locale, comment: "Agent state label")
         case .error:

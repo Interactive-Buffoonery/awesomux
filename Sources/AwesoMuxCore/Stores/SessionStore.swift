@@ -447,6 +447,87 @@ public final class SessionStore {
 
     public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
 
+    public var hasAttentionToDismiss: Bool {
+        unreadNotificationTotal > 0 || !unansweredTurns.isEmpty
+            || _groups.contains { $0.sessions.contains { $0.needsAcknowledgement } }
+    }
+    /// First observed actionable episodes. Restored requests begin in traversal order.
+    public internal(set) var actionableAgentPaneIDs: [UUID] = []
+
+    func reconcileActionableAgentPaneIDs() {
+        let current = AgentActivityRoster.actionablePaneIDs(sessions: _groups.flatMap(\.sessions))
+        let membership = Set(current)
+        var next = actionableAgentPaneIDs.filter { membership.contains($0) }
+        let retained = Set(next)
+        next.append(contentsOf: current.filter { !retained.contains($0) })
+        if next != actionableAgentPaneIDs { actionableAgentPaneIDs = next }
+    }
+
+    /// Notification-only acknowledgment. Explicit requests remain owned by their provider.
+    public func markPaneSeen(sessionID: TerminalSession.ID, paneID: UUID) {
+        guard let owningSessionID = sessionIDContainingPane(paneID),
+            let position = position(for: owningSessionID),
+            let pane = _groups[position.groupIndex].sessions[position.sessionIndex].layout.pane(id: paneID),
+            pane.canMarkSeen || unansweredTurns[paneID] != nil
+        else { return }
+        if selectedSessionID == owningSessionID,
+            _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID == paneID
+        {
+            acknowledgementCoordinator.cancel()
+        }
+        if attentionStickySessionID == owningSessionID { attentionStickySessionID = nil }
+        clearUnansweredTurn(paneIDs: [paneID])
+        let change = WorkspaceAttentionReducer.markPaneSeen(
+            &_groups[position.groupIndex].sessions[position.sessionIndex], paneID: paneID
+        )
+        commit(WorkspaceMutationEffect(unreadChange: change))
+    }
+
+    /// Dismiss a nonblocking reminder, never an explicit request or a provider permission.
+    public func dismissAgentAttentionReminder(paneID: UUID) {
+        guard let sessionID = sessionIDContainingPane(paneID), let position = position(for: sessionID),
+            let pane = _groups[position.groupIndex].sessions[position.sessionIndex].layout.pane(id: paneID),
+            pane.attentionReason?.awaitsExplicitAnswer != true
+        else { return }
+        if selectedSessionID == sessionID,
+            _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID == paneID
+        {
+            acknowledgementCoordinator.cancel()
+        }
+        if attentionStickySessionID == sessionID { attentionStickySessionID = nil }
+        let change = WorkspaceAttentionReducer.acknowledgePane(
+            &_groups[position.groupIndex].sessions[position.sessionIndex], paneID: paneID
+        )
+        clearUnansweredTurn(paneIDs: [paneID])
+        commit(WorkspaceMutationEffect(unreadChange: change))
+    }
+
+    public func canMarkWorkspaceSeen(id: TerminalSession.ID) -> Bool {
+        guard let session = session(id: id) else { return false }
+        return session.panes.contains { $0.canMarkSeen || unansweredTurns[$0.id] != nil }
+    }
+
+    public func markWorkspaceSeen(id: TerminalSession.ID) {
+        guard let position = position(for: id) else { return }
+        let session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let panes = session.panes.filter { $0.canMarkSeen || unansweredTurns[$0.id] != nil }
+        guard !panes.isEmpty else { return }
+        if selectedSessionID == id { acknowledgementCoordinator.cancel() }
+        if attentionStickySessionID == id { attentionStickySessionID = nil }
+        clearUnansweredTurn(paneIDs: panes.map(\.id))
+        for pane in panes {
+            _ = WorkspaceAttentionReducer.markPaneSeen(
+                &_groups[position.groupIndex].sessions[position.sessionIndex], paneID: pane.id
+            )
+        }
+        commit(
+            WorkspaceMutationEffect(
+                unreadChange: WorkspaceAttentionReducer.UnreadChange(
+                    oldCount: session.unreadNotificationCount,
+                    newCount: _groups[position.groupIndex].sessions[position.sessionIndex].unreadNotificationCount
+                )))
+    }
+
     /// Panes whose finished turn has gone unanswered long enough that the agent
     /// reported the user is away — Claude Code's `idle_prompt`, which fires once,
     /// 60s after a turn-end `Stop` nobody replied to.
@@ -790,6 +871,7 @@ public final class SessionStore {
         // lifetime.
         lastLiveTitleBumpBySessionID.removeAll()
         daemonRecoveryTokens.removeAll()
+        actionableAgentPaneIDs = []
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
         // Both clears precede the `pinnedSessionIDs` write below, whose observer
@@ -1311,21 +1393,10 @@ public final class SessionStore {
         return session.activePane?.executionPlan.remoteTarget
     }
 
-    /// Acknowledges the session's ACTIVE pane (selection dwell / per-row clear).
-    /// A sibling pane still needing input keeps the workspace row loud — ⌘⇧K
-    /// (`acknowledgeAllPanes(in:)`) clears the whole workspace, and "Clear All
-    /// Notifications" (`acknowledgeAllSessions`) clears every workspace. ADR-0003
-    /// amendment under INT-504.
-    ///
-    /// - Parameter releasesAttentionSticky: `false` only for the passive
-    ///   selection dwell, which must NOT evict the row the user is reading. Every
-    ///   deliberate gesture (context menu, ⌘⇧K, Clear All Notifications) leaves
-    ///   the default so the row leaves the section immediately.
-    /// - Parameter answersUnansweredTurn: whether this gesture proves the user
-    ///   answered the turn, as opposed to merely reaching or reading the pane.
-    ///   Independent of `releasesAttentionSticky`: the ack-on-read dwell passes
-    ///   false to both, the peek-card and roster pane jumps release the sticky
-    ///   but do NOT answer anything, and only a deliberate acknowledge is both.
+    /// Legacy active-pane acknowledgment used by selection dwell.
+    /// Explicit notification-only controls use markPaneSeen/markWorkspaceSeen instead.
+    /// Passive dwell preserves both the sticky location and unanswered-turn reminders.
+    /// Clear All Notifications remains the deliberate all-workspace dismissal.
     public func acknowledgeSession(
         id: TerminalSession.ID,
         releasesAttentionSticky: Bool = true,
@@ -1354,20 +1425,15 @@ public final class SessionStore {
         // good. Verified against a live build: the selected workspace was the
         // one workspace this signal could not reach.
         //
-        // The jump surfaces are the same rule seen from the other side. Landing
-        // on a waiting pane from the peek card or the activity roster is arrival,
-        // not an answer — and the roster's whole workflow is cycling through
-        // waiting panes to survey them, which would otherwise wipe every mark it
-        // visited. They still ack the unread badge, which IS ack-on-read's proper
-        // subject: seeing a bell is the whole response to a bell.
+        // Pane navigation does not call this API; arrival is not an answer.
         if answersUnansweredTurn {
             clearUnansweredTurn(paneIDs: [activePaneID])
         }
         commit(WorkspaceMutationEffect(unreadChange: change))
     }
 
-    /// Acknowledges every pane in ONE workspace — the ⌘⇧K "Acknowledge Workspace"
-    /// escape hatch. Distinct from `acknowledgeSession` (active pane only) and
+    /// Legacy deliberate attention dismissal for every pane in one workspace.
+    /// The notification-only ⌘⇧K action uses markWorkspaceSeen instead. Distinct from `acknowledgeSession` (active pane only) and
     /// `acknowledgeAllSessions` (every workspace). INT-504 R3.
     public func acknowledgeAllPanes(in id: TerminalSession.ID) {
         guard let position = position(for: id) else { return }

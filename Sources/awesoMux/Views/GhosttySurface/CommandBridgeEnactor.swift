@@ -1107,10 +1107,11 @@ final class CommandBridgeEnactor {
                     progressReport: TerminalProgressReport(state: .remove)
                 )
             }
-            guard let recovery = sessionStore.healCommandBridgePaneInPlace(
+            guard let currentPane = sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID),
+                let recovery = sessionStore.healCommandBridgePaneInPlace(
                 sessionID: hostSessionID,
                 paneID: paneID,
-                metadata: AmxBackend.establishedSessionMetadata
+                    metadata: currentPane.terminalBackendMetadata
             ) else {
                 return
             }

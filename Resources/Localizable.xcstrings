@@ -163,16 +163,6 @@
         }
       }
     },
-    "%arg (%arg)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg (%2$arg)"
-          }
-        }
-      }
-    },
     "%arg (Bundled)" : {
       "comment" : "Font picker label suffix for the font family shipped inside the app bundle"
     },
@@ -406,7 +396,7 @@
     "%arg — Jump to Next Agent" : {
 
     },
-    "%arg — Show in Activity Panel" : {
+    "%arg — Show in Agents Sidebar" : {
 
     },
     "%arg — unavailable: %arg" : {
@@ -422,16 +412,6 @@
     },
     "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, and Pi." : {
       "comment" : "Transcript failure when the pane's agent has no transcript adapter"
-    },
-    "%arg, %arg" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg, %2$arg"
-          }
-        }
-      }
     },
     "%arg, %arg added, %arg removed" : {
       "comment" : "VoiceOver label for a branch-changes file section: path, added lines, removed lines",
@@ -664,12 +644,6 @@
     "Accurate remote close warnings" : {
       "comment" : "Benefit listed in the additional SSH features prompt"
     },
-    "Acknowledge" : {
-
-    },
-    "Acknowledge Workspace" : {
-
-    },
     "Actions" : {
       "comment" : "Advanced settings label."
     },
@@ -745,20 +719,14 @@
     "Agent" : {
       "comment" : "Diagnostics process type\nGeneric display name for an unsupported AI coding agent\nGeneric name for a non-integrated coding agent in an accessibility label."
     },
-    "Agent activity" : {
-      "comment" : "Accessibility label for the sidebar agent activity panel"
-    },
-    "Agent activity panel closed" : {
-      "comment" : "VoiceOver announcement when the sidebar agent activity panel collapses."
-    },
-    "Agent activity panel opened" : {
-      "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
-    },
     "Agent error" : {
       "comment" : "Agent error event in the companion away activity summary."
     },
     "Agent integrations" : {
       "comment" : "Agents settings title."
+    },
+    "Agent no longer active" : {
+      "comment" : "A held row whose terminal is no longer running an agent"
     },
     "Agent setup" : {
 
@@ -773,7 +741,10 @@
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
     "Agents" : {
-      "comment" : "Header for the sidebar agent activity panel"
+      "comment" : "Global agent sidebar\nSelected sidebar mode"
+    },
+    "Agents sidebar opened" : {
+      "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
     "Alert for the focused workspace too" : {
       "comment" : "Notification settings label."
@@ -1434,6 +1405,9 @@
     "Cleared workspace %arg" : {
       "comment" : "VoiceOver announcement after a workspace is permanently closed with no reopen path; argument is the workspace title."
     },
+    "Clears the notification; permission approval remains separate" : {
+      "comment" : "Mark seen boundary hint"
+    },
     "Clipboard" : {
       "comment" : "Terminal settings title."
     },
@@ -1441,7 +1415,7 @@
       "comment" : "VoiceOver announcement after the user cancels a terminal clipboard read. Argument is the bidi-isolated pane title."
     },
     "Close" : {
-      "comment" : "Close Companion pairing sheet.\nTooltip for the agent activity panel's close button"
+      "comment" : "Close Companion pairing sheet."
     },
     "Close %arg" : {
       "comment" : "Accessibility label and tooltip for a document tab's close button"
@@ -1480,9 +1454,6 @@
           }
         }
       }
-    },
-    "Close agent activity panel" : {
-      "comment" : "Accessibility label for the agent activity panel's close button"
     },
     "Close and reopen Terminal Companion to start a new session." : {
       "comment" : "Placeholder guidance in the Terminal Companion when no session exists."
@@ -1533,7 +1504,7 @@
 
     },
     "Collapsed" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is closed\nDisclosure state.\nVoiceOver state for hidden remote connection details"
+      "comment" : "Disclosure state.\nVoiceOver state for hidden remote connection details"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -2202,6 +2173,9 @@
     "Dismiss" : {
       "comment" : "Button that hides the SSH management notice for this connection\nDismiss Companion error.\nDismiss a persistent-session restart notice\nDismiss assistant access error."
     },
+    "Dismiss attention reminder" : {
+      "comment" : "Explicit dismissal of a stale reminder, not permission approval"
+    },
     "Dismiss restart notice for %arg" : {
       "comment" : "Dismiss a restart notice, naming its pane"
     },
@@ -2210,6 +2184,9 @@
     },
     "Dismiss while you were away summary" : {
       "comment" : "Accessibility label for dismissing the companion away activity summary banner."
+    },
+    "Dismisses the reminder without approving or denying a permission request" : {
+      "comment" : "Attention reminder dismissal boundary"
     },
     "Dismisses this message" : {
 
@@ -2501,10 +2478,13 @@
       "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
     "Expanded" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is open\nDisclosure state.\nVoiceOver state for visible remote connection details"
+      "comment" : "Disclosure state.\nVoiceOver state for visible remote connection details"
     },
     "Expires in %@" : {
       "comment" : "Companion pairing countdown."
+    },
+    "Failed" : {
+      "comment" : "Agent attention reason"
     },
     "Falling" : {
       "comment" : "Diagnostics resource trend"
@@ -2547,7 +2527,7 @@
     "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path." : {
       "comment" : "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd"
     },
-    "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
+    "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for workspaces needing attention. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
       "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
     },
     "Find" : {
@@ -2580,6 +2560,12 @@
     },
     "Finish or cancel the annotation before switching or closing document tabs." : {
       "comment" : "Feedback when a document tab shortcut is blocked by an open annotation draft"
+    },
+    "Finished" : {
+      "comment" : "Agent execution completed; not a review verdict"
+    },
+    "Finished — unread" : {
+      "comment" : "Completed agent with unread output"
     },
     "Fix in System Settings" : {
       "comment" : "Notification settings label."
@@ -2692,6 +2678,18 @@
     "Glow strength" : {
       "comment" : "Settings field label for the glow strength slider"
     },
+    "Go to pane" : {
+      "comment" : "Navigate to the pane with attention"
+    },
+    "Go to the next agent needing attention" : {
+      "comment" : "Agent navigation and notification command"
+    },
+    "Go to waiting pane" : {
+      "comment" : "Navigate without approving or answering"
+    },
+    "Goes to this agent's pane without answering or approving its request" : {
+      "comment" : "Agent row navigation hint"
+    },
     "Gray" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -2732,9 +2730,6 @@
     "Help and feedback" : {
 
     },
-    "Hide Agent Activity" : {
-      "comment" : "Tooltip for the footer total button while the agent activity panel is open"
-    },
     "Hide Resolved Annotations" : {
 
     },
@@ -2746,9 +2741,6 @@
     },
     "Hides remote connection details" : {
       "comment" : "VoiceOver hint for an expanded remote connection details button"
-    },
-    "Hides the agent activity panel" : {
-      "comment" : "Accessibility hint for the footer total button while the panel is open"
     },
     "Highlight to copy" : {
       "comment" : "Terminal settings label."
@@ -2912,9 +2904,6 @@
     },
     "Jumps to the next matching agent" : {
       "comment" : "Accessibility hint for a collapsed-rail footer chip that jumps to the next agent pane in that state"
-    },
-    "Jumps to this agent's pane" : {
-      "comment" : "Accessibility hint for an agent activity panel row"
     },
     "Keep Asking" : {
 
@@ -3123,6 +3112,18 @@
     "Manual configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
     },
+    "Mark %arg as seen" : {
+      "comment" : "Pane-specific mark-seen accessibility action"
+    },
+    "Mark Workspace as Seen" : {
+      "comment" : "Agent navigation and notification command"
+    },
+    "Mark as seen" : {
+      "comment" : "Clear notification without approving a request"
+    },
+    "Mark notifications seen without approving requests" : {
+      "comment" : "Agent navigation and notification command"
+    },
     "Match %arg of %arg" : {
       "comment" : "Spoken find-bar position; arguments are the one-based current match and the match count.",
       "localizations" : {
@@ -3271,11 +3272,17 @@
     "Needs Input" : {
       "comment" : "Accessibility label for the needs-input workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces awaiting user input."
     },
+    "Needs You" : {
+      "comment" : "Actionable agents section"
+    },
     "Needs approval" : {
       "comment" : "Settings label when Open at Login requires approval in System Settings."
     },
+    "Needs attention" : {
+      "comment" : "Agent state label"
+    },
     "Needs input" : {
-      "comment" : "Agent state label\nMenu bar visibility choice",
+      "comment" : "Menu bar visibility choice",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3290,6 +3297,9 @@
     },
     "Needs input, from %arg" : {
       "comment" : "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
+    },
+    "Needs your attention" : {
+      "comment" : "Unknown agent attention reason"
     },
     "Network changed; the SSH session on %arg may be disconnected until SSH recovers or reports failure." : {
       "comment" : "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
@@ -3376,6 +3386,9 @@
     "New Worktree" : {
       "comment" : "Open the create worktree form."
     },
+    "New activity — show updates" : {
+      "comment" : "Apply deferred agent-list placement changes"
+    },
     "New annotation" : {
       "comment" : "Accessibility label for the new annotation popover"
     },
@@ -3396,6 +3409,9 @@
     },
     "Next" : {
       "comment" : "Welcome tour button advancing to the next beat"
+    },
+    "Next Agent Needing Me" : {
+      "comment" : "Agent navigation and notification command"
     },
     "Next Document Tab" : {
 
@@ -3433,8 +3449,11 @@
     "No Supported IDEs Found" : {
       "comment" : "Alert title shown when Open in IDE cannot find an installed supported IDE."
     },
-    "No agents running" : {
-      "comment" : "Empty state for the sidebar agent activity panel"
+    "No agents need your attention" : {
+      "comment" : "No next actionable agent; focus remains unchanged"
+    },
+    "No agents to show" : {
+      "comment" : "Empty agent sidebar\nEmpty global agent roster"
     },
     "No apps added yet." : {
       "comment" : "Empty outside app list."
@@ -3782,8 +3801,18 @@
     "Pane" : {
 
     },
+    "Pane %arg · %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Pane %1$arg · %2$arg"
+          }
+        }
+      }
+    },
     "Pane closed" : {
-      "comment" : "VoiceOver announcement after a pane is closed inside the active workspace (multi-pane case).\nVoiceOver announcement after the title-bar close button closes a pane."
+      "comment" : "A held agent row whose pane has closed\nVoiceOver announcement after a pane is closed inside the active workspace (multi-pane case).\nVoiceOver announcement after the title-bar close button closes a pane."
     },
     "Pane color cleared" : {
       "comment" : "VoiceOver status message after clearing a pane's name-plate color."
@@ -3896,7 +3925,7 @@
       "comment" : "VoiceOver announcement when a remote permission prompt expires and is denied"
     },
     "Permission requested" : {
-      "comment" : "Permission request event in the companion away activity summary."
+      "comment" : "Agent attention reason\nPermission request event in the companion away activity summary."
     },
     "Permission requested in %arg." : {
       "comment" : "VoiceOver announcement when a remote agent asks for a permission decision in a named split pane\nVoiceOver announcement when a remote agent asks for a permission decision, naming the workspace"
@@ -5074,6 +5103,9 @@
     "Set Remote File Context…" : {
       "comment" : "Command to configure the active pane remote file context\nTitle for configuring runtime-only remote Markdown file links"
     },
+    "Set Up Ghostty Terminal on Remote Host…" : {
+      "comment" : "Command that offers to install the xterm-ghostty terminal definition on the active pane's SSH host"
+    },
     "Set Workspace Emoji" : {
       "comment" : "Accessible name of the workspace emoji editor."
     },
@@ -5091,6 +5123,9 @@
     },
     "Settings…" : {
       "comment" : "Dock right-click menu item that opens the Settings window."
+    },
+    "Settled" : {
+      "comment" : "Inactive agents section; not proof of success"
     },
     "Share Details" : {
 
@@ -5124,7 +5159,7 @@
     "Shortcut groups" : {
 
     },
-    "Show Agent Activity" : {
+    "Show Agents Sidebar" : {
       "comment" : "Tooltip for the footer total button while the agent activity panel is closed"
     },
     "Show Branch Changes" : {
@@ -5157,6 +5192,9 @@
     "Show Welcome Tour" : {
 
     },
+    "Show Workspaces Sidebar" : {
+      "comment" : "Tooltip for the footer total button while the agent activity panel is open"
+    },
     "Show activity by workspace and pane" : {
       "comment" : "Accessibility hint for opening companion away activity summary details."
     },
@@ -5187,8 +5225,11 @@
     "Shows remote connection details" : {
       "comment" : "VoiceOver hint for a collapsed remote connection details button"
     },
-    "Shows the agent activity panel" : {
+    "Shows the Agents sidebar" : {
       "comment" : "Accessibility hint for a footer chip that opens the agent activity panel\nAccessibility hint for the footer total button while the panel is closed"
+    },
+    "Shows the Workspaces sidebar" : {
+      "comment" : "Accessibility hint for the footer total button while the panel is open"
     },
     "Shrink Active Pane" : {
 
@@ -5204,6 +5245,9 @@
     },
     "Sidebar search" : {
 
+    },
+    "Sidebar view" : {
+      "comment" : "Workspace or agent navigation mode"
     },
     "Skip" : {
       "comment" : "Welcome tour button dismissing the tour"
@@ -5230,6 +5274,9 @@
     },
     "Some folders could not be checked" : {
       "comment" : "Agent plugin card summary when a folder status check failed"
+    },
+    "Some saved data couldn't be restored as it was:" : {
+      "comment" : "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
     },
     "Something replaced the saved workspace file while awesoMux was checking it, and awesoMux could not preserve the version it had already read. Your open workspaces are untouched, but automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown mid-session when saved workspace data changed while being read and the opened bytes could not be archived"
@@ -6085,6 +6132,9 @@
     "Unpinned %arg, moved to Needs Input" : {
       "comment" : "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
     },
+    "Unread" : {
+      "comment" : "Agent has unread output; not proof of completion"
+    },
     "Unsafe saved workspace fields were sanitized during restore" : {
       "comment" : "Diagnostics event summary"
     },
@@ -6197,6 +6247,9 @@
     "Waiting for a local network or Tailscale address…" : {
       "comment" : "Companion pairing waiting for a network route."
     },
+    "Waiting — turn to review" : {
+      "comment" : "Nonblocking finished turn, not a human permission request"
+    },
     "Warning" : {
       "comment" : "Diagnostics event severity"
     },
@@ -6261,7 +6314,7 @@
       "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
     },
     "Working" : {
-
+      "comment" : "Active agents section"
     },
     "Workspace" : {
 
@@ -6288,6 +6341,7 @@
 
     },
     "Workspaces" : {
+      "comment" : "Selected sidebar mode\nWorkspace organization sidebar",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6296,6 +6350,9 @@
           }
         }
       }
+    },
+    "Workspaces sidebar opened" : {
+      "comment" : "VoiceOver announcement when the sidebar agent activity panel collapses."
     },
     "Worktree Manager" : {
       "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel title bar.\nWorktree Manager panel title."
