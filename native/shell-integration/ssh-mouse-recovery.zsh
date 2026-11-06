@@ -61,7 +61,7 @@ _awesomux_ssh_mouse_recovery_init() {
                 process=${process%%=*}
                 (( ${_awesomux_ssh_mouse_recovery_prior_pids[(Ie)$process]} )) && continue
                 words=(${(z)jobtexts[$job]})
-                [[ $words[1] == ssh || $words[1] == /usr/bin/ssh ]] || continue
+                [[ $words[1] == ssh || $words[1] == /usr/bin/ssh || $words[1] == awesomux-ssh ]] || continue
                 # The newly stopped direct SSH job retains its modes through fg.
                 _awesomux_ssh_mouse_recovery_jobs[$job]=$process
                 live=1
