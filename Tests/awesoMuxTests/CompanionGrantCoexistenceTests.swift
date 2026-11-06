@@ -47,7 +47,7 @@ struct CompanionGrantCoexistenceTests {
             }
         }
         access = nil
-        access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        access = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         #expect(try #require(access).loadFailure == nil)
         #expect(try lease(#require(access)) == both)
         try #require(access).updateCompanionPaneRenameScope(connectionID: phone.id, scope: nil)
@@ -64,7 +64,7 @@ struct CompanionGrantCoexistenceTests {
         let renameAgain = try lease(#require(access))
         #expect(renameAgain.paneRenameScope == .allWorkspaces && !renameAgain.terminalPreviewAllowed)
         access = nil
-        let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let restored = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         #expect(restored.loadFailure == nil)
         #expect(try lease(restored) == renameAgain)
         #expect(restored.state.connections.first?.companion?.pairingVersion == 2)

@@ -5,6 +5,18 @@ import Testing
 
 @Suite("Daemon recovery reducer")
 struct DaemonRecoveryReducerTests {
+    @Test("carrier labels never recover a local shell")
+    func refusesCarrierRecovery() {
+        var groups: [SessionGroup] = []
+        let labels = DaemonRecoveryMetadata.remoteCarrier.encodedLabelAssignments
+        let metadata = DaemonRecoveryMetadata.decode(fields: labels)
+        #expect(metadata.isRemoteCarrier)
+        #expect(
+            DaemonRecoveryReducer.recover(
+                .init(id: .generate(), metadata: metadata, cwd: "/tmp"), into: &groups) == nil)
+        #expect(groups.isEmpty)
+    }
+
     @Test("recovers without a reported cwd and refuses duplicate ownership")
     func refusesUnsafeRecovery() throws {
         let id = try #require(TerminalSessionID(rawValue: "recover-two"))

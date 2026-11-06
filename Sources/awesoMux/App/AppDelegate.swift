@@ -942,10 +942,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store: SessionStore,
         runtime: GhosttyRuntime,
         accessStore: LocalAPIAccessStore,
-        companionPairingCoordinator: CompanionPairingCoordinator
+        companionPairingCoordinator: CompanionPairingCoordinator,
+        settings: AppSettingsStore
     ) {
         guard localAPIService == nil else { return }
-        localAPIService = LocalAPIService.start(store: store, runtime: runtime, accessStore: accessStore)
+        localAPIService = LocalAPIService.start(store: store, runtime: runtime, accessStore: accessStore, settings: settings)
         self.companionPairingCoordinator = companionPairingCoordinator
         if let localAPIService { companionPairingCoordinator.configure(service: localAPIService) }
     }

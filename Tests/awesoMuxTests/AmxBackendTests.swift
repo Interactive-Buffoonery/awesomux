@@ -463,6 +463,45 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
         }
     }
 
+    @Test("a remote-owned carrier keeps status local and recreates with ssh")
+    func remoteOwnedCarrierCommand() throws {
+        let id = try #require(TerminalSessionID(rawValue: "remote-carrier"))
+        let channel = AmxStatusChannel(fileURL: URL(fileURLWithPath: "/tmp/carrier.status"), token: "carrier-token")
+        for mode: AmxAttachMode in [
+            .existingOnly,
+            .createOrAttach(
+                metadata: .init(
+                    workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil, groupRemote: nil, agentKind: nil)),
+        ] {
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/app/amx", sessionID: id, socketDirectory: "/tmp/carriers",
+                    status: channel, remote: Self.remote, remoteSessionName: Self.sessionName, mode: mode,
+                    ghosttyResourcesDir: "/local/resources", shellPath: "/bin/zsh"))
+            #expect(command.contains("'AMX_STATUS_FILE=/tmp/carrier.status'"))
+            #expect(command.contains("'AMX_STATUS_TOKEN=carrier-token'"))
+            #expect(command.contains("'remote-carrier' '/usr/bin/env' -u"))
+            #expect(command.contains("-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN"))
+            #expect(command.contains("-u ZMX_DIR -u ZMX_DIR_MODE"))
+            if case .createOrAttach = mode {
+                #expect(command.contains("awesomux.remote-carrier=MQ"))
+            }
+            for key in AgentRuntimeEnvironmentKey.paneScopedKeys {
+                #expect(command.contains("-u " + key))
+            }
+            #expect(command.contains("'ssh'"))
+            #expect(
+                command.contains(
+                    ("'"
+                        + AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName).replacingOccurrences(
+                            of: "'", with: "'\\''") + "'")))
+            #expect(!command.contains("ZDOTDIR"))
+            #expect(!command.contains("AWESOMUX_BRIDGE_STATE="))
+            #expect(!command.contains("printf %s"))
+            if case .existingOnly = mode { #expect(command.contains("attach --existing 'remote-carrier'")) }
+        }
+    }
+
     /// Minting can fail (squatted path, EACCES). The pane must still attach —
     /// losing the exit status is the pre-#237 behaviour, refusing to connect is
     /// a regression.

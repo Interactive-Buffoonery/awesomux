@@ -21,6 +21,10 @@ final class GhosttySurfaceTerminalEventState {
     var hasObservedAgentActivity = false
     var lastRuntimeEventAppliedAt: TimeInterval?
     var lastRuntimeAttentionEventAppliedAt: TimeInterval?
+    /// The pane and foreground Codex process that last delivered a Codex hook.
+    /// A replacement process (for example a shared-server `codex` after a
+    /// `codex --no-daemon` exits) must earn hook authority again.
+    var codexHooksDelivered: (pane: PaneStoreWriteKey, incarnation: AgentForegroundIncarnation)?
     /// The foreground-process incarnation (pid + start time) observed at the
     /// moment a genuine provider hook last confirmed `.waiting` — stamped only
     /// by `applyAgentRuntimeEvent`'s trusted hook path, never by the

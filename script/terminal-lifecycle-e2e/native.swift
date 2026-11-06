@@ -108,6 +108,11 @@ if command == "session" {
     emit(consoleState())
     exit(0)
 }
+if command == "canonical-path" {
+    guard args.count == 3 else { fail("canonical-path requires one path") }
+    print(URL(fileURLWithPath: args[2]).resolvingSymlinksInPath().standardizedFileURL.path)
+    exit(0)
+}
 if command == "paths" {
     emit([
         "home": FileManager.default.homeDirectoryForCurrentUser.path,
@@ -140,7 +145,7 @@ if command == "launch" {
     else { fail("Copied bundle already running") }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.createsNewApplicationInstance = true
-    configuration.activates = false
+    configuration.activates = true
     configuration.addsToRecentItems = false
     configuration.promptsUserIfNeeded = false
     configuration.environment = request.environment
@@ -332,6 +337,7 @@ func inputAdmission(_ expectedTitle: String) -> [String: Any] {
     var result: [String: Any] = [
         "ready": false, "windowID": windowID,
         "frontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+        "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1,
     ]
     var focused: CFTypeRef?
     let focusedError = AXUIElementCopyAttributeValue(ax, kAXFocusedUIElementAttribute as CFString, &focused)
@@ -382,6 +388,31 @@ func inputAdmission(_ expectedTitle: String) -> [String: Any] {
     return result
 }
 let elements = windows.flatMap { tree($0) }
+if command == "dump" {
+    emit(elements.map { element in
+        ["role": string(element, kAXRoleAttribute), "title": string(element, kAXTitleAttribute), "value": string(element, kAXValueAttribute), "description": string(element, kAXDescriptionAttribute)]
+    })
+    exit(0)
+}
+if command == "key" {
+    guard args.count == 5, let code = UInt16(args[4]), [UInt16(36), UInt16(53), UInt16(125)].contains(code), NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { fail("Owned keyboard target unavailable") }
+    requireConsole()
+    for down in [true, false] {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { fail("Cannot create keyboard event") }
+        event.postToPid(pid)
+    }
+    emit(["keyCode":code])
+    exit(0)
+}
+if command == "press" {
+    guard args.count == 5 else { fail("press requires exact title") }
+    let matches = elements.filter { string($0, kAXRoleAttribute) == kAXButtonRole && (string($0, kAXTitleAttribute) == args[4] || string($0, kAXDescriptionAttribute) == args[4]) }
+    guard matches.count == 1, let target = matches.first, (attr(target, kAXEnabledAttribute) as? Bool) == true else { fail("Exact enabled button unavailable") }
+    requireConsole()
+    guard AXUIElementPerformAction(target, kAXPressAction as CFString) == .success else { fail("Button press failed") }
+    emit(["pressed":args[4]])
+    exit(0)
+}
 if command == "snapshot" {
     let focused = attr(ax, kAXFocusedUIElementAttribute)
     let focusedElement = focused.flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
@@ -401,6 +432,7 @@ if command == "snapshot" {
     let result: [String: Any] = [
         "pid": pid, "windowID": windowID,
         "frontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+        "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1,
         "ownedWindowFocused": ownedFocusedWindow,
         "focusedTerminal": focusedElement.map(terminal) ?? false,
         "focusedDescription": focusedElement.map { string($0, kAXDescriptionAttribute) } ?? "",
@@ -424,7 +456,7 @@ if command == "snapshot" {
 } else if command == "menu" {
     guard args.count == 6, let bar = attr(ax, kAXMenuBarAttribute) else { fail("menu requires window ID, menu and item") }
     let menuBar = bar as! AXUIElement
-    let menus = children(menuBar).filter { string($0, kAXTitleAttribute) == args[4] }
+    let menus = children(menuBar).filter { (string($0, kAXTitleAttribute) == args[4] || string($0, kAXDescriptionAttribute) == args[4]) }
     guard menus.count == 1 else { fail("Exact menu unavailable") }
     requireConsole()
     guard AXUIElementPerformAction(menus[0], kAXPressAction as CFString) == .success else { fail("Cannot open exact menu") }

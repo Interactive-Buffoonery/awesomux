@@ -11,8 +11,11 @@ struct AgentSetupsSettingsSection: View {
     var body: some View {
         SettingsSection(
             index: 2,
-            title: String(localized: "Agent setups"),
-            subtitle: String(localized: "Named launch choices for the command palette. Status hooks are shared by provider.")
+            title: String(localized: "Launch setups"),
+            subtitle: String(
+                localized:
+                    "Optional named launch choices for installed agents in the command palette. Saving a setup does not verify that it launches. Status integrations are managed separately.",
+                comment: "Explains that launch setups are optional and separate from status integration or launch verification.")
         ) {
             ForEach(Array(store.setups.enumerated()), id: \.element.id) { index, setup in
                 let rowName = String(

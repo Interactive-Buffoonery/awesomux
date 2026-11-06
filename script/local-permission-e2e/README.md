@@ -4,7 +4,7 @@ This drives the real `awesoMuxAgentHook` process with synthetic hook stdin and
 an owner-only socket/file peer. It does not prove Claude's interactive prompt
 races, native UI, VoiceOver, or provider execution.
 
-All builds and fixture runs require the machine-wide heavy-gate lease. Use the
+All builds and fixture runs require the machine-wide process-gate lease. Use the
 repository build/test scripts and a foreground job with scoped Xcode-helper
 cleanup. For an already built helper, inside that same gated job:
 

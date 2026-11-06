@@ -5,6 +5,20 @@ import Foundation
 /// Lives in Core so the whole correctness matrix is unit-testable; `AmxBackend`
 /// supplies the `amx`/`ps` text this consumes.
 public enum DaemonGCPlan {
+    public static func remoteCarrierSessionIDs(in groups: [SessionGroup]) -> Set<TerminalSessionID> {
+        Set(
+            groups.flatMap(\.sessions).flatMap(\.panes)
+                .filter { $0.executionPlan.remoteOwnedExecution != nil }.map(\.terminalSessionID))
+    }
+
+    /// Compare the previous ownership snapshot with all current panes so moves
+    /// keep their carrier, while closes and session-ID recycling stop the old one.
+    public static func closedRemoteCarrierSessionIDs(
+        previous: Set<TerminalSessionID>, groups: [SessionGroup]
+    ) -> Set<TerminalSessionID> {
+        previous.subtracting(groups.flatMap(\.sessions).flatMap(\.panes).map(\.terminalSessionID))
+    }
+
     /// awesoMux mints `TerminalSessionID.generate()` = lowercased UUID. Only
     /// these are GC candidates, so a hand-run `amx attach dev` is never killed.
     public static func isUUIDShaped(_ name: String) -> Bool {
@@ -146,6 +160,7 @@ public enum DaemonGCPlan {
         recentlyClosed: [RecentlyClosedWorkspace],
         lastClosedTransient: RecentlyClosedWorkspace?
     ) -> (livePane: Set<TerminalSessionID>, restorable: Set<TerminalSessionID>) {
+        // Include remote-owned pane IDs: their local carriers are owned too.
         var livePane = Set<TerminalSessionID>()
         for group in groups {
             for session in group.sessions {
@@ -399,15 +414,17 @@ public enum DaemonGCPlan {
         live: [LiveDaemon],
         owned: Set<TerminalSessionID>,
         busy: Set<TerminalSessionID>,
-        gcStart: Int
+        gcStart: Int,
+        livePane: Set<TerminalSessionID>
     ) -> [LiveDaemon] {
         var result: [LiveDaemon] = []
         var seen = Set<TerminalSessionID>()
         for daemon in live where !seen.contains(daemon.id) {
             guard isUUIDShaped(daemon.id.rawValue),
                 daemon.clients == 0,  // never reap a daemon in active use
-                !owned.contains(daemon.id),
-                !busy.contains(daemon.id),
+                daemon.recoveryMetadata?.isRemoteCarrier == true
+                    ? !livePane.contains(daemon.id)
+                    : !owned.contains(daemon.id) && !busy.contains(daemon.id),
                 daemon.createdEpoch < gcStart
             else { continue }
             seen.insert(daemon.id)

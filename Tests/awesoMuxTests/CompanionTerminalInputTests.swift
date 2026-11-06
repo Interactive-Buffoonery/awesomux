@@ -1,3 +1,4 @@
+import AwesoMuxCore
 import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
@@ -13,7 +14,22 @@ struct CompanionTerminalInputTests {
     typealias Stream = CompanionTerminalStream
     typealias Relay = CompanionTerminalWatchRelay
 
-    @Test func roleAssignmentExplainsWatchAndNeverTypesRemotePanes() {
+    @Test func roleAssignmentUsesCarrierAndExplainsDirectSSHWatch() throws {
+        let remote = try #require(RemoteTarget(parsing: "example.test"))
+        let name = try #require(RemoteSessionName(rawValue: "work"))
+        var pane = TerminalPane(
+            title: "Remote", workingDirectory: "~",
+            executionPlan: .ssh(SSHExecution(target: remote, remoteSessionName: name)))
+        for metadata: TerminalBackendMetadata in [.empty, .amxRemoteCarrier] {
+            pane.terminalBackendMetadata = metadata
+            let local = pane.localTerminalSessionName != nil
+            #expect(
+                CompanionTerminalAuthorization.accepted(inputAllowed: true, local: local)
+                    == (local ? .init(role: .interactive) : .init(role: .watch, watchReason: .remotePane)))
+            #expect(
+                CompanionTerminalAuthorization.accepted(inputAllowed: false, local: local)
+                    == .init(role: .watch, watchReason: local ? .inputOff : .remotePane))
+        }
         #expect(CompanionTerminalAuthorization.accepted(inputAllowed: true, local: true) == .init(role: .interactive))
         #expect(CompanionTerminalAuthorization.accepted(inputAllowed: false, local: true) == .init(role: .watch, watchReason: .inputOff))
         for input in [false, true] {
@@ -42,7 +58,7 @@ struct CompanionTerminalInputTests {
             try !JSONDecoder().decode(LocalAPICompanionMetadata.self, from: JSONSerialization.data(withJSONObject: old))
                 .terminalInputAllowed)
         access.relinquishAuthority()
-        let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let restored = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
         #expect(restored.loadFailure == nil)
         #expect(restored.state.connections.first { $0.id == phone.id }?.companion?.terminalInputAllowed == true)
         try restored.updateCompanionTerminalWatchScope(connectionID: phone.id, scope: nil)
@@ -98,6 +114,22 @@ struct CompanionTerminalInputTests {
         return .init(
             connectionID: connectionID, globalRevision: revision, connectionRevision: revision, statusScope: .allWorkspaces,
             terminalWatchScope: watch ? .allWorkspaces : nil, terminalInputAllowed: input)
+    }
+
+    @Test func firstFrameAfterSnapshotCanClaimPhoneGridWithoutInput() async throws {
+        let buffer = Relay.Buffer()
+        let generation = try #require(buffer.beginGeneration())
+        #expect(buffer.enqueue(.snapshotEnd(.init(bytes: 0)), generation: generation) == .continue)
+        buffer.didWrite(try #require(buffer.takeFrame()))
+        var writes: [Data] = []
+        let forwarder = Relay.InputForwarder(role: .interactive, grid: .init(rows: 24, cols: 80), buffer: buffer)
+        forwarder.install(generation: generation, id: 42, revision: 9) { data, validate in
+            try validate()
+            writes.append(data)
+        }
+        try await forwarder.receive(Stream.encode(.claim(.init(grid: .init(rows: 32, cols: 40))), generation: generation))
+        #expect(writes == [Relay.zmxMessage(.takeOver, typedHeader(rows: 32, cols: 40))])
+        #expect(buffer.takeFrame() == nil)
     }
 
     @Test func typedBatchesCarryAttachmentRevisionGridAndExactBytes() throws {

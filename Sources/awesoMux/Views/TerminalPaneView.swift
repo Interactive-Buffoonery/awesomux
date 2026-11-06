@@ -220,7 +220,7 @@ struct TerminalPaneLayoutView: View {
                     CompanionTerminalDrivingBanner(
                         paneDescriptor: TerminalAccessibilityAnnouncer.paneDescriptor(for: pane.id, in: session) ?? pane.title,
                         paneID: pane.id,
-                        sessionName: pane.executionPlan.remoteOwnedExecution == nil ? pane.terminalSessionID.rawValue : nil)
+                        sessionName: pane.localTerminalSessionName)
 
                     if runtime.restartedSessionNotices[pane.id] != nil {
                         HStack(spacing: 8) {
@@ -340,9 +340,9 @@ struct TerminalPaneLayoutView: View {
                     }
                 }
                 // The accent rail rides ON TOP of the whole pane stack rather
-                // than inside the reserved band. The band is exactly as tall as
-                // the resting stripe, so a halo drawn inside it had nowhere to
-                // land and was clipped to nothing. Up here the glow spills down
+                // than inside the reserved band. The band reserves the maximum
+                // solid thickness; drawing the halo inside that clipped band
+                // would cut off its spill. Up here the glow spills down
                 // over the title bar and terminal — what a glow is supposed to
                 // do — while `.clipped()` below keeps it inside this pane, which
                 // is the neighbour bleed the band's clip was really guarding

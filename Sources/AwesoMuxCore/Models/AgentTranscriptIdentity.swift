@@ -23,18 +23,31 @@ public struct AgentTranscriptIdentity: Hashable, Sendable {
     public let agentKind: AgentKind
     /// A canonical provider-native session id.
     public let sessionID: String
+    /// Browser-only canonical project constraint, retained across live refresh
+    /// and restore. Nil preserves the existing exact-session command contract.
+    public let projectDirectory: String?
 
     /// Returns `nil` unless `agentKind` is a provider whose transcript layout
     /// awesoMux knows and `sessionID` passes that provider's validation.
     ///
     /// The provider allowlist covers every transcript storage adapter.
-    public init?(agentKind: AgentKind, sessionID: String) {
+    public init?(agentKind: AgentKind, sessionID: String, projectDirectory: String? = nil) {
+        if let projectDirectory {
+            guard agentKind == .claudeCode || agentKind == .codex,
+                projectDirectory.hasPrefix("/"), projectDirectory.utf8.count <= 4096,
+                !projectDirectory.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+                projectDirectory == "/"
+                    || projectDirectory.split(separator: "/", omittingEmptySubsequences: false)
+                        .dropFirst().allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." })
+            else { return nil }
+        }
         guard let source = Self.runtimeSource(for: agentKind) else { return nil }
         guard let validated = source.validatedProviderSessionID(sessionID) else {
             return nil
         }
         self.agentKind = agentKind
         self.sessionID = validated
+        self.projectDirectory = projectDirectory
     }
 
     /// Whether awesoMux has a transcript storage adapter for this provider.
@@ -73,6 +86,7 @@ extension AgentTranscriptIdentity: Codable {
     private enum CodingKeys: String, CodingKey {
         case agentKind
         case sessionID
+        case projectDirectory
     }
 
     /// Re-validates on the way in. A snapshot is a same-UID-writable file, so a
@@ -83,7 +97,9 @@ extension AgentTranscriptIdentity: Codable {
         guard
             let identity = AgentTranscriptIdentity(
                 agentKind: try container.decode(AgentKind.self, forKey: .agentKind),
-                sessionID: try container.decode(String.self, forKey: .sessionID)
+                sessionID: try container.decode(String.self, forKey: .sessionID),
+                projectDirectory: container.contains(.projectDirectory)
+                    ? try container.decode(String.self, forKey: .projectDirectory) : nil
             )
         else {
             throw DecodingError.dataCorruptedError(

@@ -59,8 +59,11 @@ setup.
 
 **Remote-owned panes:** a pane declaring `PersistenceOwner.remoteZmx` still
 sets `$ZMX_SESSION`, but it names a session in the *far* host's `ZMX_DIR`,
-owned by the remote zmx, not awesoMux's local daemon. The local `amx` has no
-socket for it — `send` and `history` cannot reach such a pane. See
+owned by the remote zmx. When bundled amx is available, a local carrier
+named by the pane's `terminalSessionID` holds SSH. From the Mac, `send` and
+`history` reach that carrier using the profile's socket directory and local
+session ID, not the far host's `ZMX_SESSION`. Carrier history begins at its
+creation; full history remains remote. Direct-SSH fallback has no local socket. See
 [Remote session persistence](remote-session-persistence.md) for remote backend
 installation and recovery commands.
 
@@ -155,9 +158,13 @@ The fork's `LEADERSHIP.md` specifies payloads and queue semantics.
 
 Under [ADR-0036](adr/0036-multi-client-terminal-leadership.md), the client that
 creates a new session is its first leader. Its resizes and terminal replies
-apply immediately, before its first keystroke. Attaching to an existing session
-retains the current grid without electing a leader. Disconnecting the leader
-clears authority while retaining that grid. The next accepted interactive
+apply immediately, before its first keystroke. A typed attachment to an
+existing session retains the current grid without electing a leader.
+Disconnecting the leader clears authority while retaining that grid. A Mac
+pane's attach, resize or focus reclaims a leaderless session at the pane's
+size, and the Mac pane that most recently did so is elected when another
+client leaves; a dropped phone or iPad leader first gets 5 seconds to reconnect
+(ADR-0036 amendment, 2026-10-29). Otherwise the next accepted interactive
 user batch or explicit typed takeover applies its validated dimensions before
 its bytes. Automation does neither. The existing Mac `attach` stream still uses
 a legacy heuristic to distinguish user input from replies; coalesced arbitrary
@@ -166,7 +173,7 @@ beginning with a C0 control (except ESC) or DEL can claim, as can ordinary CSI
 arrows, Shift-Tab and Home/End. Standalone ESC whenever the client is not the
 current leader remains an explicit legacy limitation; no timeout or guessing
 heuristic is used. The daemon answers DA queries while
-leaderless, including with legacy clients attached; other terminal queries may
+leaderless, such as during that reconnect wait; other terminal queries may
 remain unanswered until leadership is claimed. Unchanged-grid input from the
 same leader and size-only changes preserve pending typed replies; explicit
 takeover and actual leader changes invalidate them.
@@ -296,7 +303,34 @@ user's zmx domain instead, outside this local single-user domain entirely.
   `vendor/zmx/src/socket.zig:77-94,115-120`), so the name budget shrinks as
   `ZMX_DIR` grows. Bare UUIDs (36 bytes) always fit awesoMux's dirs — keep
   custom socket dirs short.
-- **Remote-owned pane** (`PersistenceOwner.remoteZmx`) — no local daemon at
-  all: the remote host's zmx owns the session. No `send`/`history` (no local
-  socket to address, see [Addressing](#addressing-which-session-is-my-pane)),
-  no agent status side channel, no `amx cwd`.
+- **Remote-owned pane** (`PersistenceOwner.remoteZmx`) — a local amx carrier
+  supports `send`/`history` and Companion Watch/Input while persistence remains
+  remote. Direct-SSH fallback has no local socket. Neither path has the agent
+  status side channel or path-bar `amx cwd` polling.
+
+## Terminals from a paired phone
+
+[ADR-0042](adr/0042-phone-terminals.md) defines phone opening and creation.
+With the device's Mac-approved Input switch on, opening a terminal sends a new
+`claim` with the phone's grid after the snapshot. Watch is an explicit choice;
+Input off receives an enforced Watch stream. Mac typing takes control back.
+
+`watch_terminal` hydrates a restored, unvisited terminal through the same native
+surface/SSH preflight path as Mac selection, without moving Mac selection or
+focus. `list_panes` includes its target version while availability is still
+`awaitingHydration`; phone rows must allow opening that state. Unopenable panes
+return `pane_exited`, `pane_disconnected` or `terminal_unavailable`, rather than
+silently failing.
+
+Companion-only `create_terminal` accepts an optional `workspaceID`: omit it for
+a local shell in the configured default group, or pass it to split that
+workspace's active terminal with its existing execution location and local
+launch directory. As with native Cmd-D, local-amx SSH splits do not carry over
+the reported remote working directory. A workspace containing a remote-owned
+zmx pane returns `remote_workspace_unsupported` before any mutation.
+It requires Input and a Terminal grant covering the workspace; new workspaces
+require all-workspaces Terminal access. The response's `createdTerminal`
+contains `workspaceID`, `paneID` and `targetVersion` for `watch_terminal`.
+Creation never accepts arbitrary commands, SSH hosts or split direction, is not
+exposed through the bearer API or `amx`, and must not be retried automatically
+if its acknowledgement is lost. Refresh the pane roster instead.

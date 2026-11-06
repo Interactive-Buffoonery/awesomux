@@ -1,0 +1,3 @@
+
+# Unified diff context includes required blank lines with a space.
+native/libxev/*.patch -whitespace
