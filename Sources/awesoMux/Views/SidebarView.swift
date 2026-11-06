@@ -49,7 +49,7 @@ struct SidebarView: View {
     /// the rail is too narrow for the inline search field (INT-537).
     let onToggleCommandPalette: () -> Void
     /// Jump to an exact agent pane from the activity panel (INT-722). Wired by
-    /// the app to select + focus + acknowledge that pane.
+    /// the app to select and focus that pane without answering its request.
     let onFocusPane: (TerminalSession.ID, UUID) -> Void
     let focusRequestID: UUID?
     /// Live sidebar width (updated per divider tick). Read in `body` (via the
@@ -77,6 +77,7 @@ struct SidebarView: View {
     @State private var dragClearScheduler = SidebarDragClearScheduler()
     @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
     @State private var activityPanelOpen = false
+    @State private var activityPanelScrollRequestID = UUID()
     @State private var activityPanelScrollTarget: AgentDisplayState?
     @State private var lastDragWatchdogRefresh = Date.distantPast
     @State private var sidebarDragClearDeadline: Date?
@@ -127,6 +128,11 @@ struct SidebarView: View {
         // haystack / ordinals / rotor / agent panel beside it can never
         // disagree (issue #327, WCAG 4.1.2):
         let sidebarTitles = sessionStore.sidebarResolvedTitles()
+        let unansweredPaneIDs = sessionStore.unansweredTurnPaneIDs
+        let markSeenSessionIDs = Set(
+            sessionStore.groups.flatMap(\.sessions).filter { session in
+                session.panes.contains { $0.canMarkSeen || unansweredPaneIDs.contains($0.id) }
+            }.map(\.id))
         // Trim once at the body and thread the normalized query through every
         // dependent computation. Two readers of `searchText` previously
         // disagreed on whether whitespace-only input meant "filtering": the
@@ -281,8 +287,9 @@ struct SidebarView: View {
                                 onCloseGroup: {
                                     onCloseWorkspaceGroup(entry.group)
                                 },
+                markSeenSessionIDs: markSeenSessionIDs,
                                 onAcknowledge: { session in
-                                    sessionStore.acknowledgeSession(id: session.id)
+                    sessionStore.markWorkspaceSeen(id: session.id)
                                 },
                                 onMoveSession: { sessionID, groupID, index in
                                     moveSession(
@@ -343,19 +350,15 @@ struct SidebarView: View {
                             )
         }
 
-        return VStack(spacing: 0) {
-            searchHeader(
-                topMatchID: snapshot.topMatchID,
-                searchResultIDs: searchResultIDs,
-                displayedTitles: displayedTitles
-            )
-
+        // Bound the existing workspace tree's type before choosing a sidebar mode.
+        let workspaceContent = AnyView(
             GeometryReader { scrollViewport in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: density.groupStackSpacing) {
                         if !snapshot.attention.isEmpty {
                             attentionSection(
                                 attention: snapshot.attention,
+                                markSeenSessionIDs: markSeenSessionIDs,
                                 density: density,
                                 isFiltering: isFiltering,
                                 jumpIndexBySessionID: jumpIndexBySessionID,
@@ -367,6 +370,7 @@ struct SidebarView: View {
                         if !snapshot.pinned.isEmpty {
                             pinnedSection(
                                 pinned: snapshot.pinned,
+                                markSeenSessionIDs: markSeenSessionIDs,
                                 density: density,
                                 isFiltering: isFiltering,
                                 jumpIndexBySessionID: jumpIndexBySessionID,
@@ -617,12 +621,9 @@ struct SidebarView: View {
                     transaction.disablesAnimations = true
                 }
             }
+        )
 
-            UpdateAvailableIndicator(displayMode: displayMode)
-
-            SidebarActivitySection(
-                sessionStore: sessionStore,
-                invalidationKey: SidebarActivityInvalidationKey(
+        let activityKey = SidebarActivityInvalidationKey(
                     groups: sessionStore.groups,
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
                     selectedSessionID: sessionStore.selectedSessionID,
@@ -631,17 +632,56 @@ struct SidebarView: View {
                     activityPanelGeneration: activityPanelOpen
                         ? sessionStore.liveTitleGeneration : nil,
                     activityPanelDisplayedTitles: activityPanelOpen ? displayedTitles : nil,
-                    activityPanelScrollTarget: activityPanelOpen ? activityPanelScrollTarget : nil
-                ),
-                searchText: $searchText,
-                activityPanelOpen: $activityPanelOpen,
-                activityPanelScrollTarget: $activityPanelScrollTarget,
-                onOpenQuickSettings: onOpenQuickSettings,
-                onShowWelcomeTour: onShowWelcomeTour,
-                onFocusPane: onFocusPane
-            )
-            .equatable()
+            activityPanelScrollTarget: activityPanelOpen ? activityPanelScrollTarget : nil,
+            activityPanelUnansweredTurnPaneIDs: activityPanelOpen ? sessionStore.unansweredTurnPaneIDs : nil,
+            actionableAgentPaneIDs: sessionStore.actionableAgentPaneIDs,
+            activityPanelScrollRequestID: activityPanelOpen ? activityPanelScrollRequestID : nil,
+            activityPanelFocusRequestID: activityPanelOpen ? focusRequestID : nil
+        )
+        let activitySection = SidebarActivitySection(
+            sessionStore: sessionStore,
+            invalidationKey: activityKey,
+            searchText: $searchText,
+            activityPanelOpen: $activityPanelOpen,
+            activityPanelScrollTarget: $activityPanelScrollTarget,
+            activityPanelScrollRequestID: $activityPanelScrollRequestID,
+            onOpenQuickSettings: onOpenQuickSettings,
+            onShowWelcomeTour: onShowWelcomeTour,
+            onFocusPane: onFocusPane
+        )
+        .equatable()
+
+        let sidebarContent = AnyView(
+            VStack(spacing: 0) {
+                if displayMode != .collapsed {
+                    Picker(String(localized: "Sidebar view", comment: "Workspace or agent navigation mode"), selection: $activityPanelOpen)
+                    {
+                        Text(String(localized: "Workspaces", comment: "Workspace organization sidebar")).tag(false)
+                        Text(String(localized: "Agents", comment: "Global agent sidebar")).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                }
+                if isWorkspacesMode {
+                    searchHeader(
+                        topMatchID: snapshot.topMatchID,
+                        searchResultIDs: searchResultIDs,
+                        displayedTitles: displayedTitles
+                    )
+
+                    workspaceContent
+
+                }
+
+                UpdateAvailableIndicator(displayMode: displayMode)
+
+                activitySection
         }
+        )
+        return
+            sidebarContent
         .background(Color.aw.surface.sidebar)
         .onHover { pointerInside in
             guard
@@ -653,7 +693,7 @@ struct SidebarView: View {
             onSidebarHover(publication)
         }
         .accessibilityRotor("Workspaces") {
-            ForEach(rotorEntries) { entry in
+                ForEach(isWorkspacesMode ? rotorEntries : []) { entry in
                 AccessibilityRotorEntry(Text(verbatim: entry.label), id: entry.id, in: workspaceRotorNamespace) {
                     if !sessionStore.isPinned(entry.id), !sessionStore.liftedSessionIDs.contains(entry.id),
                         let owner = sessionStore.groups.first(where: { $0.sessions.contains { $0.id == entry.id } })
@@ -664,6 +704,7 @@ struct SidebarView: View {
             }
         }
         .onMoveCommand { direction in
+                guard isWorkspacesMode else { return }
             switch direction {
             case .up:
                 moveKeyboardFocus(offset: -1, visibleRows: visibleRows)
@@ -674,10 +715,12 @@ struct SidebarView: View {
             }
         }
         .onKeyPress(.home) {
+                guard isWorkspacesMode else { return .ignored }
             focusKeyboardTarget(SidebarVisibleRows.firstTarget(in: visibleRows), viaKeyboardNavigation: true)
             return .handled
         }
         .onKeyPress(.end) {
+                guard isWorkspacesMode else { return .ignored }
             focusKeyboardTarget(SidebarVisibleRows.lastTarget(in: visibleRows), viaKeyboardNavigation: true)
             return .handled
         }
@@ -730,6 +773,7 @@ struct SidebarView: View {
             sessionStore.needsInputSectionEnabled = enabled
         }
         .onChange(of: sessionStore.selectedSessionID) { _, newValue in
+                guard isWorkspacesMode else { return }
             // Selection can land inside a collapsed group via more than
             // notification clicks (⌘+number, prev/next workspace) — expanding
             // here covers all of them from one place instead of each caller.
@@ -800,6 +844,7 @@ struct SidebarView: View {
             }
         }
         .onChange(of: sessionStore.liftedSessionIDs) { oldIDs, newIDs in
+                guard isWorkspacesMode else { return }
             // Twin of the pin handler above, for the other synthetic section. A
             // workspace leaving Needs Input while its origin group is collapsed
             // otherwise just vanishes — no expand, nothing spoken.
@@ -860,8 +905,39 @@ struct SidebarView: View {
                 )
             )
         }
+            .onChange(of: activityPanelOpen) { _, open in
+                if !open { activityPanelScrollTarget = nil }
+            }
         .onChange(of: focusRequestID) { _, requestID in
+                handleFocusRequest(requestID, visibleRows: visibleRows)
+            }
+            .onChange(of: focusedRowTarget) { _, target in
+                guard isWorkspacesMode else { return }
+                guard let sessionID = SidebarVisibleRows.sessionID(for: target) else {
+                    return
+                }
+                sessionStore.selectedSessionID = sessionID
+            }
+            .environment(ghosttyRuntime)
+            .environment(sessionStore)
+            .environment(\.sidebarWorkspaceRotorNamespace, workspaceRotorNamespace)
+            .environment(\.isCommandKeyHeld, isCommandKeyHeld)
+            .environment(\.isSidebarWorkspaceDragActive, activeDragKind == .workspace || nativeDragKind == .workspace)
+            .modifier(CollapsedCommandKeyTracking(isCollapsed: displayMode == .collapsed, isHeld: $isCommandKeyHeld))
+    }
+
+    private var isWorkspacesMode: Bool {
+        !activityPanelOpen || displayMode == .collapsed
+    }
+
+    private func handleFocusRequest(_ requestID: UUID?, visibleRows: [SidebarVisibleRow]) {
             if requestID != nil {
+            guard isWorkspacesMode else {
+                if AgentActivityRoster.build(sessions: sessionStore.groups.flatMap(\.sessions)).rows.isEmpty {
+                    accessibilityAnnouncer.announce(String(localized: "No agents to show", comment: "Empty agent sidebar"))
+                }
+                return
+            }
                 ShortcutDiagnostics.log("stage=sidebarView receivedFocusRequest=true")
                 if displayMode == .collapsed {
                     ShortcutDiagnostics.log("stage=sidebarView action=focusRail")
@@ -890,19 +966,6 @@ struct SidebarView: View {
                     isSearchFocused = true
                 }
             }
-        }
-        .onChange(of: focusedRowTarget) { _, target in
-            guard let sessionID = SidebarVisibleRows.sessionID(for: target) else {
-                return
-            }
-            sessionStore.selectedSessionID = sessionID
-        }
-        .environment(ghosttyRuntime)
-        .environment(sessionStore)
-        .environment(\.sidebarWorkspaceRotorNamespace, workspaceRotorNamespace)
-        .environment(\.isCommandKeyHeld, isCommandKeyHeld)
-        .environment(\.isSidebarWorkspaceDragActive, activeDragKind == .workspace || nativeDragKind == .workspace)
-        .modifier(CollapsedCommandKeyTracking(isCollapsed: displayMode == .collapsed, isHeld: $isCommandKeyHeld))
     }
 
     private var searchFieldAppearsFocused: Bool {
@@ -1301,6 +1364,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func attentionSection(
         attention: [LiftedSessionEntry],
+        markSeenSessionIDs: Set<TerminalSession.ID>,
         density: SidebarDensity,
         isFiltering: Bool,
         jumpIndexBySessionID: [TerminalSession.ID: Int],
@@ -1332,8 +1396,9 @@ struct SidebarView: View {
             },
             onSetEmoji: onSetWorkspaceEmoji,
             onRemoveEmoji: onRemoveWorkspaceEmoji,
+            markSeenSessionIDs: markSeenSessionIDs,
             onAcknowledge: { session in
-                sessionStore.acknowledgeSession(id: session.id)
+                sessionStore.markWorkspaceSeen(id: session.id)
             },
             onToggleNotificationsMute: { session in
                 sessionStore.setNotificationsMuted(
@@ -1366,6 +1431,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func pinnedSection(
         pinned: [LiftedSessionEntry],
+        markSeenSessionIDs: Set<TerminalSession.ID>,
         density: SidebarDensity,
         isFiltering: Bool,
         jumpIndexBySessionID: [TerminalSession.ID: Int],
@@ -1397,8 +1463,9 @@ struct SidebarView: View {
             },
             onSetEmoji: onSetWorkspaceEmoji,
             onRemoveEmoji: onRemoveWorkspaceEmoji,
+            markSeenSessionIDs: markSeenSessionIDs,
             onAcknowledge: { session in
-                sessionStore.acknowledgeSession(id: session.id)
+                sessionStore.markWorkspaceSeen(id: session.id)
             },
             onToggleNotificationsMute: { session in
                 sessionStore.setNotificationsMuted(
@@ -1808,6 +1875,10 @@ struct SidebarActivityInvalidationKey: Equatable {
     let activityPanelGeneration: Int?
     let activityPanelDisplayedTitles: [TerminalSession.ID: String]?
     let activityPanelScrollTarget: AgentDisplayState?
+    let activityPanelUnansweredTurnPaneIDs: Set<UUID>?
+    let actionableAgentPaneIDs: [UUID]
+    let activityPanelScrollRequestID: UUID?
+    let activityPanelFocusRequestID: UUID?
 
     init(
         groups: [SessionGroup],
@@ -1817,7 +1888,11 @@ struct SidebarActivityInvalidationKey: Equatable {
         reduceMotion: Bool,
         activityPanelGeneration: Int? = nil,
         activityPanelDisplayedTitles: [TerminalSession.ID: String]? = nil,
-        activityPanelScrollTarget: AgentDisplayState? = nil
+        activityPanelScrollTarget: AgentDisplayState? = nil,
+        activityPanelUnansweredTurnPaneIDs: Set<UUID>? = nil,
+        actionableAgentPaneIDs: [UUID] = [],
+        activityPanelScrollRequestID: UUID? = nil,
+        activityPanelFocusRequestID: UUID? = nil
     ) {
         self.groups = groups
         self.pinnedSessionIDs = pinnedSessionIDs
@@ -1827,20 +1902,29 @@ struct SidebarActivityInvalidationKey: Equatable {
         self.activityPanelGeneration = activityPanelGeneration
         self.activityPanelDisplayedTitles = activityPanelDisplayedTitles
         self.activityPanelScrollTarget = activityPanelScrollTarget
+        self.activityPanelUnansweredTurnPaneIDs = activityPanelUnansweredTurnPaneIDs
+        self.actionableAgentPaneIDs = actionableAgentPaneIDs
+        self.activityPanelScrollRequestID = activityPanelScrollRequestID
+        self.activityPanelFocusRequestID = activityPanelFocusRequestID
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.pinnedSessionIDs == rhs.pinnedSessionIDs,
+        let comparePaneTitles = lhs.activityPanelDisplayedTitles != nil || rhs.activityPanelDisplayedTitles != nil
+        guard (!comparePaneTitles || lhs.groups.map(\.name) == rhs.groups.map(\.name)),
+            lhs.pinnedSessionIDs == rhs.pinnedSessionIDs,
             lhs.selectedSessionID == rhs.selectedSessionID,
             lhs.displayMode == rhs.displayMode,
             lhs.reduceMotion == rhs.reduceMotion,
             lhs.activityPanelGeneration == rhs.activityPanelGeneration,
             lhs.activityPanelDisplayedTitles == rhs.activityPanelDisplayedTitles,
             lhs.activityPanelScrollTarget == rhs.activityPanelScrollTarget,
+            lhs.activityPanelUnansweredTurnPaneIDs == rhs.activityPanelUnansweredTurnPaneIDs,
+            lhs.actionableAgentPaneIDs == rhs.actionableAgentPaneIDs,
+            lhs.activityPanelScrollRequestID == rhs.activityPanelScrollRequestID,
+            lhs.activityPanelFocusRequestID == rhs.activityPanelFocusRequestID,
             lhs.groups.count == rhs.groups.count
         else { return false }
 
-        let comparePaneTitles = lhs.activityPanelDisplayedTitles != nil
         for groupIndex in lhs.groups.indices {
             let lhsSessions = lhs.groups[groupIndex].sessions
             let rhsSessions = rhs.groups[groupIndex].sessions
@@ -1850,6 +1934,7 @@ struct SidebarActivityInvalidationKey: Equatable {
                 let lhsSession = lhsSessions[sessionIndex]
                 let rhsSession = rhsSessions[sessionIndex]
                 guard lhsSession.id == rhsSession.id,
+                    (!comparePaneTitles || lhsSession.title == rhsSession.title),
                     lhsSession.activePaneID == rhsSession.activePaneID,
                     activityLayoutsEqual(
                         lhsSession.layout,
@@ -1873,6 +1958,10 @@ struct SidebarActivityInvalidationKey: Equatable {
                 && (!comparePaneTitles || lhsPane.title == rhsPane.title)
                 && lhsPane.agentKind == rhsPane.agentKind
                 && lhsPane.effectiveChromeState == rhsPane.effectiveChromeState
+                && (!comparePaneTitles
+                    || (lhsPane.agentExecutionState == rhsPane.agentExecutionState
+                        && lhsPane.attentionReason == rhsPane.attentionReason
+                        && lhsPane.unreadNotificationCount == rhsPane.unreadNotificationCount))
                 && lhsPane.workingDirectory == rhsPane.workingDirectory
                 && lhsPane.remotePresentationHost == rhsPane.remotePresentationHost
         case let (.split(lhsSplit), .split(rhsSplit)):
@@ -1903,6 +1992,7 @@ private struct SidebarActivitySection: View, Equatable {
     @Binding var searchText: String
     @Binding var activityPanelOpen: Bool
     @Binding var activityPanelScrollTarget: AgentDisplayState?
+    @Binding var activityPanelScrollRequestID: UUID
     let onOpenQuickSettings: () -> Void
     let onShowWelcomeTour: () -> Void
     let onFocusPane: (TerminalSession.ID, UUID) -> Void
@@ -1920,11 +2010,12 @@ private struct SidebarActivitySection: View, Equatable {
         let sessions = invalidationKey.groups.flatMap(\.sessions)
         // Pane-grain agent roster replaces the old session-grain state walk: it
         // folds every agent pane once, only when the session-tree key changes.
-        let roster = AgentActivityRoster.build(sessions: sessions)
+        let roster = AgentActivityRoster.build(
+            sessions: sessions, unansweredTurnPaneIDs: invalidationKey.activityPanelUnansweredTurnPaneIDs ?? [])
         // Chip counts stay in the design-system state space the footer renders.
         var counts: [AwState: Int] = [:]
         for (state, count) in roster.counts {
-            counts[state.awState, default: 0] += count
+            counts[state == .error ? .needs : state.awState, default: 0] += count
         }
         return VStack(spacing: 0) {
             if activityPanelOpen, invalidationKey.displayMode != .collapsed {
@@ -1933,8 +2024,15 @@ private struct SidebarActivitySection: View, Equatable {
                     sessionStore: sessionStore,
                     sessions: sessions,
                     roster: roster,
+                    groupNamesBySessionID: Dictionary(
+                        invalidationKey.groups.flatMap { group in group.sessions.map { ($0.id, group.name) } },
+                        uniquingKeysWith: { first, _ in first }),
+                    orderedPaneIDs: invalidationKey.actionableAgentPaneIDs,
+                    selectedPaneID: sessions.first(where: { $0.id == invalidationKey.selectedSessionID })?.activePaneID,
                     resolvedTitles: invalidationKey.activityPanelDisplayedTitles ?? [:],
                     scrollTarget: activityPanelScrollTarget,
+                    scrollRequestID: activityPanelScrollRequestID,
+                    focusRequestID: invalidationKey.activityPanelFocusRequestID,
                     onSelect: selectActivityRow,
                     onClose: { setActivityPanel(open: false) }
                 )
@@ -1983,29 +2081,15 @@ private struct SidebarActivitySection: View, Equatable {
     }
 
     private func selectActivityRow(_ row: AgentActivityRoster.Row) {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            let projection = SidebarView.searchProjection(
-                groups: invalidationKey.groups,
-                query: query,
-                titles: sessionStore.sidebarResolvedTitles()
-            )
-            let targetIsVisible = projection.entries.contains { entry in
-                entry.sessions.contains { $0.session.id == row.sessionID }
-            }
-            // If the target session is hidden under the active search filter,
-            // clear it first so the jump lands somewhere visible.
-            if !targetIsVisible {
-                searchText = ""
-            }
-        }
         onFocusPane(row.sessionID, row.paneID)
     }
 
     /// Collapsed-rail chip jump: cycle pane-grain through the matching rows,
     /// landing on the pane after the currently-active one.
     private func focusNextAgentPane(matching state: AwState, in roster: AgentActivityRoster) {
-        let rows = roster.groups.flatMap(\.rows).filter { $0.state.awState == state }
+        let rows = roster.orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs).filter {
+            state == .needs ? $0.section == .needsYou : $0.state.awState == state
+        }
         guard !rows.isEmpty else {
             return
         }
@@ -2028,6 +2112,7 @@ private struct SidebarActivitySection: View, Equatable {
     /// can't be missed by one path.
     private func setActivityPanel(open: Bool, scrollTarget: AgentDisplayState? = nil) {
         activityPanelScrollTarget = scrollTarget
+        if open { activityPanelScrollRequestID = UUID() }
         guard open != activityPanelOpen else {
             return
         }
@@ -2040,10 +2125,10 @@ private struct SidebarActivitySection: View, Equatable {
         TerminalAccessibilityAnnouncer.announce(
             open
                 ? String(
-                    localized: "Agent activity panel opened",
+                    localized: "Agents sidebar opened",
                     comment: "VoiceOver announcement when the sidebar agent activity panel expands.")
                 : String(
-                    localized: "Agent activity panel closed",
+                    localized: "Workspaces sidebar opened",
                     comment: "VoiceOver announcement when the sidebar agent activity panel collapses.")
         )
     }
@@ -2057,8 +2142,13 @@ private struct SidebarActivityPanelTitleScope: View {
     let sessionStore: SessionStore
     let sessions: [TerminalSession]
     let roster: AgentActivityRoster
+    let groupNamesBySessionID: [TerminalSession.ID: String]
+    let orderedPaneIDs: [UUID]
+    let selectedPaneID: UUID?
     let resolvedTitles: [TerminalSession.ID: String]
     let scrollTarget: AgentDisplayState?
+    let scrollRequestID: UUID
+    let focusRequestID: UUID?
     let onSelect: (AgentActivityRoster.Row) -> Void
     let onClose: () -> Void
 
@@ -2068,20 +2158,18 @@ private struct SidebarActivityPanelTitleScope: View {
             uniquingKeysWith: { first, _ in first }
         )
         AgentActivityPanel(
-            groups: roster.groups.map { group in
-                (
-                    state: group.state,
-                    items: group.rows.map {
-                        panelItem(
-                            for: $0,
-                            sessionsByID: sessionsByID,
-                            resolvedTitles: resolvedTitles
-                        )
-                    }
-                )
+            items: roster.orderedRows(orderedPaneIDs: orderedPaneIDs).map {
+                panelItem(
+                    for: $0, sessionsByID: sessionsByID, resolvedTitles: resolvedTitles, groupName: groupNamesBySessionID[$0.sessionID])
             },
             scrollTarget: scrollTarget,
+            scrollRequestID: scrollRequestID,
+            focusRequestID: focusRequestID,
+            livePaneIDs: Set(sessions.flatMap { $0.layout.paneIDs }),
+            selectedPaneID: selectedPaneID,
             onSelect: onSelect,
+            onMarkSeen: { sessionStore.markPaneSeen(sessionID: $0.sessionID, paneID: $0.paneID) },
+            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) },
             onClose: onClose
         )
     }
@@ -2089,7 +2177,8 @@ private struct SidebarActivityPanelTitleScope: View {
     private func panelItem(
         for row: AgentActivityRoster.Row,
         sessionsByID: [TerminalSession.ID: TerminalSession],
-        resolvedTitles: [TerminalSession.ID: String]
+        resolvedTitles: [TerminalSession.ID: String],
+        groupName: String?
     ) -> AgentActivityPanelItem {
         let session = sessionsByID[row.sessionID]
         // Resolve the row's pane, not the active-pane location projection.
@@ -2115,7 +2204,11 @@ private struct SidebarActivityPanelTitleScope: View {
         return AgentActivityPanelItem(
             row: row,
             title: title,
-            locationText: location?.displayText ?? ""
+            locationText: location?.displayText ?? "",
+            workspaceText: [
+                groupName,
+                resolvedTitles[row.sessionID] ?? session?.title,
+            ].compactMap { $0 }.joined(separator: " / ")
         )
     }
 }

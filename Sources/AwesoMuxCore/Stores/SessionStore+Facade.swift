@@ -1491,6 +1491,7 @@ extension SessionStore {
         // itself. Runs before the selection write so an observer woken by that
         // write already sees a reconciled section.
         reconcileLiftedSessionIDs()
+        reconcileActionableAgentPaneIDs()
         recordLocalAPIAttentionChanges(at: now)
 
         if case .set(let sessionID) = effect.selection {
@@ -1633,8 +1634,8 @@ extension SessionStore {
             // read, so passively clearing it drops the row out of Needs Input
             // while the agent sits stalled, and nothing necessarily re-asserts
             // the reason (a pending bridge permission needs no further count
-            // change). Only an explicit ack — ⌘⇧K, Mark as Read, or actually
-            // answering — clears these.
+            // change). Mark as seen also preserves these; actual input or the
+            // deliberate Clear All Notifications escape hatch can clear them.
             guard currentPane?.attentionReason?.awaitsExplicitAnswer != true else {
                 return
             }

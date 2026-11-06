@@ -62,3 +62,11 @@ that a user who has started responding does not continue to see an unread badge.
 - Direct terminal input acknowledges the active pane immediately; focus and scrolling alone do not.
 - New notifications arriving during the dwell window are preserved. The pending ack only clears the workspace if its unread count has not grown since the dwell was scheduled.
 - The dwell duration is injectable in tests so production behavior stays at 500 ms without slowing the test suite.
+
+## Amendment: separate navigation, seen state, and approval (2026-11-05)
+
+Agents sidebar and pane-peek navigation no longer explicitly acknowledge the destination. They select the exact pane and focus its terminal. Focus Permission Prompt remains a separate explicit command, so navigating alone does not enable approval keys. The existing selection dwell remains for ordinary notifications and continues to preserve explicit-answer attention.
+
+The workspace shortcut (⇧⌘K), workspace context action, and pane-level **Mark as seen** controls now use notification-only marking: clear unread, nonblocking notification reasons, and finished-turn review reminders, retaining explicit permission/input reasons until resolved or deliberately dismissed. Pane marking resolves the pane's live owner without selecting a sibling. A finished-turn reminder is distinct from a human-blocking prompt.
+
+**Clear All Notifications** remains the deliberate dismissal escape hatch for stale attention, including restored requests, and stays enabled for reminders even after their unread count reaches zero. The row-level Dismiss attention reminder action is restricted to nonblocking reminders. Its clearing behavior is separate from Mark as seen. No navigation, marking, or dismissal action grants or denies permission; existing permission coordinators remain the sole approval surface.

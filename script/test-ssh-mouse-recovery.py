@@ -81,12 +81,12 @@ def main():
     remote_tui = ssh + " -tt " + shlex.quote("python3 -c " + shlex.quote(TUI))
     results = []
 
-    for case in ("disowned-pipe", "disowned-bang", "ssh-exit", "local-tui", "remote-tui", "compound-tui", "next-tui", "nested-tui", "reattach-tui", "ordinary-command", "hook-chain", "ssh-failure", "suspended-ssh", "absolute-ssh", "unrelated-stopped"):
+    for case in ("disowned-pipe", "disowned-bang", "ssh-exit", "local-tui", "remote-tui", "compound-tui", "next-tui", "nested-tui", "reattach-tui", "ordinary-command", "hook-chain", "ssh-failure", "suspended-ssh", "suspended-helper", "absolute-ssh", "unrelated-stopped"):
         startup = "PS1='PROOF> '\nRPROMPT=''\n"
         startup += "_proof_preexec() { printf 'LATER-PREEXEC\\n'; }\n"
         startup += "_proof_precmd() { printf 'LATER-PRECMD:%s\\n' $?; }\n"
         startup += "preexec_functions+=(_proof_preexec)\nprecmd_functions+=(_proof_precmd)\n"
-        if case == "suspended-ssh":
+        if case in ("suspended-ssh", "suspended-helper"):
             startup += "zmodload zsh/parameter\n"
             startup += "_proof_jobs() { print -r -- JOB-STATES:${(kv)jobstates} JOB-TEXTS:${(kv)jobtexts}; }\nprecmd_functions+=(_proof_jobs)\n"
         if case == "absolute-ssh":
@@ -159,7 +159,9 @@ def main():
                 captured.extend(output)
                 assert RESET not in output, "ordinary command reset mouse modes"
             else:
-                command = remote_tui if case in ("remote-tui", "suspended-ssh") else local_command
+                command = remote_tui if case in ("remote-tui", "suspended-ssh", "suspended-helper") else local_command
+                if case == "suspended-helper":
+                    command = command.replace("ssh ", "awesomux-ssh ", 1)
                 if case == "nested-tui":
                     command = "/bin/zsh -d -i -c " + shlex.quote(local_command)
                 if case == "compound-tui":
@@ -168,7 +170,7 @@ def main():
                 output = read_until(master, b"\x1b[?1006hTUI-READY\r\n")
                 captured.extend(output)
                 assert RESET not in output, "active TUI received mouse cleanup"
-                if case == "suspended-ssh":
+                if case in ("suspended-ssh", "suspended-helper"):
                     os.write(master, b"\r~\x1a")
                     output = read_until(master, b"PROOF> ") + drain(master)
                     captured.extend(output)
@@ -177,7 +179,7 @@ def main():
                     captured.extend(drain(master))
                 os.write(master, REPORT)
                 output = read_until(master, b"TUI-GOT:" + REPORT.hex().encode()) + drain(master)
-                if case == "suspended-ssh":
+                if case in ("suspended-ssh", "suspended-helper"):
                     if b"PROOF> " not in output:
                         output += read_until(master, b"PROOF> ") + drain(master)
                     assert RESET in output, "resumed SSH exit did not restore local mouse modes"
