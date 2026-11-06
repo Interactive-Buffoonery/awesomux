@@ -135,13 +135,16 @@ public enum SidebarVisibleRows {
     ) -> SidebarWorkspaceRotorEntry {
         let session = liftedEntry.entry.session
         let originGroupName = liftedEntry.originGroup.name
-        // The section says Needs Attention while the agent state can still say Needs input.
+        let sectionPhrase = originGroupPhrase(liftedBecause: reason, originGroupName: originGroupName)
+        let originOnly = originPhrase(originGroupName: originGroupName)
+        // Say the section unless the state label just spoke those same words.
+        let stateNamesSection = sectionPhrase == session.agentRollup().state.localizedLabel() + ", " + originOnly
         return SidebarWorkspaceRotorEntry(
             id: session.id,
             label: rotorLabel(
                 for: session,
                 title: titles[session.id],
-                originGroupPhrase: originGroupPhrase(liftedBecause: reason, originGroupName: originGroupName)
+                originGroupPhrase: stateNamesSection ? originOnly : sectionPhrase
             )
         )
     }

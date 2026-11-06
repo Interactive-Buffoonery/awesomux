@@ -35,7 +35,7 @@ import Foundation
         }
         store.markSessionNeedsAttention(id: codex.id)
         check("generic orange attention lifts", visible().attention == [codex.id])
-        check("lifted rotor identifies Needs Attention", visible().rotor.first?.contains("Needs attention, from") == true)
+        check("lifted rotor identifies Needs Attention once", visible().rotor.first.map { $0.components(separatedBy: "Needs attention").count == 2 && $0.contains("Needs attention, from") } == true)
         check("generic reason stays unknown", store.session(id: codex.id)?.layout.pane(id: codex.activePaneID)?.attentionReason == .unknown)
         store.selectedSessionID = codex.id
         store.acknowledgeSession(id: codex.id, releasesAttentionSticky: false, answersUnansweredTurn: false)
