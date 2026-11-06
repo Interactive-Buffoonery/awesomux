@@ -819,9 +819,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Removed %lld workspace group that could not be restored.</string>
+            <string>%lld workspace group couldn't be restored.</string>
             <key>other</key>
-            <string>Removed %lld workspace groups that could not be restored.</string>
+            <string>%lld workspace groups couldn't be restored.</string>
         </dict>
     </dict>
     <key>alert.recovery.replacedLayouts</key>
@@ -835,9 +835,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Replaced %lld saved workspace layout.</string>
+            <string>%lld workspace layout was reset.</string>
             <key>other</key>
-            <string>Replaced %lld saved workspace layouts.</string>
+            <string>%lld workspace layouts were reset.</string>
         </dict>
     </dict>
     <key>alert.recovery.skippedDocumentTabs</key>
@@ -851,9 +851,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Skipped %lld document tab that could not be restored.</string>
+            <string>%lld document tab couldn't be reopened.</string>
             <key>other</key>
-            <string>Skipped %lld document tabs that could not be restored.</string>
+            <string>%lld document tabs couldn't be reopened.</string>
         </dict>
     </dict>
     <key>alert.recovery.nameAdjustments</key>
@@ -867,9 +867,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Made %lld adjustment to saved names or titles.</string>
+            <string>Some names or titles were changed.</string>
             <key>other</key>
-            <string>Made %lld adjustments to saved names or titles.</string>
+            <string>Some names or titles were changed.</string>
         </dict>
     </dict>
     <key>alert.recovery.mergedGroups</key>
@@ -883,9 +883,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Merged %lld duplicate workspace group.</string>
+            <string>%lld duplicate workspace group was merged.</string>
             <key>other</key>
-            <string>Merged %lld duplicate workspace groups.</string>
+            <string>%lld duplicate workspace groups were merged.</string>
         </dict>
     </dict>
     <key>alert.recovery.workingDirectories</key>
@@ -899,9 +899,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Reset the saved working directory for %lld pane or workspace to home.</string>
+            <string>%lld working directory was reset to home.</string>
             <key>other</key>
-            <string>Reset saved working directories for %lld panes or workspaces to home.</string>
+            <string>%lld working directories were reset to home.</string>
         </dict>
     </dict>
     <key>alert.recovery.paneSelections</key>
@@ -915,9 +915,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Replaced %lld saved pane selection.</string>
+            <string>%lld pane lost its saved selection.</string>
             <key>other</key>
-            <string>Replaced %lld saved pane selections.</string>
+            <string>%lld panes lost their saved selection.</string>
         </dict>
     </dict>
     <key>alert.recovery.workspaceSelections</key>
@@ -931,9 +931,9 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>one</key>
-            <string>Replaced %lld saved workspace selection.</string>
+            <string>The selected workspace couldn't be restored.</string>
             <key>other</key>
-            <string>Replaced %lld saved workspace selections.</string>
+            <string>The selected workspace couldn't be restored.</string>
         </dict>
     </dict>
 </dict>

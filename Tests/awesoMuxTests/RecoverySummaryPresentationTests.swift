@@ -23,24 +23,24 @@ struct RecoverySummaryPresentationTests {
             let expected =
                 count == 1
                 ? [
-                    "Removed 1 workspace group that could not be restored.",
-                    "Replaced 1 saved workspace layout.",
-                    "Skipped 1 document tab that could not be restored.",
-                    "Made 1 adjustment to saved names or titles.",
-                    "Merged 1 duplicate workspace group.",
-                    "Reset the saved working directory for 1 pane or workspace to home.",
-                    "Replaced 1 saved pane selection.",
-                    "Replaced 1 saved workspace selection.",
+                    "1 workspace group couldn't be restored.",
+                    "1 workspace layout was reset.",
+                    "1 document tab couldn't be reopened.",
+                    "Some names or titles were changed.",
+                    "1 duplicate workspace group was merged.",
+                    "1 working directory was reset to home.",
+                    "1 pane lost its saved selection.",
+                    "The selected workspace couldn't be restored.",
                 ]
                 : [
-                    "Removed 2 workspace groups that could not be restored.",
-                    "Replaced 2 saved workspace layouts.",
-                    "Skipped 2 document tabs that could not be restored.",
-                    "Made 2 adjustments to saved names or titles.",
-                    "Merged 2 duplicate workspace groups.",
-                    "Reset saved working directories for 2 panes or workspaces to home.",
-                    "Replaced 2 saved pane selections.",
-                    "Replaced 2 saved workspace selections.",
+                    "2 workspace groups couldn't be restored.",
+                    "2 workspace layouts were reset.",
+                    "2 document tabs couldn't be reopened.",
+                    "Some names or titles were changed.",
+                    "2 duplicate workspace groups were merged.",
+                    "2 working directories were reset to home.",
+                    "2 panes lost their saved selection.",
+                    "The selected workspace couldn't be restored.",
                 ]
             #expect(LocalizedPluralStrings.recoverySummaryLines(summary, bundle: bundle) == expected)
         }
@@ -68,8 +68,8 @@ struct RecoverySummaryPresentationTests {
             )
             #expect(
                 LocalizedPluralStrings.recoverySummaryLines(summary, bundle: bundle) == [
-                    "Made 6 adjustments to saved names or titles.",
-                    "Reset saved working directories for 3 panes or workspaces to home.",
+                    "Some names or titles were changed.",
+                    "3 working directories were reset to home.",
                 ])
         }
     }
@@ -94,8 +94,8 @@ struct RecoverySummaryPresentationTests {
         try withEnglishBundle { bundle in
             #expect(
                 LocalizedPluralStrings.recoverySummaryLines(restored.sanitizationSummary, bundle: bundle) == [
-                    "Made 2 adjustments to saved names or titles.",
-                    "Replaced 1 saved workspace selection.",
+                    "Some names or titles were changed.",
+                    "The selected workspace couldn't be restored.",
                 ])
         }
     }

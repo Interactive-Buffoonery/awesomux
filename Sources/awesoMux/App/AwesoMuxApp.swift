@@ -6885,7 +6885,7 @@ extension AwesoMuxApp {
             if !adjustments.isEmpty {
                 informativeLines.append(
                     String(
-                        localized: "Changes needed to restore the saved data:",
+                        localized: "Some saved data couldn't be restored as it was:",
                         comment: "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
                     ) + "\n" + adjustments.joined(separator: "\n")
                 )
