@@ -5494,6 +5494,9 @@
     "Terminal bell" : {
       "comment" : "Terminal bell event in the companion away activity summary."
     },
+    "Terminal content area" : {
+      "comment" : "VoiceOver help for the terminal content area."
+    },
     "Terminal font size" : {
 
     },
