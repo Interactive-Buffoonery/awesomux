@@ -350,12 +350,32 @@ entirely and let your Ghostty config and CoreText resolution stand.
 Generated resources include independently written zsh and fish `ssh` wrappers.
 They install at the first prompt after user startup, preserving existing SSH
 aliases/functions and executable lookup through `PATH`. When the inherited
-terminal is `xterm-ghostty`, the wrapper supplies `TERM=xterm-256color` only to
-the SSH process; local TERM and other terminal selections are unchanged.
-This also means hosts with working Ghostty terminfo receive the fallback.
+terminal is `xterm-ghostty`, the wrapper supplies `TERM=xterm-256color` to the
+SSH process unless the host was set up (below); local TERM and other terminal
+selections are unchanged.
 `command ssh`, absolute executable paths, custom aliases/functions, unsupported
 shells, and disabled shell integration bypass it. Existing persistent shells
-need recreation. No remote probes or installations occur.
+need recreation.
+
+Both wrappers, and the SSH workspace launcher in `AmxBackend`, route through
+one POSIX `sh` helper, `shell-integration/awesomux-ssh`. It runs through
+`/bin/sh` because Ghostty installs resources without the executable bit. The
+helper is the only place that picks the remote TERM. It keeps `xterm-ghostty`
+only for hosts listed in the setup cache, and gives every other host
+`xterm-256color`. SSH workspaces pass `--portable`, which also maps any other
+TERM to `xterm-256color`, as the launcher did before. When the cache is missing or empty it never runs `ssh -G`,
+because `-G` re-runs `Match exec` and can look up DNS.
+
+`awesomux-ssh --setup-terminfo` asks y/N on the terminal before it connects.
+It then sends a script on stdin to a bare remote `sh`, so the remote login shell
+never parses it. The payload comes from the local `infocmp -x xterm-ghostty`,
+using the bundled compiled terminfo. The remote side writes nothing if the
+definition is already present (unless `--force`). Otherwise it writes the
+definition to a `mktemp` file and runs `tic -x -o "$HOME/.terminfo"`, then
+checks it with `infocmp`. The host is cached only when the definition is
+present or verified. A missing `tic`, an unwritable home, or a failed check
+leaves the host on `xterm-256color`. `ssh -G` keys can drift when `Match exec`
+or DNS results change; `--forget` clears a stale entry.
 
 The scripts are fingerprinted and staged through `prepare_ghostty_source.py`;
 the vendored source and pin stay unchanged. Unsupported upstream helpers that
@@ -425,9 +445,9 @@ Terminal appearance is split between visual config and terminal identity:
 - Identity and capability are deliberately split: `TERM_PROGRAM=awesoMux` (with
   `TERM_PROGRAM_VERSION` set to the app's bundle version) names the terminal for
   env-trusting tools, while `TERM=xterm-ghostty` stays the Ghostty-capability
-  signal (ADR-0011 follow-up). Process-tree walkers like fastfetch still see the
-  `amx` daemon's process name; fixing that display requires an upstream
-  fastfetch mapping, not env changes. Background `amx` sessions spawned before
+  signal (ADR-0011 follow-up). Fastfetch 2.71.0 looks at the process tree first,
+  so it can show `amx` even when `TERM_PROGRAM` is `awesoMux`. The example below
+  changes that display, not detection. Background `amx` sessions spawned before
   an identity change keep their original env until the session itself is
   recreated — a live process's environment can't be rewritten from outside.
 
@@ -499,6 +519,28 @@ The surface bridge is split into focused app-target files under
   ```zsh
   [[ -z ${AWESOMUX_COMPACT_TERMINAL:-} ]] && fastfetch
   ```
+
+  To display awesoMux's name and version, run this in a local awesoMux pane.
+  It shows only the Terminal line and leaves your config files unchanged.
+  Fastfetch 2.71.0 no longer supports `--terminal-format`.
+
+  ```zsh
+  if [[ ${TERM_PROGRAM:-} == awesoMux &&
+        -z ${TMUX:-} &&
+        -z ${SSH_CONNECTION:-} &&
+        -z ${SSH_CLIENT:-} &&
+        -z ${SSH_TTY:-} ]]; then
+    fastfetch --config - <<'JSON'
+  {"logo":null,"modules":[{"type":"terminal","format":"{$TERM_PROGRAM} {$TERM_PROGRAM_VERSION}"}]}
+  JSON
+  else
+    fastfetch
+  fi
+  ```
+
+  When tmux or SSH markers are set, this runs ordinary fastfetch. These
+  environment checks are only a guard: inherited values may be stale, and the
+  version may be empty.
 
 - each pane receives `AWESOMUX_PROFILE=production|development|development:<id>`
   after inherited values are scrubbed, so profile-aware maintenance commands

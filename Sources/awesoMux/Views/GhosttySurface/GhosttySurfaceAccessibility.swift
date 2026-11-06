@@ -29,7 +29,7 @@ extension GhosttySurfaceNSView {
     }
 
     override func accessibilityHelp() -> String? {
-        "Terminal content area"
+        String(localized: "Terminal content area", comment: "VoiceOver help for the terminal content area.")
     }
 
     override func accessibilityValue() -> Any? {

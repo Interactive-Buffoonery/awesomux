@@ -128,10 +128,12 @@ struct PaletteAppActions {
     let restartShell: @MainActor () -> Void
     let find: @MainActor () -> Void
     let scrollbackDump: @MainActor () -> Void
+    let browseProjectTranscripts: @MainActor () -> Void
     let openAgentTranscript: @MainActor () -> Void
     let showBranchChanges: @MainActor () -> Void
     let openPullRequest: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
+    let setUpRemoteTerminal: @MainActor () -> Void
     let growActivePane: @MainActor () -> Void
     let shrinkActivePane: @MainActor () -> Void
     let previousPane: @MainActor () -> Void
@@ -149,6 +151,7 @@ struct PaletteAppActions {
     let returnPaneToSourceWorkspace: @MainActor () -> Void
     let focusPane: @MainActor (Int) -> Void
     let acknowledgeWorkspace: @MainActor () -> Void
+    let nextAgentNeedingAttention: @MainActor () -> Void
     let focusPermissionPrompt: @MainActor () -> Void
     let clearAllNotifications: @MainActor () -> Void
     let toggleFloatingPanel: @MainActor () -> Void
@@ -210,10 +213,12 @@ struct PaletteAppActions {
             restartShell: action,
             find: action,
             scrollbackDump: action,
+            browseProjectTranscripts: action,
             openAgentTranscript: action,
             showBranchChanges: action,
             openPullRequest: action,
             reconnectRemotePane: action,
+            setUpRemoteTerminal: action,
             growActivePane: action,
             shrinkActivePane: action,
             previousPane: action,
@@ -231,6 +236,7 @@ struct PaletteAppActions {
             returnPaneToSourceWorkspace: action,
             focusPane: indexedAction,
             acknowledgeWorkspace: action,
+            nextAgentNeedingAttention: action,
             focusPermissionPrompt: action,
             clearAllNotifications: action,
             toggleFloatingPanel: action,
@@ -330,7 +336,7 @@ enum PaletteCommandRegistry {
         let hasSelectedSession = selected != nil
         let selectedNeedsAcknowledgement =
             selected.map {
-                $0.unreadNotificationCount > 0 || $0.needsAcknowledgement
+                sessionStore.canMarkWorkspaceSeen(id: $0.id)
             } ?? false
         let activePaneID = selected?.activePaneID
         let selectedSessionID = selected?.id
@@ -534,10 +540,23 @@ enum PaletteCommandRegistry {
                 run: actions.scrollbackDump
             ),
             PaletteCommand(
+                id: "browseProjectTranscripts",
+                title: String(
+                    localized: "Browse Project Transcripts",
+                    comment: "Heading of the current-project agent transcript browser"
+                ),
+                subtitle: selected?.activePane?.workingDirectory,
+                keywords: ["agent", "transcript", "project", "history", "claude", "codex"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
+                run: actions.browseProjectTranscripts
+            ),
+            PaletteCommand(
                 id: KeyboardShortcutCatalog.openAgentTranscript.id,
                 title: "Open Agent Transcript",
                 subtitle: selected?.activePane?.title,
-                keywords: ["agent", "transcript", "session", "history", "log", "resume", "claude", "codex", "pi"],
+                keywords: ["agent", "transcript", "session", "history", "log", "resume", "review", "claude", "codex", "pi"],
                 shortcut: KeyboardShortcutCatalog.openAgentTranscript,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
@@ -576,6 +595,20 @@ enum PaletteCommandRegistry {
                 isEnabled: selectedActivePaneIsDisconnected,
                 selectionScope: .pane,
                 run: actions.reconnectRemotePane
+            ),
+            PaletteCommand(
+                id: "setUpRemoteTerminal",
+                title: String(
+                    localized: "Set Up Ghostty Terminal on Remote Host…",
+                    comment: "Command that offers to install the xterm-ghostty terminal definition on the active pane's SSH host"
+                ),
+                subtitle: selected?.activePane?.executionPlan.remoteTarget?.sshDestination,
+                keywords: ["ssh", "remote", "terminfo", "xterm-ghostty", "term", "colors"],
+                shortcut: nil,
+                isEnabled: selected?.activePane?.executionPlan.remoteTarget != nil
+                    && AmxBackend.hasTerminalSetupHelper,
+                selectionScope: .pane,
+                run: actions.setUpRemoteTerminal
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.growActivePane.id,
@@ -799,8 +832,18 @@ enum PaletteCommandRegistry {
 
         commands.append(contentsOf: [
             PaletteCommand(
+                id: KeyboardShortcutCatalog.nextAgentNeedingAttention.id,
+                title: String(localized: "Next Agent Needing Me", comment: "Agent navigation and notification command"),
+                subtitle: nil,
+                keywords: ["agent", "attention", "waiting", "permission", "question", "next"],
+                shortcut: KeyboardShortcutCatalog.nextAgentNeedingAttention,
+                isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
+                run: actions.nextAgentNeedingAttention
+            ),
+            PaletteCommand(
                 id: KeyboardShortcutCatalog.acknowledgeWorkspace.id,
-                title: "Acknowledge Workspace",
+                title: String(localized: "Mark Workspace as Seen", comment: "Agent navigation and notification command"),
                 subtitle: nil,
                 keywords: ["mark", "read", "clear", "notification"],
                 shortcut: KeyboardShortcutCatalog.acknowledgeWorkspace,
@@ -827,7 +870,7 @@ enum PaletteCommandRegistry {
                 subtitle: nil,
                 keywords: ["acknowledge", "mark", "read"],
                 shortcut: nil,
-                isEnabled: sessionStore.unreadNotificationTotal > 0,
+                isEnabled: sessionStore.hasAttentionToDismiss,
                 selectionScope: .none,
                 run: actions.clearAllNotifications
             ),

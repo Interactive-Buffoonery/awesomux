@@ -425,7 +425,7 @@ public final class SessionStore {
         didSet { reconcileLiftedSessionIDs() }
     }
 
-    /// Ordered lifted list for the sidebar's synthetic Needs Input section.
+    /// Ordered lifted list for the sidebar's synthetic Needs Attention section.
     /// Membership = lifted and not pinned, array order = ARRIVAL order: first to
     /// ask sits at the top and new arrivals append at the bottom, so an existing
     /// row is never shoved down under the user's pointer. Re-asking while
@@ -446,6 +446,87 @@ public final class SessionStore {
     @ObservationIgnored var localAPIActiveAttention: [UUID: LocalAPIActiveAttention] = [:]
 
     public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
+
+    public var hasAttentionToDismiss: Bool {
+        unreadNotificationTotal > 0 || !unansweredTurns.isEmpty
+            || _groups.contains { $0.sessions.contains { $0.needsAcknowledgement } }
+    }
+    /// First observed actionable episodes. Restored requests begin in traversal order.
+    public internal(set) var actionableAgentPaneIDs: [UUID] = []
+
+    func reconcileActionableAgentPaneIDs() {
+        let current = AgentActivityRoster.actionablePaneIDs(sessions: _groups.flatMap(\.sessions))
+        let membership = Set(current)
+        var next = actionableAgentPaneIDs.filter { membership.contains($0) }
+        let retained = Set(next)
+        next.append(contentsOf: current.filter { !retained.contains($0) })
+        if next != actionableAgentPaneIDs { actionableAgentPaneIDs = next }
+    }
+
+    /// Notification-only acknowledgment. Explicit requests remain owned by their provider.
+    public func markPaneSeen(sessionID: TerminalSession.ID, paneID: UUID) {
+        guard let owningSessionID = sessionIDContainingPane(paneID),
+            let position = position(for: owningSessionID),
+            let pane = _groups[position.groupIndex].sessions[position.sessionIndex].layout.pane(id: paneID),
+            pane.canMarkSeen || unansweredTurns[paneID] != nil
+        else { return }
+        if selectedSessionID == owningSessionID,
+            _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID == paneID
+        {
+            acknowledgementCoordinator.cancel()
+        }
+        if attentionStickySessionID == owningSessionID { attentionStickySessionID = nil }
+        clearUnansweredTurn(paneIDs: [paneID])
+        let change = WorkspaceAttentionReducer.markPaneSeen(
+            &_groups[position.groupIndex].sessions[position.sessionIndex], paneID: paneID
+        )
+        commit(WorkspaceMutationEffect(unreadChange: change))
+    }
+
+    /// Dismiss a nonblocking reminder, never an explicit request or a provider permission.
+    public func dismissAgentAttentionReminder(paneID: UUID) {
+        guard let sessionID = sessionIDContainingPane(paneID), let position = position(for: sessionID),
+            let pane = _groups[position.groupIndex].sessions[position.sessionIndex].layout.pane(id: paneID),
+            pane.attentionReason?.awaitsExplicitAnswer != true
+        else { return }
+        if selectedSessionID == sessionID,
+            _groups[position.groupIndex].sessions[position.sessionIndex].activePaneID == paneID
+        {
+            acknowledgementCoordinator.cancel()
+        }
+        if attentionStickySessionID == sessionID { attentionStickySessionID = nil }
+        let change = WorkspaceAttentionReducer.acknowledgePane(
+            &_groups[position.groupIndex].sessions[position.sessionIndex], paneID: paneID
+        )
+        clearUnansweredTurn(paneIDs: [paneID])
+        commit(WorkspaceMutationEffect(unreadChange: change))
+    }
+
+    public func canMarkWorkspaceSeen(id: TerminalSession.ID) -> Bool {
+        guard let session = session(id: id) else { return false }
+        return session.panes.contains { $0.canMarkSeen || unansweredTurns[$0.id] != nil }
+    }
+
+    public func markWorkspaceSeen(id: TerminalSession.ID) {
+        guard let position = position(for: id) else { return }
+        let session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let panes = session.panes.filter { $0.canMarkSeen || unansweredTurns[$0.id] != nil }
+        guard !panes.isEmpty else { return }
+        if selectedSessionID == id { acknowledgementCoordinator.cancel() }
+        if attentionStickySessionID == id { attentionStickySessionID = nil }
+        clearUnansweredTurn(paneIDs: panes.map(\.id))
+        for pane in panes {
+            _ = WorkspaceAttentionReducer.markPaneSeen(
+                &_groups[position.groupIndex].sessions[position.sessionIndex], paneID: pane.id
+            )
+        }
+        commit(
+            WorkspaceMutationEffect(
+                unreadChange: WorkspaceAttentionReducer.UnreadChange(
+                    oldCount: session.unreadNotificationCount,
+                    newCount: _groups[position.groupIndex].sessions[position.sessionIndex].unreadNotificationCount
+                )))
+    }
 
     /// Panes whose finished turn has gone unanswered long enough that the agent
     /// reported the user is away — Claude Code's `idle_prompt`, which fires once,
@@ -498,7 +579,7 @@ public final class SessionStore {
         }
     }
 
-    /// The workspace held in the Needs Input section past the point it stopped
+    /// The workspace held in the Needs Attention section past the point it stopped
     /// needing input. Written synchronously by the `selectedSessionID` setter —
     /// a view-local `@State` written in `.onChange` would lag the body that
     /// reads it, demoting a just-clicked row for one render pass.
@@ -574,7 +655,7 @@ public final class SessionStore {
             let selected = storedSelectedSessionID,
             !pinnedSessionIDs.contains(selected),
             let session = session(id: selected),
-            session.needsUserInput
+            session.effectiveChromeState == .needsAttention
         else {
             // @Observable publishes even a nil→nil write, and this runs on every
             // dwell arm — invalidating every sidebar row for a no-op.
@@ -596,22 +677,28 @@ public final class SessionStore {
     /// Records or retracts a pane's unanswered-turn mark from a runtime event
     /// the reducer already accepted, and reconciles when membership moved.
     ///
-    /// The retraction set is deliberately narrow. `.promptSubmit` means a prompt
+    /// Claude retraction is deliberately narrow. `.promptSubmit` means a prompt
     /// was actually submitted into this pane — the one phase that proves the turn
     /// got answered, whether the user typed it or `amx send` injected it. Tool
-    /// phases are excluded on purpose: subagent tool calls inherit the pane's
+    /// phases are excluded for Claude on purpose: subagent tool calls inherit the pane's
     /// event file, and `AgentRuntimeEventReducer` measured a background
     /// `.toolStart` landing after turn-end at 11 of 32 turn-ends in a real trace.
-    /// Clearing on those would drop the row out of Needs Input a third of the
+    /// Clearing on those would drop the row out of Needs Attention a third of the
     /// time while the agent is still genuinely waiting.
     func updateUnansweredTurn(paneID: TerminalPane.ID, event: AgentRuntimeEvent) {
         let before = unansweredTurns
+        let lifecycleEnded = runtimeEventReducer.stateByPaneID[paneID]?.lifecycle.isEnded == true
         switch event.phase {
-        case .notification where event.assertsWaitingExecutionState:
-            // The only mapping that asserts `.waiting` on a notification is
-            // Claude Code's `idle_prompt`. Every other provider's notification
-            // carries an attention reason and no execution claim.
+        case .notification where event.assertsWaitingExecutionState && !lifecycleEnded:
+            // Claude Code's delayed idle prompt reports an unanswered turn.
             unansweredTurns[paneID] = event.providerSessionID
+        case .stop where event.source == .codex && event.assertsWaitingExecutionState && !lifecycleEnded:
+            // Codex has no delayed idle prompt, so its completed turn is the signal.
+            unansweredTurns[paneID] = event.providerSessionID
+        case .toolStart where event.source == .codex:
+            // Codex can continue after Stop without a new prompt; follow its working state.
+            guard retracts(event, markedFor: paneID) else { return }
+            unansweredTurns.removeValue(forKey: paneID)
         case .promptSubmit, .sessionEnd:
             guard retracts(event, markedFor: paneID) else { return }
             unansweredTurns.removeValue(forKey: paneID)
@@ -790,6 +877,7 @@ public final class SessionStore {
         // lifetime.
         lastLiveTitleBumpBySessionID.removeAll()
         daemonRecoveryTokens.removeAll()
+        actionableAgentPaneIDs = []
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
         // Both clears precede the `pinnedSessionIDs` write below, whose observer
@@ -1311,21 +1399,10 @@ public final class SessionStore {
         return session.activePane?.executionPlan.remoteTarget
     }
 
-    /// Acknowledges the session's ACTIVE pane (selection dwell / per-row clear).
-    /// A sibling pane still needing input keeps the workspace row loud — ⌘⇧K
-    /// (`acknowledgeAllPanes(in:)`) clears the whole workspace, and "Clear All
-    /// Notifications" (`acknowledgeAllSessions`) clears every workspace. ADR-0003
-    /// amendment under INT-504.
-    ///
-    /// - Parameter releasesAttentionSticky: `false` only for the passive
-    ///   selection dwell, which must NOT evict the row the user is reading. Every
-    ///   deliberate gesture (context menu, ⌘⇧K, Clear All Notifications) leaves
-    ///   the default so the row leaves the section immediately.
-    /// - Parameter answersUnansweredTurn: whether this gesture proves the user
-    ///   answered the turn, as opposed to merely reaching or reading the pane.
-    ///   Independent of `releasesAttentionSticky`: the ack-on-read dwell passes
-    ///   false to both, the peek-card and roster pane jumps release the sticky
-    ///   but do NOT answer anything, and only a deliberate acknowledge is both.
+    /// Legacy active-pane acknowledgment used by selection dwell.
+    /// Explicit notification-only controls use markPaneSeen/markWorkspaceSeen instead.
+    /// Passive dwell preserves both the sticky location and unanswered-turn reminders.
+    /// Clear All Notifications remains the deliberate all-workspace dismissal.
     public func acknowledgeSession(
         id: TerminalSession.ID,
         releasesAttentionSticky: Bool = true,
@@ -1354,20 +1431,15 @@ public final class SessionStore {
         // good. Verified against a live build: the selected workspace was the
         // one workspace this signal could not reach.
         //
-        // The jump surfaces are the same rule seen from the other side. Landing
-        // on a waiting pane from the peek card or the activity roster is arrival,
-        // not an answer — and the roster's whole workflow is cycling through
-        // waiting panes to survey them, which would otherwise wipe every mark it
-        // visited. They still ack the unread badge, which IS ack-on-read's proper
-        // subject: seeing a bell is the whole response to a bell.
+        // Pane navigation does not call this API; arrival is not an answer.
         if answersUnansweredTurn {
             clearUnansweredTurn(paneIDs: [activePaneID])
         }
         commit(WorkspaceMutationEffect(unreadChange: change))
     }
 
-    /// Acknowledges every pane in ONE workspace — the ⌘⇧K "Acknowledge Workspace"
-    /// escape hatch. Distinct from `acknowledgeSession` (active pane only) and
+    /// Legacy deliberate attention dismissal for every pane in one workspace.
+    /// The notification-only ⌘⇧K action uses markWorkspaceSeen instead. Distinct from `acknowledgeSession` (active pane only) and
     /// `acknowledgeAllSessions` (every workspace). INT-504 R3.
     public func acknowledgeAllPanes(in id: TerminalSession.ID) {
         guard let position = position(for: id) else { return }
@@ -1736,7 +1808,7 @@ public final class SessionStore {
         guard session(id: sessionID) != nil else { return }
         pinnedSessionIDs.append(sessionID)
         // Pinned wins over lifted by construction, so a surviving sticky would
-        // hijack the tile back into Needs Input the moment it is unpinned.
+        // hijack the tile back into Needs Attention the moment it is unpinned.
         if attentionStickySessionID == sessionID {
             attentionStickySessionID = nil
         }

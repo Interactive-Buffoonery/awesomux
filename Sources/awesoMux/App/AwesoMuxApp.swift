@@ -30,6 +30,28 @@ private func sanitizeInheritedTerminalContextFromProcessEnvironment() {
     // deliberately-injected marker and break the feature.
     unsetenv(FloatingPanelStoreFactory.spawnEnvironmentKey)
     unsetenv(CompactTerminalKind.spawnEnvironmentKey)
+    // When a coding agent launches awesoMux, its tool-call environment describes
+    // that agent run, not the user, and pane daemons keep it for the life of
+    // each session. Codex sets NO_COLOR for its own output (colorless Claude
+    // Code in every pane) and CODEX_CI/CODEX_THREAD_ID make a `codex` started in
+    // a pane think it is a nested CI tool call. ELECTRON_RUN_AS_NODE comes from
+    // Electron agent hosts and makes Electron CLIs such as `code` run as plain
+    // Node. Other CODEX_* keys (CODEX_HOME, CODEX_API_KEY, ...) are user
+    // configuration, so only these run-scoped keys are removed.
+    let environment = ProcessInfo.processInfo.environment
+    if ["CODEX_SANDBOX", "CODEX_THREAD_ID", "CODEX_CI", "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID"].contains(where: { environment[$0] != nil }
+    ) {
+        unsetenv("NO_COLOR")
+    }
+    let agentRunKeys = [
+        "CODEX_CI", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID",
+        "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID", "CODEX_VERSION",
+        "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "CODEX_COMPANION_SESSION_ID",
+        "CLAUDE_AGENT_SDK_VERSION", "ELECTRON_RUN_AS_NODE",
+    ]
+    for key in agentRunKeys {
+        unsetenv(key)
+    }
     // Strip the GHOSTTY_*/CMUX_* families too. When awesoMux is launched from
     // inside another ghostty-based terminal (Ghostty, cmux, or awesoMux
     // itself), the child process inherits GHOSTTY_RESOURCES_DIR / GHOSTTY_BIN_DIR
@@ -165,6 +187,10 @@ struct AwesoMuxApp: App {
     @State private var remoteWorkspaceGroupCreateRequest: RemoteWorkspaceGroupCreateRequest?
     @State private var sshWorkspaceConnectRequest: SSHWorkspaceConnectRequest?
     @State private var workspaceGroupRenameRequest: WorkspaceGroupRenameRequest?
+    @State private var projectTranscriptBrowserRequest: ProjectTranscriptBrowserRequest?
+    @State private var projectTranscriptOpenTask: Task<Void, Never>?
+    @State private var projectTranscriptFocusIntent: DocumentComposeTabActionHandler.FocusIntent?
+    @State private var projectTranscriptRenderGate = AgentTranscriptRenderGate()
     @State private var quickSettingsRequest: QuickSettingsRequest?
     @State private var remoteMarkdownPathOpenRequest: RemoteMarkdownPathOpenRequest?
     /// Last submitted typed path per SSH destination, used to prefill the
@@ -473,32 +499,7 @@ struct AwesoMuxApp: App {
                 onTerminalFooterHeightChange: { height in
                     popUpTerminalController.updateBottomInset(height)
                 },
-                onFocusAgentPane: { sessionID, paneID in
-                    // Mirror the peek card's pane jump (ContentView.wirePeekSelection):
-                    // guard the ghost-click (roster rows are render-time snapshots), then
-                    // setActivePane BEFORE ack/focus — requestTerminalFocus alone moves
-                    // first responder but not the model's active pane, which strands the
-                    // path bar / per-pane ack on the wrong pane (review finding).
-                    guard let session = sessionStore.session(id: sessionID),
-                        let paneIndex = session.layout.paneIDs.firstIndex(of: paneID)
-                    else {
-                        // Roster rows are render-time snapshots; the pane can vanish
-                        // between build and click. IDs only — privacy-safe.
-                        Self.logger.debug(
-                            "agent panel jump dropped stale row sessionID=\(sessionID, privacy: .public) paneID=\(paneID, privacy: .public)"
-                        )
-                        return
-                    }
-                    sessionStore.selectedSessionID = sessionID
-                    appDelegate.surfacePrimaryWindow()
-                    sessionStore.setActivePane(id: paneID, in: sessionID)
-                    // Explicit gesture → immediate ack, same as the peek card (ADR-0003).
-                    // Arriving at the pane is not answering its turn, though: the
-                    // roster's whole workflow is cycling through waiting panes.
-                    sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
-                    requestTerminalFocus(sessionID: sessionID, paneID: paneID)
-                    announcePaneFocused(index: paneIndex + 1)
-                },
+                onFocusAgentPane: focusAgentPane,
                 onFocusActiveTerminal: focusActiveTerminal,
                 sidebarPresentationCommandMailbox: sidebarPresentationCommandMailbox,
                 sidebarWidthToggleRequestID: sidebarWidthToggleRequestID,
@@ -645,6 +646,24 @@ struct AwesoMuxApp: App {
                 )
                 .onAppear { activeSheetDidPresent = true }
             }
+            .sheet(item: $projectTranscriptBrowserRequest, onDismiss: handleRequestSheetDismiss) { request in
+                AgentProjectTranscriptBrowser(
+                    projectDirectory: URL(fileURLWithPath: request.context.directory),
+                    roots: request.roots,
+                    onCancel: { projectTranscriptBrowserRequest = nil },
+                    onOpen: { entry in openProjectTranscript(entry, request: request) }
+                )
+                .onAppear { activeSheetDidPresent = true }
+            }
+            .onChange(of: projectTranscriptBrowserContext) { _, context in
+                projectTranscriptOpenTask?.cancel()
+                projectTranscriptFocusIntent?.cancel()
+                projectTranscriptFocusIntent = nil
+                projectTranscriptRenderGate.invalidate()
+                if projectTranscriptBrowserRequest?.context != context {
+                    projectTranscriptBrowserRequest = nil
+                }
+            }
             .sheet(item: $quickSettingsRequest, onDismiss: handleRequestSheetDismiss) { _ in
                 QuickSettingsSheet()
                     .environment(appSettingsStore)
@@ -763,7 +782,8 @@ struct AwesoMuxApp: App {
                     appSettingsStore: appSettingsStore,
                     terminalAppearancePreferencesCache: terminalAppearancePreferencesCache,
                     openSettings: { openSettingsWindow() },
-                    openPrimaryWindow: { openPrimaryWindow() }
+                        openPrimaryWindow: { openPrimaryWindow() },
+                        openTerminalFile: { request in runTerminalFile(request) }
                 )
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
@@ -1335,13 +1355,19 @@ struct AwesoMuxApp: App {
 
                 Divider()
 
-                Button("Acknowledge Workspace") {
+                Button("Mark Workspace as Seen") {
                     if let id = sessionStore.selectedSessionID {
-                        sessionStore.acknowledgeAllPanes(in: id)
+                        sessionStore.markWorkspaceSeen(id: id)
                     }
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.acknowledgeWorkspace))
-                .disabled(!selectedSessionNeedsAcknowledgement || isAnySheetPresented)
+                .disabled(!selectedSessionCanMarkSeen || isAnySheetPresented)
+
+                Button("Next Agent Needing Me") {
+                    focusNextAgentNeedingAttention()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextAgentNeedingAttention))
+                .disabled(isAnySheetPresented)
 
                 Button("Focus Permission Prompt") {
                     focusPermissionPrompt()
@@ -1352,7 +1378,7 @@ struct AwesoMuxApp: App {
                 Button("Clear All Notifications") {
                     sessionStore.acknowledgeAllSessions()
                 }
-                .disabled(sessionStore.unreadNotificationTotal == 0 || isAnySheetPresented)
+                .disabled(!sessionStore.hasAttentionToDismiss || isAnySheetPresented)
 
                 Divider()
 
@@ -1474,6 +1500,16 @@ struct AwesoMuxApp: App {
                     presentScrollbackDumpForActivePane()
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.scrollbackDump))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                Button(
+                    String(
+                        localized: "Browse Project Transcripts",
+                        comment: "Heading of the current-project agent transcript browser"
+                    )
+                ) {
+                    browseProjectTranscripts()
+                }
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
 
                 // Gated exactly like its neighbours and no further. Whether the
@@ -2915,11 +2951,11 @@ struct AwesoMuxApp: App {
         postAccessibilityAnnouncement(announcement)
     }
 
-    private var selectedSessionNeedsAcknowledgement: Bool {
+    private var selectedSessionCanMarkSeen: Bool {
         guard let session = sessionStore.selectedSession else {
             return false
         }
-        return session.unreadNotificationCount > 0 || session.needsAcknowledgement
+        return sessionStore.canMarkWorkspaceSeen(id: session.id)
     }
 
     private var selectedManagedSSHConversionTarget: RemoteTarget? {
@@ -3036,6 +3072,7 @@ struct AwesoMuxApp: App {
             || remoteWorkspaceGroupCreateRequest != nil
             || sshWorkspaceConnectRequest != nil
             || workspaceGroupRenameRequest != nil
+            || projectTranscriptBrowserRequest != nil
             || quickSettingsRequest != nil
             || remoteMarkdownPathOpenRequest != nil
             || remoteFileContextEditor.isPresented
@@ -3759,6 +3796,7 @@ struct AwesoMuxApp: App {
                 remoteWorkspaceGroupCreate: remoteWorkspaceGroupCreateRequest != nil,
                 sshWorkspaceConnect: sshWorkspaceConnectRequest != nil,
                 workspaceGroupRename: workspaceGroupRenameRequest != nil,
+                projectTranscripts: projectTranscriptBrowserRequest != nil,
                 quickSettings: quickSettingsRequest != nil,
                 remoteMarkdownPathOpen: remoteMarkdownPathOpenRequest != nil
             ),
@@ -3854,6 +3892,7 @@ struct AwesoMuxApp: App {
         if keys.contains(Key.remoteWorkspaceGroupCreate) { remoteWorkspaceGroupCreateRequest = nil }
         if keys.contains(Key.sshWorkspaceConnect) { sshWorkspaceConnectRequest = nil }
         if keys.contains(Key.workspaceGroupRename) { workspaceGroupRenameRequest = nil }
+        if keys.contains(Key.projectTranscripts) { projectTranscriptBrowserRequest = nil }
         if keys.contains(Key.quickSettings) { quickSettingsRequest = nil }
         if keys.contains(Key.remoteMarkdownPathOpen) { remoteMarkdownPathOpenRequest = nil }
         for paneID in scrollbackPaneIDs {
@@ -4052,6 +4091,122 @@ struct AwesoMuxApp: App {
             return
         }
         _ = ghosttyRuntime.presentScrollbackDump(in: session.activePaneID)
+    }
+
+    private var projectTranscriptBrowserContext: ProjectTranscriptBrowserContext? {
+        Self.projectTranscriptBrowserContext(
+            store: sessionStore, integrations: appSettingsStore.agentIntegrations.value
+        )
+    }
+
+    @MainActor
+    private static func projectTranscriptBrowserContext(
+        store: SessionStore, integrations: AgentIntegrationsConfig
+    ) -> ProjectTranscriptBrowserContext? {
+        guard let session = store.selectedSession,
+            let pane = session.activePane,
+            WorkspacePaneCapabilities.terminal(pane).localFileAccess,
+            pane.workingDirectory.hasPrefix("/"),
+            pane.workingDirectory.utf8.count <= 4096
+        else { return nil }
+        return ProjectTranscriptBrowserContext(
+            sessionID: session.id, paneID: pane.id, directory: pane.workingDirectory,
+            integrations: integrations
+        )
+    }
+
+    private func browseProjectTranscripts() {
+        healSheetWedgeBeforeGatedCommand()
+        guard !isAnySheetPresented else { return }
+        guard let context = projectTranscriptBrowserContext else {
+            if let pane = sessionStore.selectedSession?.activePane,
+                !WorkspacePaneCapabilities.terminal(pane).localFileAccess
+            {
+                showAgentTranscriptFailureAlert(.unavailable(.remoteExecution))
+            } else {
+                let alert = NSAlert()
+                alert.messageText = String(
+                    localized: "No Project Directory",
+                    comment: "Alert title when project transcripts have no local directory to inspect"
+                )
+                alert.informativeText = String(
+                    localized: "Choose a local terminal with a reported working directory, then try again.",
+                    comment: "Explanation when project transcript browsing has no local directory"
+                )
+                alert.runModal()
+            }
+            return
+        }
+        projectTranscriptOpenTask?.cancel()
+        projectTranscriptFocusIntent?.cancel()
+        projectTranscriptFocusIntent = nil
+        projectTranscriptRenderGate.invalidate()
+        projectTranscriptBrowserRequest = ProjectTranscriptBrowserRequest(context: context)
+    }
+
+    private func openProjectTranscript(
+        _ entry: AgentProjectTranscriptEntry,
+        request: ProjectTranscriptBrowserRequest
+    ) {
+        guard projectTranscriptBrowserRequest?.id == request.id,
+            projectTranscriptBrowserContext == request.context
+        else { return }
+        projectTranscriptOpenTask?.cancel()
+        projectTranscriptFocusIntent?.cancel()
+        let context = request.context
+        var focusIntent = documentTabActions.beginFocusIntentDismissingSheet(
+            in: NSApp.awesoMuxPrimaryContentWindow, initiatingEvent: NSApp.currentEvent,
+            isContextCurrent: { [sessionStore, appSettingsStore] in
+                Self.projectTranscriptBrowserContext(
+                    store: sessionStore, integrations: appSettingsStore.agentIntegrations.value
+                ) == context
+            }
+        )
+        projectTranscriptFocusIntent = focusIntent
+        projectTranscriptBrowserRequest = nil
+        let gate = projectTranscriptRenderGate
+        let stamp = gate.claim()
+        projectTranscriptOpenTask = Task { @MainActor in
+            defer { focusIntent?.cancel() }
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Opening agent transcript.",
+                    comment: "VoiceOver announcement when rendering a pane's agent transcript starts"
+                ))
+            let worker = Task.detached(priority: .userInitiated) {
+                AgentTranscriptOpener.openProjectTranscript(
+                    entry, projectDirectory: URL(fileURLWithPath: request.context.directory),
+                    shouldCommit: { !Task.isCancelled && gate.isCurrent(stamp) }
+                )
+            }
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, gate.isCurrent(stamp),
+                projectTranscriptBrowserContext == request.context
+            else {
+                if case .success(let opened) = result {
+                    AgentTranscriptStore().completeWrite(at: opened.fileURL)
+                    SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                }
+                return
+            }
+            AgentTranscriptCompletion.apply(
+                result,
+                paneID: request.context.paneID,
+                store: sessionStore,
+                completeWrite: { AgentTranscriptStore().completeWrite(at: $0) },
+                schedulePrune: { SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore) },
+                alert: showAgentTranscriptFailureAlert,
+                requestFocus: { tabID, sessionID in
+                    if documentTabActions.requestFocusAfterSheet(for: tabID, in: sessionID, intent: focusIntent) {
+                        focusIntent = nil
+                    }
+                }
+            )
+        }
     }
 
     /// Renders the active pane's agent session to Markdown and opens it beside
@@ -4511,6 +4666,15 @@ struct AwesoMuxApp: App {
         _ = ghosttyRuntime.reconnectRemotePane(in: session.activePaneID)
     }
 
+    /// Runs the consent-gated terminfo setup (#760) in a new local tab; the
+    /// helper itself asks before connecting.
+    private func setUpRemoteTerminalForActivePane() {
+        guard let remote = sessionStore.selectedSession?.activePane?.executionPlan.remoteTarget,
+            let command = AmxBackend.terminalSetupCommand(for: remote)
+        else { return }
+        runCommandInNewTab(command: command, tabTitle: remote.sshDestination, pinsTitle: false)
+    }
+
     /// Selects the workspace that owns a daemon (reusing the same selection +
     /// terminal-focus path the command palette uses) so "Jump" lands the user on
     /// the exact live pane. The model resolves both the owning workspace and pane,
@@ -4884,13 +5048,34 @@ struct AwesoMuxApp: App {
         )
     }
 
+    private func runTerminalFile(_ request: TerminalFileOpenRequest) {
+        guard ghosttyRuntime.supportsPromptReadiness else {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Could not run terminal file")
+            alert.informativeText = String(
+                localized:
+                    "Opening executable files requires confirm-close-surface = true in Ghostty settings so awesoMux can wait for the shell prompt."
+            )
+            alert.runModal()
+            return
+        }
+        // Explicitly local even when the selected workspace or default group uses SSH.
+        let session = TerminalSession(title: request.fileURL.lastPathComponent, workingDirectory: request.workingDirectory)
+        sessionStore.insertSession(session, groupName: appSettingsStore.workspaces.value.defaultGroup)
+        appDelegate.surfacePrimaryWindow()
+        requestTerminalFocus(sessionID: session.id, paneID: session.activePaneID)
+        sendQuickRunCommand(request.command, toPane: session.activePaneID, requiresPromptReadiness: true)
+    }
+
     private func sendQuickRunCommand(
         _ command: String,
         toPane paneID: TerminalPane.ID,
         deadline: ContinuousClock.Instant = .now.advanced(by: .seconds(10)),
-        agentSetup: AgentSetup? = nil
+        agentSetup: AgentSetup? = nil,
+        requiresPromptReadiness: Bool = false
     ) {
-        let foreground = agentSetup == nil ? nil : ghosttyRuntime.foregroundComm(in: paneID)
+        let waitsForPrompt = agentSetup != nil || requiresPromptReadiness
+        let foreground = waitsForPrompt ? ghosttyRuntime.foregroundComm(in: paneID) : nil
         // Startup commands may briefly own the foreground before the shell
         // reaches its prompt. Retry them without sending any command text.
         let setupShellIsReady =
@@ -4899,12 +5084,22 @@ struct AwesoMuxApp: App {
                 foreground: foreground,
                 promptIsAway: ghosttyRuntime.cachedSurfaceView(for: paneID)?.promptMarkerIsAwayFromPrompt()
             )
-        if .now < deadline, (agentSetup == nil || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
+        if .now < deadline, (!waitsForPrompt || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
             announceQuickRun("Running \(command).")
             return
         }
 
         guard .now < deadline else {
+            if requiresPromptReadiness {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "Could not run terminal file")
+                alert.informativeText = String(
+                    localized:
+                        "The shell was not ready. Use sh, bash, zsh, dash, ksh, or fish with shell integration enabled, then open the file again."
+                )
+                alert.runModal()
+                return
+            }
             if let agentSetup {
                 agentSetupError(
                     String(
@@ -4918,7 +5113,8 @@ struct AwesoMuxApp: App {
         }
 
         ghosttyRuntime.scheduleCommandRetry(toPane: paneID) {
-            sendQuickRunCommand(command, toPane: paneID, deadline: deadline, agentSetup: agentSetup)
+            sendQuickRunCommand(
+                command, toPane: paneID, deadline: deadline, agentSetup: agentSetup, requiresPromptReadiness: requiresPromptReadiness)
         }
     }
 
@@ -4960,6 +5156,36 @@ struct AwesoMuxApp: App {
         guard combined.count > 280 else { return combined }
         let prefix = combined.prefix(280)
         return String(prefix) + "..."
+    }
+
+    private func focusAgentPane(sessionID: TerminalSession.ID, paneID: UUID) {
+        guard !isAnySheetPresented,
+            let owningSessionID = sessionStore.sessionIDContainingPane(paneID),
+            let session = sessionStore.session(id: owningSessionID),
+            let paneIndex = session.layout.paneIDs.firstIndex(of: paneID)
+        else { return }
+        sessionStore.selectedSessionID = owningSessionID
+        appDelegate.surfacePrimaryWindow()
+        sessionStore.setActivePane(id: paneID, in: owningSessionID)
+        // Navigation does not enable approval keys; permission-card focus is a separate command.
+        requestTerminalFocus(sessionID: owningSessionID, paneID: paneID)
+        announcePaneFocused(index: paneIndex + 1)
+    }
+
+    private func focusNextAgentNeedingAttention() {
+        guard !isAnySheetPresented else { return }
+        let roster = AgentActivityRoster.build(sessions: sessionStore.groups.flatMap(\.sessions))
+        guard
+            let row = roster.nextNeedingAttention(
+                after: sessionStore.selectedSession?.activePaneID,
+                orderedPaneIDs: sessionStore.actionableAgentPaneIDs
+            )
+        else {
+            TerminalAccessibilityAnnouncer.announce(
+                String(localized: "No agents need your attention", comment: "No next actionable agent; focus remains unchanged"))
+            return
+        }
+        focusAgentPane(sessionID: row.sessionID, paneID: row.paneID)
     }
 
     private func focusPermissionPrompt() {
@@ -5130,10 +5356,12 @@ struct AwesoMuxApp: App {
             restartShell: restartActiveShell,
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
+            browseProjectTranscripts: browseProjectTranscripts,
             openAgentTranscript: openAgentTranscriptForActivePane,
             showBranchChanges: showBranchChangesForActivePane,
             openPullRequest: openPullRequestForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
+            setUpRemoteTerminal: setUpRemoteTerminalForActivePane,
             growActivePane: {
                 sessionStore.resizeActiveSplit(by: 0.05)
             },
@@ -5178,9 +5406,10 @@ struct AwesoMuxApp: App {
                     // that share this command's name — the active-pane-only
                     // ack silently no-ops when attention sits on a sibling
                     // pane in a split.
-                    sessionStore.acknowledgeAllPanes(in: id)
+                    sessionStore.markWorkspaceSeen(id: id)
                 }
             },
+            nextAgentNeedingAttention: focusNextAgentNeedingAttention,
             focusPermissionPrompt: focusPermissionPrompt,
             clearAllNotifications: {
                 sessionStore.acknowledgeAllSessions()
@@ -6210,6 +6439,26 @@ private struct RemoteMarkdownPathOpenRequest: Identifiable, Sendable {
     let origin: RemoteMarkdownReadOrigin?
 }
 
+private struct ProjectTranscriptBrowserContext: Equatable, Sendable {
+    let sessionID: TerminalSession.ID
+    let paneID: TerminalPane.ID
+    let directory: String
+    let integrations: AgentIntegrationsConfig
+}
+
+private struct ProjectTranscriptBrowserRequest: Identifiable, Sendable {
+    let id = UUID()
+    let context: ProjectTranscriptBrowserContext
+
+    var roots: [AgentProjectTranscripts.Root] {
+        [AgentKind.claudeCode, .codex].flatMap { kind in
+            AgentTranscriptPaneInputs.resolutionAttempts(
+                for: kind, integrations: context.integrations
+            ).map { AgentProjectTranscripts.Root(agentKind: $0.kind, configHome: $0.configHome) }
+        }
+    }
+}
+
 private struct QuickSettingsRequest: Identifiable, Sendable {
     let id = UUID()
 }
@@ -6686,7 +6935,17 @@ extension AwesoMuxApp {
                     comment: "Lead line for a sanitized-restore warning raised at launch"
                 )
         ]
-        informativeLines.append(contentsOf: warning.sanitizationSummary?.severitySummaryLines ?? [])
+        if let summary = warning.sanitizationSummary {
+            let adjustments = LocalizedPluralStrings.recoverySummaryLines(summary)
+            if !adjustments.isEmpty {
+                informativeLines.append(
+                    String(
+                        localized: "Some saved data couldn't be restored as it was:",
+                        comment: "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
+                    ) + "\n" + adjustments.joined(separator: "\n")
+                )
+            }
+        }
         if warning.archivedSnapshotURL != nil {
             informativeLines.append("The original saved workspace file was copied for recovery.")
         }

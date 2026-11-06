@@ -333,9 +333,9 @@ extension GhosttySurfaceNSView {
                 commandBridgeEnactor.confirmRemoteOwnedAttach()
                 return
             }
-            // Records a successful surface spawn, not a confirmed daemon attach.
-            // The next launch uses the pre-spawn value to distinguish a saved
-            // pane from its first creation when the status reports a fresh shell.
+            // An armed status feed establishes the session only on `attached`.
+            guard commandBridgeEnactor.statusWatcher?.isArmed != true else { return }
+            // Legacy attaches have no confirmation feed; retain their spawn marker.
             sessionStore.updateTerminalBackendMetadata(
                 sessionID: sessionID,
                 paneID: paneID,

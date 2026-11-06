@@ -163,16 +163,6 @@
         }
       }
     },
-    "%arg (%arg)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg (%2$arg)"
-          }
-        }
-      }
-    },
     "%arg (Bundled)" : {
       "comment" : "Font picker label suffix for the font family shipped inside the app bundle"
     },
@@ -251,8 +241,8 @@
     "%arg is running in this workspace. Closing the workspace will stop it." : {
       "comment" : "Body of the close-workspace confirmation dialog when a live agent process is verified in the workspace. Argument is the agent name (e.g. Claude Code)."
     },
-    "%arg is still waiting for a reply, moved to Needs Input" : {
-      "comment" : "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Input section; the placeholder is the workspace title"
+    "%arg is waiting for a reply, moved to Needs Attention" : {
+      "comment" : "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Attention section; the placeholder is the workspace title"
     },
     "%arg isn't waiting for input yet" : {
       "comment" : "Unavailable reason when the target agent is not currently waiting at its prompt"
@@ -260,13 +250,13 @@
     "%arg keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
       "comment" : "Caption explaining what naming a remote session does. The argument is the destination host"
     },
-    "%arg left Needs Input, returned to %arg" : {
+    "%arg left Needs Attention, returned to %arg" : {
       "comment" : "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$arg left Needs Input, returned to %2$arg"
+            "value" : "%1$arg left Needs Attention, returned to %2$arg"
           }
         }
       }
@@ -284,35 +274,13 @@
         }
       }
     },
-    "%arg opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. %arg opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch." : {
+    "%arg opens a temporary Floating Panel for this workspace. %arg opens the Terminal Companion, a single shell that keeps running as you switch workspaces." : {
       "comment" : "Spoken form of beat four. Arguments are those two shortcuts spelled out.\nWelcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$arg opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. %2$arg opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch."
-          }
-        }
-      }
-    },
-    "%arg opens the command palette — every command awesoMux has, searchable. %arg shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
-      "comment" : "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg opens the command palette — every command awesoMux has, searchable. %2$arg shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
-          }
-        }
-      }
-    },
-    "%arg opens the command palette — every command awesoMux has, searchable. %arg shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
-      "comment" : "Spoken form of beat five. Arguments are those two shortcuts spelled out.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg opens the command palette — every command awesoMux has, searchable. %2$arg shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+            "value" : "%1$arg opens a temporary Floating Panel for this workspace. %2$arg opens the Terminal Companion, a single shell that keeps running as you switch workspaces."
           }
         }
       }
@@ -428,7 +396,7 @@
     "%arg — Jump to Next Agent" : {
 
     },
-    "%arg — Show in Activity Panel" : {
+    "%arg — Show in Agents Sidebar" : {
 
     },
     "%arg — unavailable: %arg" : {
@@ -444,16 +412,6 @@
     },
     "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, and Pi." : {
       "comment" : "Transcript failure when the pane's agent has no transcript adapter"
-    },
-    "%arg, %arg" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg, %2$arg"
-          }
-        }
-      }
     },
     "%arg, %arg added, %arg removed" : {
       "comment" : "VoiceOver label for a branch-changes file section: path, added lines, removed lines",
@@ -686,17 +644,14 @@
     "Accurate remote close warnings" : {
       "comment" : "Benefit listed in the additional SSH features prompt"
     },
-    "Acknowledge" : {
-
-    },
-    "Acknowledge Workspace" : {
-
-    },
     "Actions" : {
       "comment" : "Advanced settings label."
     },
     "Actions only mode" : {
 
+    },
+    "Activity indicators" : {
+      "comment" : "Appearance settings section title"
     },
     "Actual host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated real host that NSWorkspace would open."
@@ -764,20 +719,14 @@
     "Agent" : {
       "comment" : "Diagnostics process type\nGeneric display name for an unsupported AI coding agent\nGeneric name for a non-integrated coding agent in an accessibility label."
     },
-    "Agent activity" : {
-      "comment" : "Accessibility label for the sidebar agent activity panel"
-    },
-    "Agent activity panel closed" : {
-      "comment" : "VoiceOver announcement when the sidebar agent activity panel collapses."
-    },
-    "Agent activity panel opened" : {
-      "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
-    },
     "Agent error" : {
       "comment" : "Agent error event in the companion away activity summary."
     },
     "Agent integrations" : {
       "comment" : "Agents settings title."
+    },
+    "Agent no longer active" : {
+      "comment" : "A held row whose terminal is no longer running an agent"
     },
     "Agent setup" : {
 
@@ -792,7 +741,10 @@
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
     "Agents" : {
-      "comment" : "Header for the sidebar agent activity panel"
+      "comment" : "Global agent sidebar\nSelected sidebar mode"
+    },
+    "Agents sidebar opened" : {
+      "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
     "Alert for the focused workspace too" : {
       "comment" : "Notification settings label."
@@ -945,6 +897,9 @@
     "Always show jump numbers" : {
       "comment" : "Settings field label for the sidebar jump numbers toggle"
     },
+    "Animate activity indicators" : {
+      "comment" : "Settings field label for the agent spinner toggle"
+    },
     "Annotation added" : {
       "comment" : "VoiceOver announcement after adding a new annotation"
     },
@@ -1004,6 +959,9 @@
     "Applied layout preset %arg" : {
       "comment" : "VoiceOver announcement after applying a layout preset."
     },
+    "Applies to executable files opened from Finder. Apps with their own terminal preference must be configured separately." : {
+
+    },
     "Applies when terminal output asks awesoMux to replace the clipboard, including SSH and agent sessions. Commands like pbcopy write to macOS directly." : {
       "comment" : "Terminal settings hint."
     },
@@ -1048,6 +1006,9 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
+    },
+    "Associated terminal" : {
+      "comment" : "Composer label for the terminal where the user can manually paste the copied prompt"
     },
     "Attention requested" : {
       "comment" : "Fallback event description in the companion away activity summary."
@@ -1144,6 +1105,9 @@
     "Bridge" : {
       "comment" : "Diagnostics process type"
     },
+    "Browse Project Transcripts" : {
+      "comment" : "Heading of the current-project agent transcript browser"
+    },
     "Build" : {
       "comment" : "About window field label for the source revision hash"
     },
@@ -1215,7 +1179,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste.\nDismisses the workspace emoji editor without saving."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nClose project transcript browser\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste.\nDismisses the workspace emoji editor without saving."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -1297,6 +1261,9 @@
     "Check the SSH connection and try the installation again." : {
       "comment" : "Remote platform probe failure recovery"
     },
+    "Check the agents' Config home in Settings, or try Refresh after a session records a conversation." : {
+      "comment" : "Empty project transcript browser explanation"
+    },
     "Check your internet connection and try again." : {
       "comment" : "Remote helper release download failure recovery"
     },
@@ -1349,6 +1316,12 @@
       "comment" : "Opens the macOS character panel to choose a workspace emoji."
     },
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
+
+    },
+    "Choose a local terminal with a reported working directory, then try again." : {
+      "comment" : "Explanation when project transcript browsing has no local directory"
+    },
+    "Choose a regular executable file or an executable .command script with no control characters in its path." : {
 
     },
     "Choose a remote base directory" : {
@@ -1438,6 +1411,9 @@
     "Cleared workspace %arg" : {
       "comment" : "VoiceOver announcement after a workspace is permanently closed with no reopen path; argument is the workspace title."
     },
+    "Clears the notification; permission approval remains separate" : {
+      "comment" : "Mark seen boundary hint"
+    },
     "Clipboard" : {
       "comment" : "Terminal settings title."
     },
@@ -1445,7 +1421,7 @@
       "comment" : "VoiceOver announcement after the user cancels a terminal clipboard read. Argument is the bidi-isolated pane title."
     },
     "Close" : {
-      "comment" : "Close Companion pairing sheet.\nTooltip for the agent activity panel's close button"
+      "comment" : "Close Companion pairing sheet."
     },
     "Close %arg" : {
       "comment" : "Accessibility label and tooltip for a document tab's close button"
@@ -1484,9 +1460,6 @@
           }
         }
       }
-    },
-    "Close agent activity panel" : {
-      "comment" : "Accessibility label for the agent activity panel's close button"
     },
     "Close and reopen Terminal Companion to start a new session." : {
       "comment" : "Placeholder guidance in the Terminal Companion when no session exists."
@@ -1537,7 +1510,7 @@
 
     },
     "Collapsed" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is closed\nDisclosure state.\nVoiceOver state for hidden remote connection details"
+      "comment" : "Disclosure state.\nVoiceOver state for hidden remote connection details"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -1697,6 +1670,9 @@
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
     },
+    "Copied for Codex — paste when ready" : {
+      "comment" : "Visible and spoken confirmation after copying a document prompt"
+    },
     "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)." : {
       "comment" : "Terminal settings hint."
     },
@@ -1704,7 +1680,7 @@
 
     },
     "Copy" : {
-      "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
+      "comment" : "Button that copies the text shown in the scrollback sheet\nButton to copy the composed Codex prompt\nTerminal context menu item that copies the selection"
     },
     "Copy Alias" : {
       "comment" : "Button that copies the codex --no-daemon shell alias."
@@ -1744,6 +1720,9 @@
     },
     "Copy failed" : {
       "comment" : "Outside app setup-command copy error label."
+    },
+    "Copy for Codex" : {
+      "comment" : "Annotation handoff action for Codex\nDocument handoff action for the associated Codex terminal\nDocument handoff button that opens a clipboard prompt composer\nTitle of the Codex clipboard prompt composer\nUnavailable Codex annotation handoff action"
     },
     "Copy mode enabled. Selecting text will not create comments." : {
       "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
@@ -1799,6 +1778,9 @@
     "Could not launch agent setup" : {
 
     },
+    "Could not open terminal file" : {
+
+    },
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
     },
@@ -1809,6 +1791,9 @@
       "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
     },
     "Could not reload Ghostty configuration." : {
+
+    },
+    "Could not run terminal file" : {
 
     },
     "Could not save terminal preview access. Retry Save before restarting awesoMux." : {
@@ -1834,6 +1819,9 @@
     "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. %arg" : {
       "comment" : "Error shown when registering awesoMux as a login item fails."
     },
+    "Could not update all terminal file associations. Check the macOS confirmation and try again." : {
+
+    },
     "Could not verify the installed remote helper" : {
       "comment" : "Installed helper verification transport failure title"
     },
@@ -1845,6 +1833,21 @@
     },
     "Couldn't check whether an installed file exists." : {
       "comment" : "Remove button hint after checking timed out"
+    },
+    "Couldn't copy — the reviewed document changed or is no longer editable. Close this composer and reopen Copy for Codex." : {
+      "comment" : "Copy refusal when the pinned document changed"
+    },
+    "Couldn't copy — this document's agent changed. Close this composer and reopen the handoff action." : {
+      "comment" : "Copy refusal when the pinned provider changed"
+    },
+    "Couldn't copy — this document's terminal isn't available" : {
+      "comment" : "Copy refusal when the associated terminal is unavailable"
+    },
+    "Couldn't copy — this file path contains control or direction-formatting characters. Your draft is preserved." : {
+      "comment" : "Copy refusal when the exact document path is unsafe"
+    },
+    "Couldn't copy — your draft is preserved. Try again." : {
+      "comment" : "Clipboard handoff failure with the composer still open"
     },
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
@@ -1886,6 +1889,9 @@
     },
     "Couldn't send — this file path contains control or direction-formatting characters that cannot be pasted exactly. Your draft is preserved." : {
       "comment" : "Composer refusal when path sanitization would name a different file"
+    },
+    "Couldn't verify Codex in this document's terminal" : {
+      "comment" : "Copy refusal when the foreground executable is not Codex"
     },
     "Couldn't verify a local terminal for this document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
@@ -2038,6 +2044,9 @@
     "Default group" : {
       "comment" : "Workspace settings label."
     },
+    "Default terminal" : {
+
+    },
     "Defaults" : {
       "comment" : "Workspace settings title."
     },
@@ -2182,6 +2191,9 @@
     "Dismiss" : {
       "comment" : "Button that hides the SSH management notice for this connection\nDismiss Companion error.\nDismiss a persistent-session restart notice\nDismiss assistant access error."
     },
+    "Dismiss attention reminder" : {
+      "comment" : "Explicit dismissal of a stale reminder, not permission approval"
+    },
     "Dismiss restart notice for %arg" : {
       "comment" : "Dismiss a restart notice, naming its pane"
     },
@@ -2190,6 +2202,9 @@
     },
     "Dismiss while you were away summary" : {
       "comment" : "Accessibility label for dismissing the companion away activity summary banner."
+    },
+    "Dismisses the reminder without approving or denying a permission request" : {
+      "comment" : "Attention reminder dismissal boundary"
     },
     "Dismisses this message" : {
 
@@ -2267,6 +2282,9 @@
     },
     "Drag to reorder. The top installed editor opens by default." : {
       "comment" : "Workspace settings hint."
+    },
+    "Drag workspaces into groups to keep a project together. Split a workspace for terminals side by side — its panes still share one sidebar row. Go wild!" : {
+      "comment" : "Welcome tour beat two, explaining the sidebar and panes."
     },
     "During Focus" : {
       "comment" : "Notification settings label."
@@ -2450,9 +2468,6 @@
     "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt, except destinations on the don’t-ask list below. Turning this on needs background terminal sessions; awesoMux asks before switching them on." : {
       "comment" : "Workspace settings hint."
     },
-    "Every project gets a workspace — its own shell, its own name in the sidebar. Press %arg to make one." : {
-      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
-    },
     "Every session is attached to an open pane. When you quit with a session running, it keeps the shell and scrollback alive — and shows up here to pin or end." : {
 
     },
@@ -2468,6 +2483,9 @@
     "Existing local branch" : {
       "comment" : "Existing branch create mode."
     },
+    "Exit SSH to copy this local document path for Codex" : {
+      "comment" : "Copy refusal while the associated terminal is inside SSH"
+    },
     "Exit SSH to send this local document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path while the terminal is inside manual SSH"
     },
@@ -2478,10 +2496,13 @@
       "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
     "Expanded" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is open\nDisclosure state.\nVoiceOver state for visible remote connection details"
+      "comment" : "Disclosure state.\nVoiceOver state for visible remote connection details"
     },
     "Expires in %@" : {
       "comment" : "Companion pairing countdown."
+    },
+    "Failed" : {
+      "comment" : "Agent attention reason"
     },
     "Falling" : {
       "comment" : "Diagnostics resource trend"
@@ -2524,17 +2545,45 @@
     "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path." : {
       "comment" : "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd"
     },
-    "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
+    "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for workspaces needing attention. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
       "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
     },
     "Find" : {
 
+    },
+    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+          }
+        }
+      }
+    },
+    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Spoken form of beat five. Arguments are those two shortcuts spelled out.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+          }
+        }
+      }
     },
     "Find in Pane" : {
 
     },
     "Finish or cancel the annotation before switching or closing document tabs." : {
       "comment" : "Feedback when a document tab shortcut is blocked by an open annotation draft"
+    },
+    "Finished" : {
+      "comment" : "Agent execution completed; not a review verdict"
+    },
+    "Finished — unread" : {
+      "comment" : "Completed agent with unread output"
     },
     "Fix in System Settings" : {
       "comment" : "Notification settings label."
@@ -2647,6 +2696,18 @@
     "Glow strength" : {
       "comment" : "Settings field label for the glow strength slider"
     },
+    "Go to pane" : {
+      "comment" : "Navigate to the pane with attention"
+    },
+    "Go to the next agent needing attention" : {
+      "comment" : "Agent navigation and notification command"
+    },
+    "Go to waiting pane" : {
+      "comment" : "Navigate without approving or answering"
+    },
+    "Goes to this agent's pane without answering or approving its request" : {
+      "comment" : "Agent row navigation hint"
+    },
     "Gray" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -2687,9 +2748,6 @@
     "Help and feedback" : {
 
     },
-    "Hide Agent Activity" : {
-      "comment" : "Tooltip for the footer total button while the agent activity panel is open"
-    },
     "Hide Resolved Annotations" : {
 
     },
@@ -2701,9 +2759,6 @@
     },
     "Hides remote connection details" : {
       "comment" : "VoiceOver hint for an expanded remote connection details button"
-    },
-    "Hides the agent activity panel" : {
-      "comment" : "Accessibility hint for the footer total button while the panel is open"
     },
     "Highlight to copy" : {
       "comment" : "Terminal settings label."
@@ -2868,9 +2923,6 @@
     "Jumps to the next matching agent" : {
       "comment" : "Accessibility hint for a collapsed-rail footer chip that jumps to the next agent pane in that state"
     },
-    "Jumps to this agent's pane" : {
-      "comment" : "Accessibility hint for an agent activity panel row"
-    },
     "Keep Asking" : {
 
     },
@@ -2974,9 +3026,6 @@
     "Live processes" : {
       "comment" : "Diagnostics settings section title"
     },
-    "Live status from coding agents running in your panes." : {
-      "comment" : "Agents settings subtitle."
-    },
     "Loading Markdown files" : {
 
     },
@@ -3016,6 +3065,9 @@
     "Looking for an installed integration." : {
       "comment" : "Agent integration card status detail while the first check is in flight"
     },
+    "Looking for project transcripts…" : {
+      "comment" : "Project transcript scan progress"
+    },
     "MIT" : {
 
     },
@@ -3030,6 +3082,9 @@
     },
     "Make This Workspace Managed…" : {
       "comment" : "Workspace menu and command palette action for converting the selected ordinary SSH pane"
+    },
+    "Make awesoMux the default terminal" : {
+
     },
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
@@ -3077,6 +3132,18 @@
     },
     "Manual configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Mark %arg as seen" : {
+      "comment" : "Pane-specific mark-seen accessibility action"
+    },
+    "Mark Workspace as Seen" : {
+      "comment" : "Agent navigation and notification command"
+    },
+    "Mark as seen" : {
+      "comment" : "Clear notification without approving a request"
+    },
+    "Mark notifications seen without approving requests" : {
+      "comment" : "Agent navigation and notification command"
     },
     "Match %arg of %arg" : {
       "comment" : "Spoken find-bar position; arguments are the one-based current match and the match count.",
@@ -3169,9 +3236,6 @@
     "Move Workspace Up" : {
 
     },
-    "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default." : {
-      "comment" : "Settings field hint for the sidebar needs-input section toggle"
-    },
     "Move to Group…" : {
 
     },
@@ -3180,6 +3244,9 @@
     },
     "Move to Previous Group (%arg)" : {
 
+    },
+    "Move workspaces with attention alerts, completed Codex responses, or unanswered Claude Code responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default." : {
+      "comment" : "Settings field hint for the sidebar needs-attention section toggle"
     },
     "Moved Terminal Companion to workspace." : {
       "comment" : "VoiceOver announcement after promoting the Terminal Companion into the workspace list."
@@ -3220,20 +3287,29 @@
     "Name" : {
       "comment" : "Diagnostics process table column"
     },
-    "Named launch choices for the command palette." : {
-
-    },
     "Named, the remote host keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
       "comment" : "Caption explaining what naming a remote session does, before a destination has been entered"
     },
-    "Needs Input" : {
-      "comment" : "Accessibility label for the needs-input workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces awaiting user input."
+    "Needs Attention" : {
+      "comment" : "Accessibility label for the needs-attention workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces needing attention."
+    },
+    "Needs You" : {
+      "comment" : "Actionable agents section"
     },
     "Needs approval" : {
       "comment" : "Settings label when Open at Login requires approval in System Settings."
     },
+    "Needs attention" : {
+      "comment" : "Agent state label"
+    },
+    "Needs attention from %arg" : {
+      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to."
+    },
+    "Needs attention, from %arg" : {
+      "comment" : "Spoken on a workspace lifted into the sidebar's Needs Attention section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
+    },
     "Needs input" : {
-      "comment" : "Agent state label\nMenu bar visibility choice",
+      "comment" : "Menu bar visibility choice",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3243,11 +3319,8 @@
         }
       }
     },
-    "Needs input from %arg" : {
-      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to."
-    },
-    "Needs input, from %arg" : {
-      "comment" : "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
+    "Needs your attention" : {
+      "comment" : "Unknown agent attention reason"
     },
     "Network changed; the SSH session on %arg may be disconnected until SSH recovers or reports failure." : {
       "comment" : "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
@@ -3334,6 +3407,9 @@
     "New Worktree" : {
       "comment" : "Open the create worktree form."
     },
+    "New activity — show updates" : {
+      "comment" : "Apply deferred agent-list placement changes"
+    },
     "New annotation" : {
       "comment" : "Accessibility label for the new annotation popover"
     },
@@ -3354,6 +3430,9 @@
     },
     "Next" : {
       "comment" : "Welcome tour button advancing to the next beat"
+    },
+    "Next Agent Needing Me" : {
+      "comment" : "Agent navigation and notification command"
     },
     "Next Document Tab" : {
 
@@ -3382,14 +3461,20 @@
     "No Layout to Save" : {
       "comment" : "Alert title when the workspace has no preset-eligible panes."
     },
+    "No Project Directory" : {
+      "comment" : "Alert title when project transcripts have no local directory to inspect"
+    },
     "No Recent Workspaces" : {
       "comment" : "Placeholder shown in the Dock menu's Recent Workspaces submenu when nothing has been closed recently."
     },
     "No Supported IDEs Found" : {
       "comment" : "Alert title shown when Open in IDE cannot find an installed supported IDE."
     },
-    "No agents running" : {
-      "comment" : "Empty state for the sidebar agent activity panel"
+    "No agents need your attention" : {
+      "comment" : "No next actionable agent; focus remains unchanged"
+    },
+    "No agents to show" : {
+      "comment" : "Empty agent sidebar\nEmpty global agent roster"
     },
     "No apps added yet." : {
       "comment" : "Empty outside app list."
@@ -3441,6 +3526,9 @@
     "No presets were found under .awesomux/layouts for this project. Use “Save Layout as Preset…” to create one." : {
       "comment" : "Alert text when the project has no layout presets."
     },
+    "No project transcripts found" : {
+      "comment" : "Empty transcript browser title"
+    },
     "No recently closed workspace to reopen" : {
       "comment" : "VoiceOver announcement when Cmd-Shift-T is invoked but the recently-closed cache is empty or fully expired."
     },
@@ -3485,6 +3573,9 @@
     },
     "Note…" : {
 
+    },
+    "Nothing to copy" : {
+      "comment" : "Copy refusal for an empty sanitized prompt"
     },
     "Nothing to send" : {
       "comment" : "Composer failure when the draft is empty after sanitizing"
@@ -3535,7 +3626,7 @@
       "comment" : "Explanation that a saved browser permission covers only the exact website origin and where to revoke it"
     },
     "Open" : {
-      "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
+      "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace.\nOpen the selected project transcript"
     },
     "Open Agent Transcript" : {
       "comment" : "Workspace menu item that opens the active pane's agent session as a document"
@@ -3578,6 +3669,9 @@
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
+    },
+    "Open executable files and .command scripts in awesoMux." : {
+
     },
     "Open folder %arg" : {
 
@@ -3633,6 +3727,9 @@
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
     },
+    "Opening executable files requires confirm-close-surface = true in Ghostty settings so awesoMux can wait for the shell prompt." : {
+
+    },
     "Opening pull request." : {
       "comment" : "VoiceOver pending state while GitHub is queried for the current branch"
     },
@@ -3671,6 +3768,9 @@
     },
     "Opens workspace creation options" : {
 
+    },
+    "Optional named launch choices for installed agents in the command palette. Saving a setup does not verify that it launches. Status integrations are managed separately." : {
+      "comment" : "Explains that launch setups are optional and separate from status integration or launch verification."
     },
     "Optional retro overlay on the terminal pane." : {
       "comment" : "CRT effect section subtitle"
@@ -3728,8 +3828,18 @@
     "Pane" : {
 
     },
+    "Pane %arg · %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Pane %1$arg · %2$arg"
+          }
+        }
+      }
+    },
     "Pane closed" : {
-      "comment" : "VoiceOver announcement after a pane is closed inside the active workspace (multi-pane case).\nVoiceOver announcement after the title-bar close button closes a pane."
+      "comment" : "A held agent row whose pane has closed\nVoiceOver announcement after a pane is closed inside the active workspace (multi-pane case).\nVoiceOver announcement after the title-bar close button closes a pane."
     },
     "Pane color cleared" : {
       "comment" : "VoiceOver status message after clearing a pane's name-plate color."
@@ -3842,7 +3952,7 @@
       "comment" : "VoiceOver announcement when a remote permission prompt expires and is denied"
     },
     "Permission requested" : {
-      "comment" : "Permission request event in the companion away activity summary."
+      "comment" : "Agent attention reason\nPermission request event in the companion away activity summary."
     },
     "Permission requested in %arg." : {
       "comment" : "VoiceOver announcement when a remote agent asks for a permission decision in a named split pane\nVoiceOver announcement when a remote agent asks for a permission decision, naming the workspace"
@@ -4001,11 +4111,17 @@
     "Program writes (OSC 52)" : {
       "comment" : "Terminal settings label."
     },
+    "Project transcripts" : {
+      "comment" : "Accessible name of the project transcript list"
+    },
+    "Project transcripts loaded." : {
+      "comment" : "VoiceOver announcement after project transcript discovery"
+    },
     "Promote to workspace, Command Return" : {
       "comment" : "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
     },
-    "Promote workspaces needing input" : {
-      "comment" : "Settings field label for the sidebar needs-input section toggle"
+    "Promote workspaces needing attention" : {
+      "comment" : "Settings field label for the sidebar needs-attention section toggle"
     },
     "Prompt" : {
       "comment" : "Accessibility label for the rich-input composer text editor"
@@ -4101,6 +4217,9 @@
     "Receiving terminal" : {
       "comment" : "Composer label for the pinned receiving terminal"
     },
+    "Recent Claude Code and Codex sessions in this directory. Child runs are hidden." : {
+      "comment" : "Scope explanation in the current-project transcript browser"
+    },
     "Recent Workspaces" : {
       "comment" : "Dock right-click menu item whose submenu lists recently closed workspaces to reopen."
     },
@@ -4189,7 +4308,7 @@
       }
     },
     "Refresh" : {
-      "comment" : "Refresh Worktree Manager action.\nSend-bar button title on a branch changes tab that re-runs the comparison\nSend-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
+      "comment" : "Refresh Worktree Manager action.\nRefresh project transcript metadata\nSend-bar button title on a branch changes tab that re-runs the comparison\nSend-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
     },
     "Refresh Markdown files" : {
 
@@ -4565,7 +4684,7 @@
     "Reset to Terminal Title" : {
       "comment" : "Pane title-bar context-menu and VoiceOver action that restores the terminal title."
     },
-    "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
+    "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, activity indicators, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
     "Resolved" : {
@@ -4645,6 +4764,9 @@
     "Restored session %@." : {
       "comment" : "Session Manager successful restore announcement"
     },
+    "Results are limited. Some session files could not be inspected or exceeded the scan limit." : {
+      "comment" : "Notice when project transcript enumeration cannot show a complete list"
+    },
     "Resume %arg" : {
       "comment" : "Send-bar button title on a transcript tab, naming the agent to resume"
     },
@@ -4665,6 +4787,12 @@
     },
     "Return Pane to Source Workspace" : {
       "comment" : "Pane menu command that puts a moved pane back into the workspace it came from. 'Return' is the verb, not the Return key."
+    },
+    "Return copies the prompt. Paste into Codex when ready. Shift-Return or Option-Return inserts a new line." : {
+      "comment" : "Accessibility help for the copy composer's Return key"
+    },
+    "Return copies · paste into Codex when ready · ⇧Return or ⌥Return for a new line" : {
+      "comment" : "Keyboard and manual paste instructions in the Codex copy composer"
     },
     "Return inserts a new line · ⌘Return submits" : {
       "comment" : "Document note editor keyboard help"
@@ -4723,7 +4851,16 @@
     "Root folder %arg" : {
 
     },
+    "Run" : {
+
+    },
     "Run Shortcut" : {
+
+    },
+    "Run an agent you've already installed, such as Claude Code or Codex. Set up its integration in Agents settings for more reliable activity updates. Allow notifications for alerts while you're in another app; delivery follows your notification settings." : {
+      "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
+    },
+    "Run this file in awesoMux?" : {
 
     },
     "Running" : {
@@ -4999,6 +5136,9 @@
     "Set Remote File Context…" : {
       "comment" : "Command to configure the active pane remote file context\nTitle for configuring runtime-only remote Markdown file links"
     },
+    "Set Up Ghostty Terminal on Remote Host…" : {
+      "comment" : "Command that offers to install the xterm-ghostty terminal definition on the active pane's SSH host"
+    },
     "Set Workspace Emoji" : {
       "comment" : "Accessible name of the workspace emoji editor."
     },
@@ -5016,6 +5156,9 @@
     },
     "Settings…" : {
       "comment" : "Dock right-click menu item that opens the Settings window."
+    },
+    "Settled" : {
+      "comment" : "Inactive agents section; not proof of success"
     },
     "Share Details" : {
 
@@ -5049,7 +5192,7 @@
     "Shortcut groups" : {
 
     },
-    "Show Agent Activity" : {
+    "Show Agents Sidebar" : {
       "comment" : "Tooltip for the footer total button while the agent activity panel is closed"
     },
     "Show Branch Changes" : {
@@ -5082,6 +5225,9 @@
     "Show Welcome Tour" : {
 
     },
+    "Show Workspaces Sidebar" : {
+      "comment" : "Tooltip for the footer total button while the agent activity panel is open"
+    },
     "Show activity by workspace and pane" : {
       "comment" : "Accessibility hint for opening companion away activity summary details."
     },
@@ -5112,8 +5258,11 @@
     "Shows remote connection details" : {
       "comment" : "VoiceOver hint for a collapsed remote connection details button"
     },
-    "Shows the agent activity panel" : {
+    "Shows the Agents sidebar" : {
       "comment" : "Accessibility hint for a footer chip that opens the agent activity panel\nAccessibility hint for the footer total button while the panel is closed"
+    },
+    "Shows the Workspaces sidebar" : {
+      "comment" : "Accessibility hint for the footer total button while the panel is open"
     },
     "Shrink Active Pane" : {
 
@@ -5129,6 +5278,9 @@
     },
     "Sidebar search" : {
 
+    },
+    "Sidebar view" : {
+      "comment" : "Workspace or agent navigation mode"
     },
     "Skip" : {
       "comment" : "Welcome tour button dismissing the tour"
@@ -5155,6 +5307,9 @@
     },
     "Some folders could not be checked" : {
       "comment" : "Agent plugin card summary when a folder status check failed"
+    },
+    "Some saved data couldn't be restored as it was:" : {
+      "comment" : "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
     },
     "Something replaced the saved workspace file while awesoMux was checking it, and awesoMux could not preserve the version it had already read. Your open workspaces are untouched, but automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown mid-session when saved workspace data changed while being read and the opened bytes could not be archived"
@@ -5188,6 +5343,9 @@
     },
     "Start with a Catppuccin preset, then adjust the color if needed." : {
 
+    },
+    "Start with a workspace — a shell with its own name in the sidebar. Press %arg to make one. Use it like any terminal. No agent required." : {
+      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
     },
     "Startup" : {
       "comment" : "General settings title."
@@ -5335,6 +5493,9 @@
     },
     "Terminal bell" : {
       "comment" : "Terminal bell event in the companion away activity summary."
+    },
+    "Terminal content area" : {
+      "comment" : "VoiceOver help for the terminal content area."
     },
     "Terminal font size" : {
 
@@ -5624,6 +5785,9 @@
     "The shell was not ready to launch %@. Try again." : {
       "comment" : "Shell startup timeout for named setup"
     },
+    "The shell was not ready. Use sh, bash, zsh, dash, ksh, or fish with shell integration enabled, then open the file again." : {
+
+    },
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"
     },
@@ -5760,9 +5924,6 @@
     },
     "This generated document cannot be edited." : {
       "comment" : "Alert body when a generated document has unknown provenance"
-    },
-    "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app." : {
-      "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
     },
     "This link prefills the recipient, body, or subject. Verify before opening." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
@@ -5932,6 +6093,12 @@
     "Turn On" : {
 
     },
+    "Turn a provider on for status checks and updates. Set up its integration separately for each config folder where shown. This does not install the agent itself." : {
+      "comment" : "Agents settings subtitle."
+    },
+    "Turn off to stop the spinning activity circles." : {
+      "comment" : "Settings field hint for the agent spinner toggle"
+    },
     "Turn on Dock bouncing?" : {
 
     },
@@ -6001,8 +6168,11 @@
     "Unpin Workspace" : {
       "comment" : "Main-menu action that removes the selected workspace from the sidebar's pinned section."
     },
-    "Unpinned %arg, moved to Needs Input" : {
+    "Unpinned %arg, moved to Needs Attention" : {
       "comment" : "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
+    },
+    "Unread" : {
+      "comment" : "Agent has unread output; not proof of completion"
     },
     "Unsafe saved workspace fields were sanitized during restore" : {
       "comment" : "Diagnostics event summary"
@@ -6116,6 +6286,9 @@
     "Waiting for a local network or Tailscale address…" : {
       "comment" : "Companion pairing waiting for a network route."
     },
+    "Waiting — turn to review" : {
+      "comment" : "Nonblocking finished turn, not a human permission request"
+    },
     "Warning" : {
       "comment" : "Diagnostics event severity"
     },
@@ -6180,7 +6353,7 @@
       "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
     },
     "Working" : {
-
+      "comment" : "Active agents section"
     },
     "Workspace" : {
 
@@ -6207,6 +6380,7 @@
 
     },
     "Workspaces" : {
+      "comment" : "Selected sidebar mode\nWorkspace organization sidebar",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6216,8 +6390,8 @@
         }
       }
     },
-    "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, as many panes as your heart desires. Go wild!" : {
-      "comment" : "Welcome tour beat two, explaining the sidebar and panes."
+    "Workspaces sidebar opened" : {
+      "comment" : "VoiceOver announcement when the sidebar agent activity panel collapses."
     },
     "Worktree Manager" : {
       "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel title bar.\nWorktree Manager panel title."
@@ -6234,8 +6408,11 @@
     "Write a note about the whole document…" : {
 
     },
+    "Write a prompt to copy for Codex…" : {
+      "comment" : "Placeholder in the Codex clipboard composer"
+    },
     "Write a prompt to send to this document's terminal…" : {
-
+      "comment" : "Placeholder in the composer that stages a prompt into the document's associated terminal"
     },
     "Yellow" : {
       "comment" : "Workspace group tint color",
@@ -6448,6 +6625,9 @@
     "awesoMux is not registered as a macOS login item." : {
       "comment" : "Settings hint when Open at Login is disabled."
     },
+    "awesoMux is the default" : {
+
+    },
     "awesoMux reopened the version it had already read and preserved those bytes in a recovery file. The live saved file changed during restore, so automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes were archived"
     },
@@ -6483,6 +6663,9 @@
     },
     "column header" : {
       "comment" : "VoiceOver label for an empty table header cell"
+    },
+    "copying" : {
+      "comment" : "Accessibility phrase while copying a Codex prompt"
     },
     "current worktree" : {
       "comment" : "Accessibility state for the main worktree."
@@ -6596,6 +6779,9 @@
     },
     "open" : {
       "comment" : "Accessibility state for a worktree with a live workspace."
+    },
+    "opens a prompt to copy and paste into Codex when ready" : {
+      "comment" : "Accessibility and tooltip description of the Codex clipboard handoff"
     },
     "or" : {
 

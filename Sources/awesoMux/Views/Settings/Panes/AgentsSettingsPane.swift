@@ -48,7 +48,9 @@ struct AgentsSettingsPane: View {
                 index: 1,
                 title: String(localized: "Agent integrations", comment: "Agents settings title."),
                 subtitle: String(
-                    localized: "Live status from coding agents running in your panes.", comment: "Agents settings subtitle.")
+                    localized:
+                        "Turn a provider on for status checks and updates. Set up its integration separately for each config folder where shown. This does not install the agent itself.",
+                    comment: "Agents settings subtitle.")
             ) {
                 // Card states come from the cached model; body evaluation never
                 // reads the manifest or byte-compares templates. Before the

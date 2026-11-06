@@ -14,9 +14,11 @@ Read the docs relevant to your change:
   [signing](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md),
   [targets](Package.swift), and [UI tokens](Sources/DesignSystem/), as applicable.
 
-For issue work, also check the shared plan using
-[read-awesomux-plan](.agents/skills/read-awesomux-plan/SKILL.md).
-Reconcile it with current code, ADRs, and GitHub; flag conflicts.
+The maintained shared roadmap is optional context. Use
+[read-awesomux-plan](.agents/skills/read-awesomux-plan/SKILL.md) when explicitly
+requested or when available planning context would help. Routine issue work
+proceeds without planning access or setup. When consulting the plan, reconcile
+it with current code, ADRs, and GitHub; flag conflicts.
 
 ## Guardrails
 

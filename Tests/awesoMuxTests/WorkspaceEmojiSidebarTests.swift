@@ -20,7 +20,8 @@ struct WorkspaceEmojiSidebarTests {
     func emojiIsAccessible() {
         let session = TerminalSession(title: "stored", workingDirectory: "~", emoji: "🍎")
         let label = SidebarSessionTile.workspaceIdentityAccessibilityLabel(
-            session: session, rollup: session.agentRollup(), title: "live"
+            session: session,
+            rollup: session.agentRollup(), title: "live"
         )
         #expect(label.contains("🍎 live"))
     }
@@ -29,6 +30,7 @@ struct WorkspaceEmojiSidebarTests {
         let focusState = FocusState<SidebarVisibleRowTarget?>()
         return SidebarSessionTile(
             session: session,
+            canMarkSeen: session.panes.contains(where: \.canMarkSeen),
             match: nil,
             tint: ProjectTint(group: SessionGroup(name: "Test", sessions: []), index: 0),
             isActive: false,

@@ -241,17 +241,17 @@ struct AppearanceSettingsPane: View {
 
                 SettingsField(
                     label: String(
-                        localized: "Promote workspaces needing input",
-                        comment: "Settings field label for the sidebar needs-input section toggle"),
+                        localized: "Promote workspaces needing attention",
+                        comment: "Settings field label for the sidebar needs-attention section toggle"),
                     hint: String(
                         localized:
-                            "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default.",
-                        comment: "Settings field hint for the sidebar needs-input section toggle"),
+                            "Move workspaces with attention alerts, completed Codex responses, or unanswered Claude Code responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default.",
+                        comment: "Settings field hint for the sidebar needs-attention section toggle"),
                     // Bare .labelsHidden() Toggle — let the field supply its name.
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle(
-                        "Promote workspaces needing input",
+                        "Promote workspaces needing attention",
                         isOn: appSettingsStore.appearance.binding(\.promoteWorkspacesNeedingInput)
                     )
                     .labelsHidden()
@@ -259,12 +259,27 @@ struct AppearanceSettingsPane: View {
                 }
             }
 
-            SettingsSection(index: 7, title: String(localized: "Reset", comment: "Appearance settings section title")) {
+            SettingsSection(index: 7, title: String(localized: "Activity indicators", comment: "Appearance settings section title")) {
+                SettingsField(
+                    label: String(localized: "Animate activity indicators", comment: "Settings field label for the agent spinner toggle"),
+                    hint: String(
+                        localized: "Turn off to stop the spinning activity circles.",
+                        comment: "Settings field hint for the agent spinner toggle"),
+                    isFirst: true,
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle("Animate activity indicators", isOn: appSettingsStore.appearance.binding(\.animateAgentSpinners))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+            }
+
+            SettingsSection(index: 8, title: String(localized: "Reset", comment: "Appearance settings section title")) {
                 SettingsField(
                     label: String(localized: "Reset to Defaults", comment: "Settings field label for the reset-to-defaults button"),
                     hint: String(
                         localized:
-                            "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes.",
+                            "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, activity indicators, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes.",
                         comment: "Settings field hint for the reset-to-defaults button"),
                     isFirst: true
                 ) {
@@ -355,6 +370,7 @@ struct AppearanceSettingsPane: View {
             appearance.fontSize = defaults.fontSize
             appearance.uiTextScale = defaults.uiTextScale
             appearance.glowStrength = defaults.glowStrength
+            appearance.animateAgentSpinners = defaults.animateAgentSpinners
             appearance.terminalThemeID = defaults.terminalThemeID
             appearance.terminalBackgroundMode = defaults.terminalBackgroundMode
             appearance.terminalBackgroundColor = defaults.terminalBackgroundColor

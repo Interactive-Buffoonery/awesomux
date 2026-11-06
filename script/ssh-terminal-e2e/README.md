@@ -8,10 +8,13 @@ python3 script/ssh-terminal-e2e/run.py \
   --integration "$generated/src/shell-integration/zsh" \
   --fish /absolute/path/to/fish \
   --amx "$PWD/.build/amx/amx" \
+  --terminfo "$PWD/.build/ghostty/share/terminfo" \
   --output /private/tmp/awesomux-ssh-terminal-proof
 ```
 
-Use a new output directory each time. `--fish` and `--amx` are optional.
+Use a new output directory each time. `--fish`, `--amx` and `--terminfo` are
+optional. `--terminfo` points at a compiled terminfo directory that contains
+`xterm-ghostty`, such as a built app's resources.
 Build the exact checkout’s backend with `./script/build_amx.sh` before using
 `--amx`; an older binary may not support the suite’s reattach command. On macOS the test
 may need unrestricted execution because sshd creates its own process sandbox.
@@ -28,6 +31,17 @@ quoting, exit status, user aliases/functions, explicit terminal selection,
 bypass behavior, and the existing mouse cleanup sequence. Logs and report.txt
 remain in the output directory even when verification fails.
 
+The helper lane drives `awesomux-ssh` directly with a logging `ssh` shim. With
+the setup cache missing, empty or blank, it checks that `ssh -G` never runs.
+It also checks that other TERMs pass through, and that `--portable` maps them
+to `xterm-256color`. With
+`--terminfo`, it also runs setup through a PTY: declined, installed, cached host
+keeps `xterm-ghostty`, present (no rewrite), `--force`, `--forget`, a host with
+no `tic`, a read-only home, retrying declined or failed setup for a remembered
+host, and an unverifiable existing definition when `infocmp` is absent. The fixture sshd's `ForceCommand` points the
+remote `HOME` at a fixture directory, so setup never writes to your real
+`~/.terminfo`.
+
 The optional fish lane sources the generated app-owned fish extension in an
 interactive `fish -c` and uses real SSH with a forced remote PTY. It checks the
 same terminal/status and user-wrapper contracts. It does not exercise fish's
@@ -36,7 +50,7 @@ bottle used during development crashed when loading the pinned upstream Ghostty
 fish startup script, so that integration remains a separate manual check.
 
 Also run the existing mouse-recovery PTY suite against a disposable SSH target,
-including SSH suspend/resume, then `./script/preflight.sh`.
+including SSH and `awesomux-ssh` suspend/resume, then `./script/preflight.sh`.
 
 For the original report, open a fresh local pane in the built demo, narrow the
 window, run ordinary `ssh sandbox`, confirm `echo "$TERM"` prints

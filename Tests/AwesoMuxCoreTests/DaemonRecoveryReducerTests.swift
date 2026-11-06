@@ -24,6 +24,7 @@ struct DaemonRecoveryReducerTests {
         let recovered = DaemonRecoveryReducer.recover(
             .init(id: id, metadata: metadata(groupID: nil), cwd: nil), into: &groups)
         #expect(recovered != nil)
+        #expect(groups[0].sessions[0].activePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly)
         #expect(groups[0].sessions[0].workingDirectory == "~")
         #expect(
             DaemonRecoveryReducer.recover(

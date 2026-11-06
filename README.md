@@ -31,6 +31,35 @@ Full target diagram, persistence, and agent/notification model: [`docs/architect
 
 Managed SSH programs that honor `BROWSER` can open web links in your Mac’s default browser after confirmation. Setup, permissions, and limits: [Remote browser forwarding](docs/remote-browser-forwarding.md).
 
+## Default terminal
+
+In **Settings > General > Default terminal**, choose **Make awesoMux the default
+terminal** to open Unix executables and executable `.command` scripts in awesoMux
+from Finder. macOS may ask for confirmation. The setting shows the exact app
+bundle being registered; move awesoMux to its permanent location first.
+
+Opening a terminal file asks before running it in a new local workspace. Launches
+wait for the shell prompt and require shell integration with Ghostty's default
+`confirm-close-surface = true` setting. Files must be regular and executable, and
+paths containing terminal control characters are rejected. Markdown files keep
+their document-pane behavior.
+
+This registers `public.unix-executable` and `com.apple.terminal.shell-script`.
+It does not take over `.sh` source files, SSH/telnet URLs, or applications' own
+terminal preferences. To choose another terminal later, use that app's default
+terminal setting or Finder's **Get Info > Open with > Change All** for each type.
+
+Run `./script/default-terminal-e2e/run.sh` for a non-destructive integration check
+of file validation, shell quoting, registration outcomes, and bundle declarations.
+It uses a fake registrar; it changes no macOS defaults and executes no fixture files.
+
+## Activity indicators
+
+To stop the spinning activity circles, turn off **Settings > Appearance >
+Animate activity indicators**. Status icons and counts stay visible. The setting
+applies immediately, is remembered after relaunch, and still respects macOS
+Reduce Motion when enabled.
+
 ## Named agent setups
 
 Settings > Agents lets you save multiple named launch setups for each provider.
@@ -75,6 +104,20 @@ Entry points:
   existing document panel, or creates that right-hand panel from a local terminal.
 - Local Markdown links from terminal output, and Markdown links clicked inside
   another document pane, route back into awesoMux as document panes.
+
+Search `>review` in the command palette for these separate actions. A plain
+`review` search can show Quick Run when a matching executable is available.
+
+- **Show Branch Changes** opens a snapshot of committed and uncommitted tracked
+  changes since the merge base of `HEAD` and the selected comparison ref. It uses
+  a valid target of `origin/HEAD`, otherwise the first available `origin/main`,
+  `origin/master`, `main`, or `master`. Check the comparison ref shown in the
+  document. Untracked files are excluded.
+- **Open Agent Transcript** opens the conversation for the active pane when its
+  agent session can be identified. An ordinary shell may have no transcript.
+- **Open Pull Request** opens a snapshot of the current branch's connected GitHub
+  pull request, including checks as they stood when opened. It requires a local
+  GitHub repository and authenticated GitHub CLI.
 
 The review workflow is file-backed. A document can carry one whole-document note
 plus any number of inline annotations. Selecting rendered text and adding an

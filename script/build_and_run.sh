@@ -867,6 +867,34 @@ $ICON_PLIST_ENTRIES
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>
   <string>AwesoMuxApplication</string>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.apple.terminal.shell-script</string>
+      <key>UTTypeConformsTo</key>
+      <array><string>public.shell-script</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array><string>command</string><string>tool</string></array>
+      </dict>
+    </dict>
+  </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeRole</key>
+      <string>Shell</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.unix-executable</string>
+        <string>com.apple.terminal.shell-script</string>
+      </array>
+    </dict>
+  </array>
   <key>NSQuitAlwaysKeepsWindows</key>
   <false/>
 </dict>
@@ -896,26 +924,9 @@ fi
 # release script signs nested code inside-out with Developer ID and runtime.
 codesign --force --deep --sign - "$APP_BUNDLE"
 
-is_codex_launch_environment() {
-  [[ -n "${CODEX_SANDBOX-}" || -n "${CODEX_THREAD_ID-}" || -n "${CODEX_CI-}" ]]
-}
-
-open_bundle() {
-  # Per the NO_COLOR spec (https://no-color.org), any non-empty value disables
-  # color, so test for non-empty rather than the literal "1". Codex sets
-  # NO_COLOR for its own tool output; do not let that wrapper preference leak
-  # into awesoMux panes during local app launch checks.
-  if is_codex_launch_environment && [[ -n "${NO_COLOR-}" ]]; then
-    env -u NO_COLOR /usr/bin/open "$@"
-    return
-  fi
-
-  /usr/bin/open "$@"
-}
-
 open_app() {
   local bundle="${1:-$APP_BUNDLE}"
-  open_bundle -n "$bundle"
+  /usr/bin/open -n "$bundle"
 }
 
 single_app_bundle_pid() {
@@ -1056,7 +1067,7 @@ run_diagnostics() {
   }
 
   trap cleanup_diagnostics EXIT INT TERM
-  open_bundle -n -W --env "$environment_key=1" "$APP_BUNDLE" &
+  /usr/bin/open -n -W --env "$environment_key=1" "$APP_BUNDLE" &
   open_pid="$!"
   if ! wait_for_app_bundle "$APP_BUNDLE" 40 0.25; then
     echo "error: $APP_BUNDLE did not start for $description diagnostics." >&2

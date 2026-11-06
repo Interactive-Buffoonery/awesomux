@@ -1136,13 +1136,15 @@ compatible build reads the preserved file.
 The shared protocol's `CompanionDecisionIdentity` binds runtime instance,
 workspace, pane, target version, provider session, hook invocation and request
 revision. `decide` accepts `decisionAnswer` containing that complete identity,
-a once-only `allow`/`deny` choice and UUID retry ID. Unknown fields and unrelated
+a once-only `allow`/`deny` choice, UUID retry ID and an optional `note` for
+Claude. A note needs `deny`, visible text and at most 500 Unicode scalars; the
+hook reply carries it as `message`, built with a JSON encoder. Unknown fields and unrelated
 operation arguments are rejected. Pending projections come from the authoritative
 core, including queued hooks that are not the currently displayed Mac card.
 Only bounded review text from verified hook ingress is shared.
 
 The core commits the first valid app answer atomically. Retry IDs bind device,
-identity and choice. An identical retry returns the original `decisionReceipt`;
+identity, choice and note. An identical retry returns the original `decisionReceipt`;
 conflicting reuse and losing answers cannot overwrite the winner. Fresh lists
 return retained `decisionOutcomes` for later recorded/delivery/terminal state.
 `alreadyAnswered` covers any retained non-pending outcome, including cancelled,
