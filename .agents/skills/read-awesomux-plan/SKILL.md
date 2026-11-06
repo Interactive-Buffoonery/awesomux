@@ -1,9 +1,12 @@
 ---
 name: read-awesomux-plan
-description: Read shared awesoMux planning through authenticated sf when working on issues, product decisions, delivery order, or linked research.
+description: Optionally read shared awesoMux planning through authenticated sf when explicitly requested or when available planning context helps with issues, product decisions, delivery order, or linked research.
 ---
 
 # Read shared planning
+
+The maintained roadmap is optional context. Routine repository and issue work
+proceeds without it; do not ask for planning setup or block work on access.
 
 Use each contributor's authenticated `sf` CLI. A plain HTTP fetch of a private
 space can return 403. Keep the space name, URL, ID, and team selection out of
@@ -17,9 +20,11 @@ contains `spaceId` and `team` strings identifying the shared planning space.
 which `sf` resolves. Verify the returned space ID rather than comparing the
 team selector with the receipt's canonical slug.
 Each contributor supplies their own local configuration and `sf` login; never
-put credentials in this file. If configuration is missing, ask for the space
-selection while continuing independent repository work. Do not guess a space
-or print the user's full space inventory.
+put credentials in this file. If configuration is missing, skip optional
+planning access and continue routine work without asking for setup. If the user
+explicitly requested roadmap access, ask for the missing space selection while
+continuing independent repository work. Do not guess a space or print the
+user's full space inventory.
 
 ## Read the live plan
 
@@ -58,6 +63,8 @@ Reconcile planning proposals with GitHub, current code, and ADRs; report
 conflicts. A milestone is not proof of shipped behavior or extra permission.
 Keep private planning content out of public issues and PRs.
 
-If the CLI or authentication is unavailable, report the prerequisite and
-continue independent work. Do not read credential files, print access links,
+If the CLI or authentication is unavailable, skip optional planning access and
+continue routine work without asking for setup. For explicitly requested roadmap
+access, explain the unavailable prerequisite and continue independent work.
+Do not read credential files, print access links,
 change sharing, publish, or install/update tools just to read the plan.
