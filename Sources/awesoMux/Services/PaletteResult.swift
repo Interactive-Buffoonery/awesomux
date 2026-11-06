@@ -79,6 +79,12 @@ enum PaletteSearch {
         FuzzyMatcher.match(query: needle, in: haystack)?.score
     }
 
+    /// Builds palette groups and the implicit selection for the query's mode.
+    /// Unified search scores workspace matches once before executable detection:
+    /// Quick Run is eligible only when no workspace matches the full query and
+    /// no enabled app-action title begins with it. Matching workspaces retain
+    /// their existing ranking and limit. A blank unified query has no implicit
+    /// selection, and a leading `>` restricts results to app actions.
     @MainActor
     static func results(
         groups: [SessionGroup],
@@ -92,7 +98,14 @@ enum PaletteSearch {
         let query = resolved.query
         var outputGroups: [PaletteResultGroup] = []
 
+        let sessionResults =
+            resolved.mode == .unified
+            ? sessions(in: groups, query: query, titles: titles, limit: sessionLimit)
+            : []
+
         if resolved.mode == .unified,
+            // Existing workspace matches take precedence over executable detection.
+            sessionResults.isEmpty,
             // Executables such as `view` must not hide matching app actions.
             !commands.contains(where: {
                 $0.isEnabled && $0.title.range(of: query, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil
@@ -112,16 +125,8 @@ enum PaletteSearch {
             )
         }
 
-        if resolved.mode == .unified {
-            let sessionResults = sessions(
-                in: groups,
-                query: query,
-                titles: titles,
-                limit: sessionLimit
-            )
-            if !sessionResults.isEmpty {
-                outputGroups.append(PaletteResultGroup(title: "Sessions", results: sessionResults.map(PaletteResult.session)))
-            }
+        if !sessionResults.isEmpty {
+            outputGroups.append(PaletteResultGroup(title: "Sessions", results: sessionResults.map(PaletteResult.session)))
         }
 
         let enabledCommands = commands.filter(\.isEnabled)
