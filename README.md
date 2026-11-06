@@ -76,10 +76,14 @@ Entry points:
 - Local Markdown links from terminal output, and Markdown links clicked inside
   another document pane, route back into awesoMux as document panes.
 
-Search `review` in the command palette for these separate actions:
+Search `>review` in the command palette for these separate actions. A plain
+`review` search can show Quick Run when a matching executable is available.
 
 - **Show Branch Changes** opens a snapshot of committed and uncommitted tracked
-  changes compared with the default branch. Untracked files are excluded.
+  changes since the merge base of `HEAD` and the selected comparison ref. It uses
+  a valid target of `origin/HEAD`, otherwise the first available `origin/main`,
+  `origin/master`, `main`, or `master`. Check the comparison ref shown in the
+  document. Untracked files are excluded.
 - **Open Agent Transcript** opens the conversation for the active pane when its
   agent session can be identified. An ordinary shell may have no transcript.
 - **Open Pull Request** opens a snapshot of the current branch's connected GitHub
