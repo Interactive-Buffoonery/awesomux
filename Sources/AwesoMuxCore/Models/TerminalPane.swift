@@ -4,7 +4,12 @@ import Foundation
 public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
     public var terminalSessionID: TerminalSessionID {
-        didSet { if terminalSessionID != oldValue { remoteFileContext = nil } }
+        didSet {
+            if terminalSessionID != oldValue {
+                remoteFileContext = nil
+                resetOutputNotification()
+            }
+        }
     }
     public var terminalBackendMetadata: TerminalBackendMetadata {
         didSet { if terminalBackendMetadata != oldValue { remoteFileContext = nil } }
@@ -19,7 +24,12 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// persistent terminal session. Observed title/connection metadata below
     /// may enrich presentation but never retarget this plan.
     public var executionPlan: PaneExecutionPlan {
-        didSet { if executionPlan != oldValue { remoteFileContext = nil } }
+        didSet {
+            if executionPlan != oldValue {
+                remoteFileContext = nil
+                resetOutputNotification()
+            }
+        }
     }
     /// Decode-only migration marker. Missing legacy plan state is represented
     /// as a local placeholder until a group-aware restore reducer replaces it.
@@ -107,12 +117,29 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     public var attentionReason: AttentionReason?
     public var unreadNotificationCount: Int {
         didSet {
-            if unreadNotificationCount == 0 { unreadPermissionPromptCount = 0 }
+            if unreadNotificationCount == 0 {
+                unreadPermissionPromptCount = 0
+                unreadOutputNotificationReason = nil
+            }
         }
     }
     // Runtime queue accounting: draining a seen prompt must not debit a later notification.
     var pendingPermissionPromptCount = 0
     var unreadPermissionPromptCount = 0
+    // One generic credit survives masking by permission attention; clocks are monotonic and runtime-only.
+    var unreadOutputNotificationReason: AttentionReason?
+    var lastOutputNotificationAt: TimeInterval?
+    var outputNotificationSeenAt: TimeInterval?
+
+    mutating func resetOutputNotification() {
+        if let reason = unreadOutputNotificationReason {
+            if attentionReason == reason { attentionReason = nil }
+            unreadNotificationCount = max(0, unreadNotificationCount - 1)
+        }
+        unreadOutputNotificationReason = nil
+        lastOutputNotificationAt = nil
+        outputNotificationSeenAt = nil
+    }
 
     public var canMarkSeen: Bool {
         unreadNotificationCount > 0 || (attentionReason != nil && attentionReason?.awaitsExplicitAnswer != true)
