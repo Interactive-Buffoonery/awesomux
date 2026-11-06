@@ -79,6 +79,12 @@ enum PaletteSearch {
         FuzzyMatcher.match(query: needle, in: haystack)?.score
     }
 
+    /// Builds palette groups and the implicit selection for the query's mode.
+    /// Unified search scores workspace matches once before executable detection:
+    /// Quick Run is eligible only when no workspace matches the full query and
+    /// no enabled app-action title begins with it. Matching workspaces retain
+    /// their existing ranking and limit. A blank unified query has no implicit
+    /// selection, and a leading `>` restricts results to app actions.
     @MainActor
     static func results(
         groups: [SessionGroup],

@@ -5,6 +5,10 @@ import Testing
 
 @Suite("Palette search")
 struct PaletteSearchTests {
+    /// Verifies that PATH executables cannot hide full-query workspace matches,
+    /// including fuzzy titles and parent directories, or change their ordering.
+    /// Isolated executable fixtures also check that unmatched commands still
+    /// use Quick Run and that actions-only and blank queries retain their modes.
     @Test(
         "Workspace matches take precedence over executable queries",
         arguments: ["top", "  top  ", "ssh", "top notes"])
