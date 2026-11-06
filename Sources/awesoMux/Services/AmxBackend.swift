@@ -353,9 +353,13 @@ enum AmxBackend {
         for remote: RemoteTarget,
         remoteCommand: String? = nil
     ) -> [String] {
-        // shortcut: use portable terminfo until remote capability setup is supported (#760).
+        // The helper keeps xterm-ghostty only for hosts the user set up (#760);
+        // every other host, and any other TERM, gets the portable definition.
+        let launcher =
+            sshTerminalHelperPath.map { [shellExecutablePath, $0, "--portable"] }
+            ?? [envExecutablePath, "TERM=xterm-256color", "ssh"]
         var tokens =
-            [envExecutablePath, "TERM=xterm-256color", "ssh"] + sshMultiplexingOptions() + [
+            launcher + sshMultiplexingOptions() + [
                 "-o", "ConnectTimeout=10",
                 "-o", "ServerAliveInterval=15",
             ]
@@ -372,6 +376,27 @@ enum AmxBackend {
         }
         return tokens
     }
+
+    static var hasTerminalSetupHelper: Bool { sshTerminalHelperPath != nil }
+
+    /// The shell command that offers xterm-ghostty setup for `remote`, or nil
+    /// when the bundled helper is missing.
+    static func terminalSetupCommand(for remote: RemoteTarget) -> String? {
+        guard let helper = sshTerminalHelperPath else { return nil }
+        let tokens =
+            [shellExecutablePath, helper, "--setup-terminfo"] + sshMultiplexingOptions() + ["--", remote.sshDestination]
+        return tokens.map(shellQuote).joined(separator: " ")
+    }
+
+    /// `awesomux-ssh` from this app's own shell integration, run through
+    /// `/bin/sh` because Ghostty installs resources without the executable bit.
+    /// Read from the bundle, not the inherited environment, so test runs inside
+    /// an awesoMux pane don't pick up the installed app's helper.
+    private static let sshTerminalHelperPath: String? = {
+        guard let resources = Bundle.main.resourcePath else { return nil }
+        let path = resources + "/ghostty/shell-integration/awesomux-ssh"
+        return FileManager.default.isReadableFile(atPath: path) ? path : nil
+    }()
 
     /// The backend ships beside the app's main executable in `Contents/MacOS`,
     /// the same convention as `awesoMuxAgentHook`.
