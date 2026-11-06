@@ -8,6 +8,26 @@ struct DaemonGCPlanTests {
     private let uuidA = "11111111-1111-4111-8111-111111111111"
     private let uuidB = "22222222-2222-4222-8222-222222222222"
 
+    @Test("orphan carriers ignore SSH activity and reopen entries, but spare live panes")
+    func reapsOrphanCarrier() throws {
+        let labels = DaemonRecoveryMetadata.remoteCarrier.encodedLabelAssignments
+            .map { "\($0.key)=\($0.value)" }.joined(separator: "\t")
+        let live = DaemonGCPlan.parseAmxList(
+            "name=\(uuidA)\tpid=100\tclients=0\tcreated=10\t" + labels)
+        let id = try #require(live.first?.id)
+        #expect(
+            DaemonGCPlan.reapable(
+                live: live, owned: [id], busy: [id], gcStart: 50, livePane: []) == live)
+        #expect(
+            DaemonGCPlan.reapable(
+                live: live, owned: [id], busy: [id], gcStart: 50, livePane: [id]
+            ).isEmpty)
+        #expect(
+            DaemonGCPlan.reapable(
+                live: live, owned: [], busy: [], gcStart: 10, livePane: []
+            ).isEmpty)
+    }
+
     @Test("encoded cwd cannot inject reserved fields or rows")
     func encodedCwdIsFramed() {
         let cwd = "/tmp/x\tclients=0\nname=\(uuidB)"
@@ -86,7 +106,7 @@ struct DaemonGCPlanTests {
             live: [orphan, owned, hand, busyD, fresh, attached],
             owned: [owned.id],
             busy: [busyD.id],
-            gcStart: 50
+            gcStart: 50, livePane: [owned.id]
         )
         #expect(plan == [orphan])
     }
@@ -94,7 +114,7 @@ struct DaemonGCPlanTests {
     @Test("reapable: created == gcStart is spared (the safety boundary)")
     func reapableSameSecondBoundary() {
         let sameSecond = LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 100, createdEpoch: 50, clients: 0)
-        let plan = DaemonGCPlan.reapable(live: [sameSecond], owned: [], busy: [], gcStart: 50)
+        let plan = DaemonGCPlan.reapable(live: [sameSecond], owned: [], busy: [], gcStart: 50, livePane: [])
         #expect(plan.isEmpty)
     }
 

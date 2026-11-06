@@ -16,9 +16,8 @@ def verify(vendor):
     """Verify exact cleanup injection and reject anchor drift without vendor writes."""
     paths = ("src/terminal/Screen.zig", "src/terminal/kitty/graphics_storage.zig", "src/renderer/image.zig")
     originals = {name: (vendor / name).read_text() for name in paths}
-    fragment = ROOT / "native/ghostty/kitty-clear.zig.inc"
     tests = ROOT / "native/ghostty/kitty-clear-tests.zig.inc"
-    assert fragment in prepare.INPUTS and tests in prepare.INPUTS
+    assert tests in prepare.INPUTS
     with tempfile.TemporaryDirectory() as directory:
         staging = Path(directory)
         for name, source in originals.items():
@@ -27,13 +26,12 @@ def verify(vendor):
             target.write_text(source)
         prepare.inject_kitty_clear(staging)
         assert (staging / paths[0]).read_text() == originals[paths[0]].replace(
-            prepare.KITTY_CLEAR_ANCHOR, prepare.KITTY_CLEAR_REPLACEMENT, 1).replace(
             prepare.KITTY_RESIZE_ANCHOR, prepare.KITTY_RESIZE_REPLACEMENT, 1)
-        assert (staging / paths[1]).read_text().count(fragment.read_text()) == 1
+        assert (staging / paths[1]).read_text() == originals[paths[1]]
         assert (staging / paths[2]).read_text() == originals[paths[2]] + tests.read_text()
         for name, anchor in ((paths[0], prepare.KITTY_CLEAR_ANCHOR),
                              (paths[0], prepare.KITTY_RESIZE_ANCHOR),
-                             (paths[1], "    /// Clear placements intersecting the active screen, then reclaim every\n")):
+                             (paths[1], prepare.KITTY_STORAGE_ANCHOR)):
             for broken in (originals[name].replace(anchor, ""), originals[name] + anchor):
                 for relative, source in originals.items():
                     (staging / relative).write_text(source)

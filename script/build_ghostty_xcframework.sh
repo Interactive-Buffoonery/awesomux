@@ -83,7 +83,7 @@ find_archive() {
   esac
 }
 
-# Ghostty's Zig 0.16 post-processor leaves compiler-rt's `_memset` as a
+# Ghostty's static-link post-processor leaves compiler-rt's `_memset` as a
 # private-external symbol. ld64 still rejects that alongside Ghostty's own
 # private-external override, so finish the localization before publishing.
 # This becomes a no-op once upstream makes the symbol truly non-external.
@@ -319,7 +319,7 @@ cleanup_ghostty_source() {
   rm -rf "$GHOSTTY_SOURCE_SCRATCH"
 }
 trap cleanup_ghostty_source EXIT
-GHOSTTY_BUILD_DIR="$(python3 "$ROOT_DIR/script/prepare_ghostty_source.py" --destination "$GHOSTTY_SOURCE_SCRATCH")"
+GHOSTTY_BUILD_DIR="$(python3 "$ROOT_DIR/script/prepare_ghostty_source.py" --destination "$GHOSTTY_SOURCE_SCRATCH" --zig "$ZIG_BIN")"
 GHOSTTY_EXTENSION_FINGERPRINT="$(python3 "$ROOT_DIR/script/prepare_ghostty_source.py" --fingerprint)"
 cd "$GHOSTTY_BUILD_DIR"
 
@@ -328,6 +328,12 @@ rm -rf "$AWESOMUX_INSTALL_DIR" "$AWESOMUX_ZIG_CACHE_DIR" "$AWESOMUX_ZIG_GLOBAL_C
 echo "Building Ghostty from vendor/ghostty (Zig optimize=$AWESOMUX_GHOSTTY_OPTIMIZE)."
 echo "This build can take about 60-120 seconds; later app builds reuse the finished .build/ghostty artifacts."
 echo "Using Zig $("$ZIG_BIN" version) at $ZIG_BIN (Ghostty requires $GHOSTTY_REQUIRED_ZIG_VERSION)"
+
+# Exercise the exact patched dependency before compiling it into Ghostty.
+ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build \
+  --build-file "$GHOSTTY_BUILD_DIR/pkg/awesomux-libxev/build.zig" test \
+  --cache-dir "$AWESOMUX_ZIG_CACHE_DIR/libxev-tests" \
+  -Doptimize="$AWESOMUX_GHOSTTY_OPTIMIZE" --summary all
 
 # Fail-closed on purpose: this runs under `set -e` with no `set +e` tolerance
 # block. A non-zero `zig build` aborts here even if some artifacts happen to be

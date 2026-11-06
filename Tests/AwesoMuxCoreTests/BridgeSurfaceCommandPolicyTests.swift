@@ -15,20 +15,18 @@ struct BridgeSurfaceCommandPolicyTests {
             )!)
     }
 
-    @Test("a remote-owned pane attaches on the host regardless of bridge or amx availability")
+    @Test("a remote-owned pane uses a carrier when available regardless of bridge toggle")
     func remoteOwnedAttachWinsOverEveryOtherInput() {
         let plan = Self.remoteOwnedPlan()
-        // The remote host owns the session: no local amx daemon is involved and
-        // there is no bridge to wrap, so neither toggle can change the outcome
-        // — and neither can make the pane unavailable.
+        // The bridge toggle does not control carrier availability.
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: true, executionPlan: plan
-            ) == .remoteOwnedAttach)
+            ) == .bridgeAttach)
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: false, attachCommandAvailable: true, executionPlan: plan
-            ) == .remoteOwnedAttach)
+            ) == .bridgeAttach)
         #expect(
             BridgeSurfaceCommandPolicy.command(
                 bridgeEnabled: true, attachCommandAvailable: false, executionPlan: plan

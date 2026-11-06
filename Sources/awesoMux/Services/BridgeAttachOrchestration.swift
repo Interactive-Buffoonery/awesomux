@@ -27,7 +27,7 @@ enum BridgeAttachDecision {
     ///
     /// Takes the whole execution plan rather than an `isRemote` flag because
     /// "remote" alone is no longer the gate: a `.remoteZmx` pane's session lives
-    /// on the far host with no local `amx` in front of it, so the preflight
+    /// on the far host. Its local carrier only runs SSH, so the preflight
     /// would bind a socket and publish a state file around a command that never
     /// reads them. A boolean would leave every call site free to get that
     /// distinction wrong; the plan makes it unrepresentable.

@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxConfig
 import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
@@ -59,7 +60,7 @@ final class LocalAPIService {
     private var awayMonitor: CompanionAwayMonitor?
     #if DEBUG
         private var decisionFixture: CompanionDecisionFixture?
-        var decisionFixtureWorkspaceID: UUID? { decisionFixture?.workspaceID }
+        var hasDecisionFixture: Bool { decisionFixture != nil }
     #endif
     private let server: LocalAPIServer
     private let capture: LocalAPIServer.Capture
@@ -68,13 +69,15 @@ final class LocalAPIService {
     private let profileValue: String
     private weak var store: SessionStore?
     private weak var runtime: GhosttyRuntime?
+    private weak var settings: AppSettingsStore?
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
     init(
         store: SessionStore,
         runtime: GhosttyRuntime,
         accessStore: LocalAPIAccessStore,
-        profile: AppRuntimeProfile = .current
+        profile: AppRuntimeProfile = .current,
+        settings: AppSettingsStore? = nil
     ) throws {
         let profileValue = profile.environmentValue
         guard accessStore.ownsAuthority, accessStore.loadFailure == nil else { throw LocalAPIError.accessDisabled }
@@ -194,6 +197,7 @@ final class LocalAPIService {
         self.store = store
         self.runtime = runtime
         self.capture = capture
+        self.settings = settings
         renameStore = store
         renameAuthority = accessStore.runtimeAuthority
         server = try LocalAPIServer(
@@ -241,8 +245,55 @@ final class LocalAPIService {
             certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
     }
 
-    var companionDecisionWorkspaces: [(id: UUID, name: String)] {
-        store?.groups.flatMap(\.sessions).map { ($0.id, store?.sidebarResolvedTitle(for: $0.id) ?? $0.title) } ?? []
+    func createCompanionTerminal(
+        request: CompanionTerminalCreateRequest, lease: LocalAPIAuthorizationLease,
+        certificateFingerprint: Data, deadline: ContinuousClock.Instant
+    ) throws -> CompanionTerminalCreated {
+        guard let store else { throw LocalAPIError.appUnavailable }
+        return try CompanionTerminalCreate.apply(
+            request: request, store: store,
+            defaultGroup: settings?.workspaces.value.defaultGroup ?? WorkspaceConfig.defaultValue.defaultGroup,
+            authority: renameAuthority, certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
+    }
+
+    func prepareCompanionTerminal(
+        paneID: UUID, targetVersion: UUID, lease: LocalAPIAuthorizationLease,
+        certificateFingerprint: Data, deadline: ContinuousClock.Instant
+    ) async throws -> LocalAPITerminalWatchTarget {
+        guard let store, let runtime else { throw LocalAPIError.appUnavailable }
+        let spawnAuthority = CompanionTerminalOpen.SpawnAuthority(
+            paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
+        return try await withTaskCancellationHandler {
+            defer { spawnAuthority.cancel() }
+            let target = try CompanionTerminalOpen.prepare(
+                paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+                certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline
+            ) { workspace, pane in
+                guard runtime.isReady, runtime.isCommandBridgeEnabled else { throw LocalAPIError.terminalUnavailable }
+                let integrations = settings?.agentIntegrations.value ?? .defaultValue
+                let surface = runtime.surfaceView(
+                    sessionStore: store, session: workspace, pane: pane,
+                    enabledAgentRuntimeFileDropSources: AgentRuntimeConsent.enabledFileDropSources(from: integrations),
+                    grokIconEnabled: integrations.grok.enabled)
+                // Use the same launch/preflight path as a native mount without
+                // selecting the workspace or moving the Mac's first responder.
+                surface.createSurfaceIfNeeded(companionAuthority: spawnAuthority)
+                guard !surface.commandBridgeEnactor.errorLatched else { throw LocalAPIError.paneDisconnected }
+                guard surface.surface != nil || surface.commandBridgeEnactor.bridgePreflightInFlight else {
+                    throw LocalAPIError.terminalUnavailable
+                }
+            }
+            guard let sessionName = target.localSessionName else { throw LocalAPIError.terminalUnavailable }
+            try await CompanionTerminalOpen.waitForSocket(
+                at: AmxBackend.sessionSocketDirectory() + "/" + sessionName, deadline: deadline)
+            return try CompanionTerminalOpen.prepare(
+                paneID: paneID, targetVersion: targetVersion, store: store, authority: renameAuthority,
+                certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline,
+                hydrate: { _, _ in })
+        } onCancel: {
+            spawnAuthority.cancel()
+        }
     }
 
     func companionDecisions(
@@ -250,7 +301,7 @@ final class LocalAPIService {
         fingerprint: Data, authority: LocalAPIRuntimeAuthority, deviceName: String,
         requestID: UUID
     ) throws -> CompanionDecisionResponse {
-        guard let store, let runtime, let workspaces = lease.decideWorkspaceIDs, !workspaces.isEmpty else {
+        guard let store, let runtime, lease.decisionsAllowed else {
             throw LocalAPIError.permissionDenied
         }
         #if DEBUG
@@ -262,9 +313,7 @@ final class LocalAPIService {
         #endif
         let eligible: (LocalPermissionTarget) -> Bool = { [weak self, weak store] target in
             #if DEBUG
-                if let fixture = self?.decisionFixture {
-                    return target.workspaceID == fixture.workspaceID
-                }
+                if self?.decisionFixture != nil { return true }
             #endif
             guard let store, let session = store.session(id: target.workspaceID),
                 let pane = session.layout.pane(id: target.paneID)
@@ -273,7 +322,7 @@ final class LocalAPIService {
                 executionPlan: pane.executionPlan, compactTerminalKind: store.compactTerminalKind)
         }
         let result = try coordinator.remoteResponse(
-            answer: answer, deviceID: lease.connectionID, deviceName: deviceName, workspaceIDs: workspaces,
+            answer: answer, deviceID: lease.connectionID, deviceName: deviceName,
             authorize: { body in
                 try authority.performCompanionDecision(certificateFingerprint: fingerprint, lease: lease, body: body)
             },
@@ -287,11 +336,12 @@ final class LocalAPIService {
         return CompanionDecisionResponse(
             response: response,
             validate: {
-                try coordinator.validateRemoteTargets(identities, workspaceIDs: workspaces, eligible: eligible)
+                try coordinator.validateRemoteTargets(identities, eligible: eligible)
             })
     }
 
     func terminalWatchTarget(paneID: UUID) -> LocalAPITerminalWatchTarget? {
+        // Live-stream identity only; open-time health refusals stay in `prepareCompanionTerminal`.
         store?.localAPITerminalWatchTarget(paneID: paneID)
     }
 
@@ -308,6 +358,10 @@ final class LocalAPIService {
                 appInstanceID: server.instanceID, capturedAt: Date(),
                 connectionStatus: request.operation == CompanionOperation.connectionStatus.rawValue ? "connected" : nil, routes: routes,
                 terminalPreviewAllowed: lease.terminalPreviewAllowed,
+                terminalInputAllowed: request.operation == CompanionOperation.connectionStatus.rawValue ? lease.terminalInputAllowed : nil,
+                createWorkspaceAllowed: request.operation == CompanionOperation.connectionStatus.rawValue
+                    ? lease.companionCanCreateWorkspace : nil,
+                createPaneAllowed: request.operation == CompanionOperation.connectionStatus.rawValue ? lease.companionCanCreatePane : nil,
                 remoteDecisionsEnabled: LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "claudeCode", version: nil),
                 terminalStream: request.operation == CompanionOperation.capabilities.rawValue || lease.terminalWatchScope != nil
                     ? CompanionTerminalStream.Capabilities() : nil
@@ -317,7 +371,7 @@ final class LocalAPIService {
             guard let store, let runtime else {
                 return CompanionAPIResponse(requestID: request.requestID, error: LocalAPIError.appUnavailable.rawValue)
             }
-            let workspaces = store.companionWorkspaces(scope: lease.statusScope, terminalPreviewAllowed: lease.terminalPreviewAllowed) {
+            let workspaces = store.companionWorkspaces(terminalPreviewAllowed: lease.terminalPreviewAllowed) {
                 paneID in
                 runtime.companionLastOutputLine(paneID: paneID)
             }
@@ -332,11 +386,12 @@ final class LocalAPIService {
     static func start(
         store: SessionStore,
         runtime: GhosttyRuntime,
-        accessStore: LocalAPIAccessStore
+        accessStore: LocalAPIAccessStore,
+        settings: AppSettingsStore? = nil
     ) -> LocalAPIService? {
         // Bare SwiftPM test processes have no supported public runtime profile.
         guard case .test = AppRuntimeProfile.current else {
-            do { return try LocalAPIService(store: store, runtime: runtime, accessStore: accessStore) } catch {
+            do { return try LocalAPIService(store: store, runtime: runtime, accessStore: accessStore, settings: settings) } catch {
                 accessStore.relinquishAuthority()
                 logger.error("Local API unavailable: \(String(describing: error), privacy: .public)")
                 return nil
@@ -395,9 +450,7 @@ final class LocalAPIService {
     @MainActor
     private final class CompanionDecisionFixture {
         let coordinator = LocalPermissionCoordinator(announcement: { _ in })
-        let workspaceID: UUID
         init(directory: URL, workspaceID: UUID) throws {
-            self.workspaceID = workspaceID
             var identities: [String: CompanionDecisionIdentity] = [:]
             let paneID = UUID()
             for (name, workspace, expiry) in [

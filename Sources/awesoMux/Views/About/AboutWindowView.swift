@@ -212,9 +212,17 @@ struct AboutCredit: Identifiable {
             attribution: "MessagePack serialization — MIT",
             resource: "LICENSE", ext: nil, subdirectory: "MPack"),
         AboutCredit(
-            name: "stb_sprintf",
-            attribution: "String formatting — MIT or public domain",
-            resource: "LICENSE", ext: nil, subdirectory: "stb-sprintf"),
+            name: "stb_image",
+            attribution: String(
+                localized: "Image decoding — MIT or public domain",
+                comment: "About credit for the stb_image library and its license choices"),
+            resource: "LICENSE", ext: nil, subdirectory: "stb-image"),
+        AboutCredit(
+            name: "stb_image_resize",
+            attribution: String(
+                localized: "Image resizing — MIT or public domain",
+                comment: "About credit for the stb_image_resize library and its license choices"),
+            resource: "LICENSE", ext: nil, subdirectory: "stb-image-resize"),
         AboutCredit(
             name: "Google Breakpad",
             attribution: "Crash handling — BSD-3-Clause and bundled notices",
@@ -258,6 +266,12 @@ struct AboutCredit: Identifiable {
                     label: String(localized: "MIT License", comment: "Button opening an MIT license text"),
                     resource: "LICENSE-MIT", ext: nil),
             ]),
+        AboutCredit(
+            name: "z2d",
+            attribution: String(
+                localized: "2D rasterization — MPL-2.0", comment: "About credit for the z2d rasterization library and its license"),
+            resource: "COPYING", ext: nil, subdirectory: "z2d",
+            notice: (resource: "LICENSE", ext: nil)),
         AboutCredit(
             name: "Zig compiler runtime",
             attribution: "Compiler support runtime — MIT",

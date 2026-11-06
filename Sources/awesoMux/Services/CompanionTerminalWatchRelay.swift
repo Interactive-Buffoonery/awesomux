@@ -47,9 +47,8 @@ final class CompanionNetworkOperation<Value: Sendable>: Sendable {
     }
 }
 
-/// Attaches to one zmx session as a watch-only client and translates it into
-/// ADR-0040 stream frames. Raw zmx messages, the socket path, and any phone
-/// input never cross between the two sides.
+/// Translates one typed zmx attachment into ADR-0040 frames. Device input
+/// crosses only as validated UserBatch or TakeOver operations.
 enum CompanionTerminalWatchRelay {
     typealias Stream = CompanionTerminalStream
 
@@ -61,11 +60,26 @@ enum CompanionTerminalWatchRelay {
         case attachRole = 26
         case attachAccepted = 27
         case authority = 28
+        case userBatch = 29
+        case takeOver = 31
     }
 
     struct ZmxMessage: Equatable {
         let tag: UInt8
         let payload: Data
+    }
+
+    struct Authority {
+        let leader: UInt64
+        let grid: Stream.Grid
+
+        init?(_ message: ZmxMessage) {
+            guard message.tag == ZmxTag.authority.rawValue, message.payload.count == 20 else { return nil }
+            leader = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
+            let rows = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt16.self) }.littleEndian
+            let cols = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 18, as: UInt16.self) }.littleEndian
+            grid = .init(rows: Int(rows), cols: Int(cols))
+        }
     }
 
     static let zmxHeaderBytes = 8
@@ -95,12 +109,16 @@ enum CompanionTerminalWatchRelay {
         return data + payload
     }
 
-    static func attachRequest(_ grid: Stream.Grid) -> Data {
-        var payload = Data([1, 1])
+    static func attachRequest(_ grid: Stream.Grid, role: Stream.Role = .watch) -> Data {
+        zmxMessage(.attachRole, Data([1, role == .interactive ? 2 : 1]) + gridPayload(grid))
+    }
+
+    static func gridPayload(_ grid: Stream.Grid) -> Data {
+        var payload = Data()
         for value in [UInt16(grid.rows).littleEndian, UInt16(grid.cols).littleEndian] {
             withUnsafeBytes(of: value) { payload.append(contentsOf: $0) }
         }
-        return zmxMessage(.attachRole, payload)
+        return payload
     }
 
     struct ZmxParser {
@@ -131,15 +149,18 @@ enum CompanionTerminalWatchRelay {
 
         let paneID: UUID
         let targetVersion: UUID
+        let ownLeader: String?
         private(set) var phase: Phase = .awaitingAccept
         private(set) var sequence: UInt64 = 0
         private(set) var grid: Stream.Grid
         private(set) var leader: String?
+        private var ownAttachment: UInt64?
 
-        init(paneID: UUID, targetVersion: UUID, grid: Stream.Grid) {
+        init(paneID: UUID, targetVersion: UUID, grid: Stream.Grid, ownLeader: String? = nil) {
             self.paneID = paneID
             self.targetVersion = targetVersion
             self.grid = grid
+            self.ownLeader = ownLeader
         }
 
         var snapshotConstructed: Bool { phase == .streaming }
@@ -149,14 +170,12 @@ enum CompanionTerminalWatchRelay {
             case .attachAccepted:
                 guard phase == .awaitingAccept, message.payload.count == 16 else { return .frames([]) }
                 phase = .awaitingSnapshot
+                ownAttachment = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
                 return .frames([])
             case .authority:
-                guard message.payload.count == 20 else { return .frames([]) }
-                let id = message.payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
-                let rows = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt16.self) }.littleEndian
-                let cols = message.payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 18, as: UInt16.self) }.littleEndian
-                leader = id == 0 ? nil : String(id)
-                grid = .init(rows: Int(rows), cols: Int(cols))
+                guard let authority = Authority(message) else { return .frames([]) }
+                leader = label(authority.leader)
+                grid = authority.grid
                 return .frames(phase == .streaming ? [.leader(.init(leader: leader)), .grid(grid)] : [])
             case .output:
                 switch phase {
@@ -175,9 +194,17 @@ enum CompanionTerminalWatchRelay {
                 }
             case .sessionEnd:
                 return .end(.sessionEnded)
-            case .attachRole, .none:
+            case .attachRole, .userBatch, .takeOver, .none:
                 return .frames([])
             }
+        }
+
+        /// The phone knows itself by its paired connection ID and the Mac as `mac`.
+        private func label(_ attachment: UInt64) -> String? {
+            guard attachment != 0 else { return nil }
+            guard let ownLeader, let ownAttachment else { return String(attachment) }
+            // ponytail: another paired phone also reads as the Mac; look up CompanionTerminalDriving if two phones share a pane.
+            return attachment == ownAttachment ? ownLeader : "mac"
         }
 
         private mutating func chunks(_ bytes: Data, _ make: (UInt64, Data) -> Stream.Frame) -> [Stream.Frame] {
@@ -215,6 +242,7 @@ enum CompanionTerminalWatchRelay {
             var capacityWaiters: [UUID: CompanionNetworkOperation<Void>] = [:]
         }
 
+        let diagnostics: CompanionDiagnostics
         private let state = OSAllocatedUnfairLock(initialState: State())
         private let maximumPendingBytes: Int
         private let now: @Sendable () -> ContinuousClock.Instant
@@ -223,8 +251,10 @@ enum CompanionTerminalWatchRelay {
 
         init(
             maximumPendingBytes: Int = Stream.maximumPendingBytes,
+            diagnostics: CompanionDiagnostics = CompanionDiagnostics(),
             now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
         ) {
+            self.diagnostics = diagnostics
             self.maximumPendingBytes = maximumPendingBytes
             self.now = now
             (wakes, wake) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -235,6 +265,23 @@ enum CompanionTerminalWatchRelay {
         var snapshotDelivered: Bool { state.withLock { $0.snapshotDelivered } }
         var endReason: Stream.EndReason? {
             state.withLock { $0.reason ?? ($0.frames.isEmpty && $0.inFlight == nil ? $0.sourceEnd : nil) }
+        }
+
+        func acceptsInput(generation: UInt32) -> Bool {
+            state.withLock { $0.generation == generation && !$0.resync && $0.reason == nil && $0.sourceEnd == nil }
+        }
+
+        func needsResync(generation: UInt32) -> Bool {
+            state.withLock { $0.generation == generation && $0.resync && $0.reason == nil }
+        }
+
+        @MainActor
+        func forwardInput(generation: UInt32, submit: @MainActor @Sendable () throws -> Void) throws {
+            try state.withLock { state in
+                guard state.generation == generation, !state.resync, state.reason == nil, state.sourceEnd == nil
+                else { throw CancellationError() }
+                try MainActor.assumeIsolated { try submit() }
+            }
         }
 
         func install(_ tasks: [Task<Void, Never>]) {
@@ -410,11 +457,13 @@ enum CompanionTerminalWatchRelay {
         }
 
         func finish(_ reason: Stream.EndReason) {
+            diagnostics.close(origin: "daemon", phase: "producer_end", reason: reason.rawValue)
             state.withLock { $0.sourceEnd = reason }
             wake.yield(())
         }
 
         func stop(_ reason: Stream.EndReason) {
+            diagnostics.close(origin: "relay", phase: "stop", reason: reason.rawValue)
             let (tasks, writer, waiters) = state.withLock { state in
                 if state.reason == nil { state.reason = reason }
                 state.frames.removeAll(keepingCapacity: false)
@@ -437,6 +486,11 @@ enum CompanionTerminalWatchRelay {
         paneID: UUID,
         targetVersion: UUID,
         grid: Stream.Grid,
+        role: Stream.Role = .watch,
+        validateInput: @escaping @MainActor @Sendable () throws -> Void = {},
+        commitInput: @escaping @MainActor @Sendable (@MainActor @Sendable () -> Void) throws -> Void = { $0() },
+        attachmentChanged: @escaping @MainActor @Sendable (UInt64?) -> Void = { _ in },
+        ownLeader: String? = nil,
         buffer: Buffer,
         phoneFrames: @escaping @Sendable () async throws -> Data,
         send: @escaping @MainActor @Sendable (Data) async throws -> Void,
@@ -445,7 +499,8 @@ enum CompanionTerminalWatchRelay {
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         produce: (@Sendable (Buffer) async -> Void)? = nil
     ) async -> Stream.EndReason {
-        await withTaskCancellationHandler {
+        let input = await InputForwarder(role: role, grid: grid, buffer: buffer, validate: validateInput)
+        return await withTaskCancellationHandler {
             let producer = Task {
                 if let produce {
                     await produce(buffer)
@@ -453,7 +508,8 @@ enum CompanionTerminalWatchRelay {
                     buffer.finish(
                         await attachLoop(
                             socketPath: socketPath, paneID: paneID, targetVersion: targetVersion,
-                            grid: grid, buffer: buffer, delay: delay))
+                            grid: grid, role: role, input: input, commitInput: commitInput,
+                            attachmentChanged: attachmentChanged, ownLeader: ownLeader, buffer: buffer, delay: delay))
                 }
             }
             let timer = Task {
@@ -467,27 +523,18 @@ enum CompanionTerminalWatchRelay {
                 while !Task.isCancelled {
                     do {
                         let data = try await phoneFrames()
-                        guard data.count >= Stream.headerBytes else {
-                            buffer.stop(.protocolError)
-                            return
-                        }
-                        let generation = data.dropFirst().prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-                        guard generation == buffer.generation else { continue }
-                        guard let decoded = try? Stream.decode(data) else {
-                            buffer.stop(.protocolError)
-                            return
-                        }
-                        switch decoded.frame {
-                        case .phoneSent(.ack):
-                            continue
-                        case .end(let end) where end.reason == .closed && decoded.generation == buffer.generation:
-                            buffer.stop(.closed)
-                        default:
-                            buffer.stop(.protocolError)
-                        }
+                        try await input.receive(data)
+                    } catch LocalAPIError.requestTooLarge {
+                        buffer.stop(.protocolError)
+                        return
+                    } catch let reason as Stream.EndReason {
+                        buffer.stop(reason)
                         return
                     } catch {
-                        if !Task.isCancelled { buffer.stop(.closed) }
+                        if !Task.isCancelled {
+                            buffer.diagnostics.close(origin: "phone", phase: "receive", reason: CompanionDiagnostics.reason(error))
+                            buffer.stop(.closed)
+                        }
                         return
                     }
                 }
@@ -503,10 +550,12 @@ enum CompanionTerminalWatchRelay {
                     if let failure = await writeBuffered(frame.data, buffer: buffer, send: send, delay: delay, now: now) {
                         // A failed write may have sent part of the frame. Never
                         // append end bytes to an indeterminate frame boundary.
+                        buffer.diagnostics.close(origin: "transport", phase: "write", reason: failure.reason.rawValue)
                         atFrameBoundary = failure.atFrameBoundary
                         reason = buffer.endReason ?? failure.reason
                         break loop
                     }
+                    buffer.diagnostics.wrote(bytes: frame.data.count)
                     buffer.didWrite(frame)
                     lastSend = now()
                 }
@@ -521,27 +570,40 @@ enum CompanionTerminalWatchRelay {
                     let heartbeat = buffer.takeHeartbeat()
                 {
                     if let failure = await writeBuffered(heartbeat.data, buffer: buffer, send: send, delay: delay, now: now) {
+                        buffer.diagnostics.close(origin: "transport", phase: "write", reason: failure.reason.rawValue)
                         atFrameBoundary = failure.atFrameBoundary
                         reason = buffer.endReason ?? failure.reason
                         break
                     }
+                    buffer.diagnostics.wrote(bytes: heartbeat.data.count, heartbeat: true)
                     buffer.didWrite(heartbeat)
                     lastSend = now()
                 }
             }
             reason = buffer.endReason ?? reason
+            buffer.diagnostics.close(origin: "relay", phase: "end", reason: reason.rawValue)
             buffer.stop(reason)
             await producer.value
             await reader.value
             await timer.value
             if atFrameBoundary, let end = try? Stream.encode(.end(.init(reason: reason)), generation: buffer.generation) {
                 // A cancelled parent must still be able to send the final reason.
+                let finalReason = reason
                 await Task {
-                    _ = await write(end, send: sendEnd, delay: delay, timeout: finalWriteTimeout)
+                    let failure = await write(
+                        end, send: sendEnd, delay: delay, timeout: finalWriteTimeout, diagnostics: buffer.diagnostics)
+                    CompanionDiagnostics.watch.notice(
+                        "final_end watch_id=\(buffer.diagnostics.id, privacy: .public) sent=\(failure == nil) reason=\(finalReason.rawValue, privacy: .public)"
+                    )
                 }.value
+            } else {
+                CompanionDiagnostics.watch.notice(
+                    "final_end_skipped watch_id=\(buffer.diagnostics.id, privacy: .public) reason=partial_frame_or_encoding")
             }
+            buffer.diagnostics.end(generation: buffer.generation, pendingBytes: buffer.pendingBytes)
             return reason
         } onCancel: {
+            buffer.diagnostics.close(origin: "task", phase: "cancel", reason: "cancelled")
             buffer.stop(.closed)
         }
     }
@@ -561,6 +623,7 @@ enum CompanionTerminalWatchRelay {
     @MainActor
     static func writeChunks(
         _ frame: Data,
+        diagnostics: CompanionDiagnostics? = nil,
         validate: @escaping @MainActor () throws -> Void,
         submit: @MainActor (Data, @escaping @MainActor () throws -> Void) async throws -> Void,
         close: @MainActor () -> Void
@@ -575,6 +638,7 @@ enum CompanionTerminalWatchRelay {
                     submitted = true
                 }
             } catch {
+                diagnostics?.close(origin: "transport", phase: "write", reason: CompanionDiagnostics.reason(error))
                 let atFrameBoundary = offset == 0 && !submitted && !(error is CancellationError)
                 if !atFrameBoundary { close() }
                 throw ChunkWriteFailure(underlying: error, atFrameBoundary: atFrameBoundary)
@@ -591,7 +655,7 @@ enum CompanionTerminalWatchRelay {
         let writer = Task {
             await write(
                 data, send: send, delay: delay, timeout: min(writeTimeout, remaining ?? writeTimeout),
-                timeoutReason: remaining == nil ? .closed : .overflow)
+                timeoutReason: remaining == nil ? .closed : .overflow, diagnostics: buffer.diagnostics)
         }
         buffer.installWriter(writer)
         defer { buffer.clearWriter() }
@@ -606,7 +670,8 @@ enum CompanionTerminalWatchRelay {
     /// finish. Cancelling an in-flight send closes its possibly partial frame.
     static func write(
         _ data: Data, send: @escaping @MainActor @Sendable (Data) async throws -> Void,
-        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed
+        delay: @escaping CompanionDelay, timeout: Duration = writeTimeout, timeoutReason: Stream.EndReason = .closed,
+        diagnostics: CompanionDiagnostics? = nil
     ) async -> WriteFailure? {
         await withTaskGroup(of: WriteFailure?.self) { group in
             group.addTask {
@@ -625,6 +690,12 @@ enum CompanionTerminalWatchRelay {
             }
             group.addTask {
                 try? await delay(timeout)
+                if !Task.isCancelled {
+                    diagnostics?.close(origin: "transport", phase: "write_timeout", reason: timeoutReason.rawValue)
+                    CompanionDiagnostics.transport.notice(
+                        "write_timeout watch_id=\(diagnostics?.id.uuidString ?? "none", privacy: .public) limit_ms=\(CompanionDiagnostics.milliseconds(timeout))"
+                    )
+                }
                 return WriteFailure(reason: timeoutReason, atFrameBoundary: false)
             }
             let first = await group.next() ?? WriteFailure(reason: .closed, atFrameBoundary: false)
@@ -635,12 +706,31 @@ enum CompanionTerminalWatchRelay {
 
     private static func attachLoop(
         socketPath: String, paneID: UUID, targetVersion: UUID, grid: Stream.Grid,
+        role: Stream.Role, input: InputForwarder,
+        commitInput: @escaping @MainActor @Sendable (@MainActor @Sendable () -> Void) throws -> Void,
+        attachmentChanged: @escaping @MainActor @Sendable (UInt64?) -> Void, ownLeader: String?,
         buffer: Buffer, delay: @escaping CompanionDelay
     ) async -> Stream.EndReason {
         while !Task.isCancelled {
             guard let generation = buffer.beginGeneration() else { return buffer.endReason ?? .closed }
-            var translator = Translator(paneID: paneID, targetVersion: targetVersion, grid: grid)
-            let outcome = await attach(socketPath: socketPath, grid: grid, delay: delay) { message in
+            var translator = Translator(paneID: paneID, targetVersion: targetVersion, grid: grid, ownLeader: ownLeader)
+            let outcome = await attach(
+                socketPath: socketPath, grid: grid, role: role, delay: delay,
+                accepted: { connection, payload in
+                    guard payload.count == 16 else { return }
+                    let id = payload.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
+                    let revision = payload.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self) }.littleEndian
+                    input.install(generation: generation, id: id, revision: revision, resync: { connection.cancel() }) { data, validate in
+                        try await send(data, connection: connection) { submit in
+                            try validate()
+                            try buffer.forwardInput(generation: generation) {
+                                try commitInput(submit)
+                            }
+                        }
+                    }
+                    attachmentChanged(id)
+                }
+            ) { message in
                 switch translator.translate(message) {
                 case .end(let reason):
                     return .end(reason)
@@ -659,7 +749,9 @@ enum CompanionTerminalWatchRelay {
                     return .continue
                 }
             }
-            switch outcome {
+            await input.detach(generation: generation)
+            await attachmentChanged(nil)
+            switch buffer.needsResync(generation: generation) ? .overflow : outcome {
             case .end(let reason):
                 return reason
             case .overflow, .continue:
@@ -704,8 +796,11 @@ enum CompanionTerminalWatchRelay {
         }
     }
 
-    private static func attach(
-        socketPath: String, grid: Stream.Grid, delay: @escaping CompanionDelay, handle: (ZmxMessage) async -> Step
+    static func attach(
+        socketPath: String, grid: Stream.Grid, role: Stream.Role = .watch, delay: @escaping CompanionDelay,
+        isolation: isolated (any Actor)? = #isolation,
+        accepted acceptedCallback: @escaping @MainActor @Sendable (NWConnection, Data) -> Void = { _, _ in },
+        handle: (ZmxMessage) async -> Step
     ) async -> Step {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
@@ -725,14 +820,7 @@ enum CompanionTerminalWatchRelay {
                 }
             },
             sendAttach: {
-                let sent = CompanionNetworkOperation<Void>()
-                try await sent.wait(cancel: { connection.cancel() }) {
-                    connection.send(
-                        content: attachRequest(grid),
-                        completion: .contentProcessed { error in
-                            if let error { sent.resolve(.failure(error)) } else { sent.resolve(.success(())) }
-                        })
-                }
+                try await send(attachRequest(grid, role: role), connection: connection)
             }, cancel: { connection.cancel() }, delay: delay)
         guard prepared == .continue else { return prepared }
         var parser = ZmxParser()
@@ -743,7 +831,11 @@ enum CompanionTerminalWatchRelay {
             }
             guard let messages = try? parser.feed(data) else { return .end(.overflow) }
             for message in messages {
-                if message.tag == ZmxTag.attachAccepted.rawValue { accepted = true }
+                if message.tag == ZmxTag.attachAccepted.rawValue {
+                    guard message.payload.count == 16, !accepted else { return .end(.protocolError) }
+                    accepted = true
+                    await acceptedCallback(connection, message.payload)
+                }
                 let step = await handle(message)
                 if case .continue = step { continue }
                 return step
@@ -752,17 +844,38 @@ enum CompanionTerminalWatchRelay {
         return .end(.closed)
     }
 
+    @MainActor
+    private static func send(
+        _ data: Data, connection: NWConnection,
+        authorize: @MainActor (@MainActor @Sendable () -> Void) throws -> Void = { $0() }
+    ) async throws {
+        let operation = CompanionNetworkOperation<Void>()
+        try await operation.wait(cancel: { connection.cancel() }) {
+            do {
+                try authorize {
+                    connection.send(
+                        content: data,
+                        completion: .contentProcessed { error in
+                            if let error { operation.resolve(.failure(error)) } else { operation.resolve(.success(())) }
+                        })
+                }
+            } catch { operation.resolve(.failure(error)) }
+        }
+    }
+
     private static func receive(_ connection: NWConnection, timeout: Duration?, delay: @escaping CompanionDelay) async -> Data? {
         await withTaskGroup(of: Data?.self) { group in
             group.addTask {
                 let operation = CompanionNetworkOperation<Data>()
                 return try? await operation.wait(cancel: { connection.cancel() }) {
-                    connection.receive(minimumIncompleteLength: 1, maximumLength: Stream.maximumDataBytes) { data, _, _, error in
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: Stream.maximumDataBytes) { data, _, complete, error in
                         if let error {
+                            CompanionDiagnostics.networkError(error, phase: "daemon_receive")
                             operation.resolve(.failure(error))
                         } else if let data, !data.isEmpty {
                             operation.resolve(.success(data))
                         } else {
+                            CompanionDiagnostics.transport.notice("daemon_eof complete=\(complete)")
                             operation.resolve(.failure(CancellationError()))
                         }
                     }

@@ -2,24 +2,11 @@ import AwesoMuxLocalAPI
 import Foundation
 
 public extension SessionStore {
-    /// Resolve native identities and intersect mutation and visibility scopes.
+    /// Resolve native workspace and pane identities before renaming.
     /// Caller must hold a current Companion mutation lease for this whole call.
     func renameCompanionPane(
-        workspaceID: UUID, paneID: UUID, title: String,
-        statusScope: LocalAPITargetScope, renameScope: LocalAPITargetScope
+        workspaceID: UUID, paneID: UUID, title: String
     ) throws {
-        localAPITracking = true
-        reconcileLocalAPIAssignments()
-        let version = localAPITargets[paneID]?.version
-        func allows(_ scope: LocalAPITargetScope) -> Bool {
-            switch scope {
-            case .allWorkspaces: return true
-            case .persistentPanes(let ids): return ids.contains(paneID)
-            case .persistentWorkspaces(let ids): return ids.contains(workspaceID)
-            case .exactTarget(let id, let expectedVersion): return id == paneID && version == expectedVersion
-            }
-        }
-        guard allows(statusScope), allows(renameScope) else { throw LocalAPIError.permissionDenied }
         guard let workspace = session(id: workspaceID),
             let leaf = workspace.layout.leaves.first(where: { leaf in
                 switch leaf {

@@ -49,6 +49,39 @@ struct CompanionTerminalWatchTests {
                 .terminalWatchScope == nil)
     }
 
+    @Test(arguments: [
+        nil, LocalAPITargetScope.allWorkspaces, .persistentWorkspaces([UUID()]), .persistentPanes([UUID()]),
+        .exactTarget(paneID: UUID(), targetVersion: UUID()),
+    ])
+    func legacyWatchAndRenameScopesMigrateAndPersist(scope: LocalAPITargetScope?) throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
+        let phone = try #require(access).registerCompanion(
+            phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1, terminalWatchScope: scope)
+        let file = home.appending(path: "LocalAPI/access.json")
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var connections = try #require(object["connections"] as? [[String: Any]])
+        var metadata = try #require(connections[0]["companion"] as? [String: Any])
+        metadata["paneRenameScope"] = metadata["terminalWatchScope"]
+        connections[0]["companion"] = metadata
+        object["connections"] = connections
+        access = nil
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        let migrated = LocalAPIAccessStore.reopened(profile: "development", supportDirectoryURL: home)
+        let expected: LocalAPITargetScope? = scope == nil ? nil : .allWorkspaces
+        #expect(migrated.loadFailure == nil)
+        #expect(migrated.state.connections.first?.companion?.terminalWatchScope == expected)
+        let saved = try LocalAPIContract.decoder().decode(
+            LocalAPIAccessState.self, from: Data(contentsOf: home.appending(path: "LocalAPI/access.json")))
+        #expect(saved.connections.first?.companion?.terminalWatchScope == expected)
+        #expect(saved.connections.first?.companion?.paneRenameScope == expected)
+        let lease = try migrated.runtimeAuthority.authorizeCompanion(
+            connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
+        ).get()
+        #expect(lease.terminalWatchScope == expected)
+    }
+
     @Test func grantingWatchRotatesLeaseAndRevokingInvalidatesOldCommits() throws {
         let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -121,9 +154,13 @@ struct CompanionTerminalWatchTests {
     @Test func translatorEmitsSnapshotThenOutputAndEnds() throws {
         let paneID = UUID()
         let targetVersion = UUID()
-        var translator = Relay.Translator(paneID: paneID, targetVersion: targetVersion, grid: .init(rows: 24, cols: 80))
+        let phone = UUID().uuidString.lowercased()
+        var translator = Relay.Translator(
+            paneID: paneID, targetVersion: targetVersion, grid: .init(rows: 24, cols: 80), ownLeader: phone)
         #expect(translator.translate(.init(tag: 1, payload: Data("early".utf8))) == .frames([]))
-        #expect(translator.translate(.init(tag: 27, payload: Data(count: 16))) == .frames([]))
+        var accepted = Data(withUnsafeBytes(of: UInt64(7).littleEndian) { Data($0) })
+        accepted.append(Data(count: 8))
+        #expect(translator.translate(.init(tag: 27, payload: accepted)) == .frames([]))
         var authority = Data()
         authority.append(contentsOf: withUnsafeBytes(of: UInt64(7).littleEndian) { Data($0) })
         authority.append(contentsOf: withUnsafeBytes(of: UInt64(1).littleEndian) { Data($0) })
@@ -134,7 +171,7 @@ struct CompanionTerminalWatchTests {
         let snapshot = Data(repeating: 0x41, count: Stream.maximumDataBytes + 1)
         let begin = Stream.SnapshotBegin(
             paneID: paneID.uuidString.lowercased(), targetVersion: targetVersion.uuidString.lowercased(),
-            grid: .init(rows: 40, cols: 100), leader: "7", scrollbackBound: Stream.maximumSnapshotBytes)
+            grid: .init(rows: 40, cols: 100), leader: phone, scrollbackBound: Stream.maximumSnapshotBytes)
         #expect(
             translator.translate(.init(tag: 1, payload: snapshot))
                 == .frames([
@@ -145,9 +182,10 @@ struct CompanionTerminalWatchTests {
                 ]))
         #expect(translator.snapshotConstructed)
         #expect(translator.translate(.init(tag: 1, payload: Data("hi".utf8))) == .frames([.output(sequence: 2, bytes: Data("hi".utf8))]))
+        authority.replaceSubrange(0..<8, with: withUnsafeBytes(of: UInt64(9).littleEndian) { Data($0) })
         #expect(
             translator.translate(.init(tag: 28, payload: authority))
-                == .frames([.leader(.init(leader: "7")), .grid(.init(rows: 40, cols: 100))]))
+                == .frames([.leader(.init(leader: "mac")), .grid(.init(rows: 40, cols: 100))]))
         #expect(translator.translate(.init(tag: 14, payload: Data([1]))) == .end(.sessionEnded))
     }
 }
@@ -353,12 +391,12 @@ struct CompanionTerminalWatchLifecycleTests {
     }
 
     @Test(arguments: [UInt32(0), UInt32(1)])
-    func ackRemainsHarmlessBeforeCurrentGenerationClose(ackGeneration: UInt32) async throws {
+    func phoneAckIsRejectedOnlyInCurrentGeneration(ackGeneration: UInt32) async throws {
         let buffer = Relay.Buffer()
         let generation = try #require(buffer.beginGeneration())
         var ack = Data([Stream.FrameType.ack.rawValue])
         ack.append(contentsOf: withUnsafeBytes(of: ackGeneration.bigEndian, Array.init))
-        ack.append(contentsOf: Data("{}".utf8))
+        ack.append(contentsOf: Data("{\"sequence\":1}".utf8))
         let frames = [ack, try Stream.encode(.end(.init(reason: .closed)), generation: generation)]
         let next = OSAllocatedUnfairLock(initialState: 0)
         let reason = await Relay.run(
@@ -374,8 +412,8 @@ struct CompanionTerminalWatchLifecycleTests {
             sendEnd: { _ in },
             delay: { try await ContinuousClock().sleep(for: $0) },
             produce: { _ in _ = try? await CompanionNetworkOperation<Void>().wait {} })
-        #expect(reason == .closed)
-        #expect(next.withLock { $0 } == 2)
+        #expect(reason == (ackGeneration == generation ? .protocolError : .closed))
+        #expect(next.withLock { $0 } == (ackGeneration == generation ? 1 : 2))
     }
 
     // Stale headers must be discarded before unknown types or malformed JSON
@@ -613,7 +651,7 @@ struct CompanionTerminalWatchLifecycleTests {
         #expect(registry.contains(replacement))
     }
 
-    @Test(arguments: [Stream.EndReason.revoked, .superseded])
+    @Test(arguments: [Stream.EndReason.revoked, .superseded, .roleChanged])
     func invalidationCancelsIdleProducerAndReaderBeforeFinalReason(endReason: Stream.EndReason) async throws {
         let buffer = Relay.Buffer()
         let (started, signal) = AsyncStream<Void>.makeStream()
@@ -691,20 +729,19 @@ struct CompanionTerminalWatchLifecycleTests {
         #expect(finalReasons == (atFrameBoundary ? [.revoked] : []))
     }
 
-    @Test func watchWorkspaceConsentIsIndependentAndEmptyDisablesIt() throws {
+    @Test func watchSwitchGrantsEveryWorkspaceAndOffDisablesIt() throws {
         let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
         let access = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
         let fingerprint = Data(repeating: 7, count: 32)
         let phone = try access.registerCompanion(phoneName: "One", certificateFingerprint: fingerprint, transport: .lan, port: 1)
         let coordinator = CompanionPairingCoordinator(profile: .development(worktreeID: nil), accessStore: access)
-        let workspace = UUID()
-        try coordinator.setTerminalWatchWorkspaces([workspace], for: phone)
+        try coordinator.setTerminalWatchAllowed(true, for: phone)
         let lease = try access.runtimeAuthority.authorizeCompanion(
             connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
         ).get()
-        #expect(lease.terminalWatchScope == .persistentWorkspaces([workspace]))
-        try coordinator.setTerminalWatchWorkspaces([], for: phone)
+        #expect(lease.terminalWatchScope == .allWorkspaces)
+        try coordinator.setTerminalWatchAllowed(false, for: phone)
         let disabled = try access.runtimeAuthority.authorizeCompanion(
             connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
         ).get()

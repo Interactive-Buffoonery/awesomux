@@ -45,10 +45,8 @@ enum CompanionPaneRename {
         try authority.performCompanionPaneRename(certificateFingerprint: certificateFingerprint, lease: lease) {
             guard !Task.isCancelled else { throw LocalAPIError.cancelled }
             guard ContinuousClock.now < deadline else { throw LocalAPIError.timeout }
-            guard let scope = lease.paneRenameScope else { throw LocalAPIError.permissionDenied }
             try store.renameCompanionPane(
-                workspaceID: request.workspaceID, paneID: request.paneID, title: request.title,
-                statusScope: lease.statusScope, renameScope: scope)
+                workspaceID: request.workspaceID, paneID: request.paneID, title: request.title)
         }
     }
 }

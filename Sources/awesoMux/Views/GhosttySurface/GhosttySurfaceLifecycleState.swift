@@ -15,6 +15,8 @@ final class GhosttySurfaceLifecycleState {
     var remoteHandoffTask: Task<Void, Never>?
     var bridgePreflightTask: Task<Void, Never>?
     var bridgePreflightGeneration: UInt64 = 0
+    var bridgePreflightNativeOwner = false
+    var bridgePreflightCompanionAuthorities: [CompanionTerminalOpen.SpawnAuthority] = []
     var recoveryBridgePreflight: (generation: UInt64, sessionID: TerminalSessionID, expectationToken: UUID)?
     var bridgePreflightDependencies = BridgePreflightDependencies.live
     var nextMouseSurfaceIncarnationID: UInt64 = 0

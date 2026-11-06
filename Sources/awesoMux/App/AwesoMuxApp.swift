@@ -275,13 +275,6 @@ struct AwesoMuxApp: App {
         // base env. Drop stale launcher-only terminal context once, before the
         // runtime starts, instead of mutating process env around every surface.
         sanitizeInheritedTerminalContextFromProcessEnvironment()
-        // Must run before SessionPersistence.load() and before any
-        // AppDelegate lifecycle callback fires (applicationWillFinishLaunching,
-        // applicationDidFinishLaunching, .onAppear). Non-`@AppStorage`
-        // consumers reading `UserDefaults.standard.bool(forKey:)` directly
-        // otherwise see the type's zero value (false / "" / 0) instead of
-        // the documented `SettingsDefault` — see INT-159.
-        SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
         let supportDirectoryURL = runtimeProfile.supportDirectoryURL
         let localAPIAccessStore = LocalAPIAccessStore(
@@ -376,6 +369,9 @@ struct AwesoMuxApp: App {
         RemoteMarkdownReadRouting.appSettingsStore = appSettingsStore
         _localAPIAccessStore = State(initialValue: localAPIAccessStore)
         _companionPairingCoordinator = State(initialValue: companionPairingCoordinator)
+        loadResult.store.remoteCarrierCloseHandler = {
+            AmxBackend.killSessionsDetached($0, context: "remote-carrier-close")
+        }
         _sessionStore = State(initialValue: loadResult.store)
         _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
         if let warning = loadResult.recoveryWarning {
@@ -418,7 +414,8 @@ struct AwesoMuxApp: App {
             store: loadResult.store,
             runtime: ghosttyRuntime,
             accessStore: localAPIAccessStore,
-            companionPairingCoordinator: companionPairingCoordinator
+            companionPairingCoordinator: companionPairingCoordinator,
+            settings: appSettingsStore
         )
     }
 
@@ -844,9 +841,8 @@ struct AwesoMuxApp: App {
 
             let rootContentAfterGroupsWatch =
                 rootContentAfterSaveStatus
-            .onChange(of: sessionStore.groups) { _, _ in
-                    companionPairingCoordinator.reconcileDecisionWorkspaces()
-                saveSessionIfRestoreEnabled()
+                .onChange(of: sessionStore.groups) { _, _ in
+                    saveSessionIfRestoreEnabled()
                     Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()
@@ -3699,7 +3695,7 @@ struct AwesoMuxApp: App {
         // it — least of all silently, over a decline the user made later in
         // Settings. Refusing routes the ask-free path back to the prompt,
         // whose button says "Enable and Reconnect" and asks properly.
-        // A remote-owned session runs with no local daemon and never needs it.
+        // Remote-owned sessions use a carrier independently of the bridge toggle.
         if sessionName == nil, !appSettingsStore.terminal.value.commandBridgeEnabled {
             return false
         }

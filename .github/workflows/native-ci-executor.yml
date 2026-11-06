@@ -209,7 +209,6 @@ jobs:
         id: zmx_zig
         if: matrix.group == 'zmx' && steps.prepare.outcome == 'success'
         env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
           ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
         run: |
           set -euo pipefail
@@ -386,7 +385,6 @@ jobs:
         id: zig
         if: steps.prepare.outcome == 'success'
         env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
           GHOSTTY_ZIG_FORMULA: ${{ steps.prepare.outputs.zig-formula }}
           ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
         run: |

@@ -3,10 +3,13 @@
 
 import argparse
 import hashlib
+import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tarfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,8 +31,11 @@ INPUTS = (
     ROOT / "native/ghostty/remote-pwd-capi.zig.inc",
     ROOT / "native/ghostty/command-status.zig",
     ROOT / "native/ghostty/command-status-tests.zig.inc",
-    ROOT / "native/ghostty/kitty-clear.zig.inc",
     ROOT / "native/ghostty/kitty-clear-tests.zig.inc",
+    ROOT / "native/libxev/kqueue.patch",
+    ROOT / "native/libxev/batch-regression.zig.inc",
+    ROOT / "native/libxev/machport.patch",
+    ROOT / "native/libxev/machport-regressions.zig.inc",
 )
 
 
@@ -90,32 +96,90 @@ def inject_command_status(staging):
         file.write((ROOT / "native/ghostty/command-status-tests.zig.inc").read_text())
 
 
-KITTY_CLEAR_ANCHOR = "    self.pages.eraseHistory(bl);\n"
+KITTY_CLEAR_ANCHOR = "        self.kitty_images.eraseHistory(self.io, self, bl);\n"
+KITTY_STORAGE_ANCHOR = """    pub fn eraseHistory(
+        self: *ImageStorage,
+        io: std.Io,
+        s: *terminal.Screen,
+        bl: ?point.Point,
+    ) void {
+"""
 KITTY_RESIZE_ANCHOR = "    if (self.no_scrollback) self.pages.eraseHistory(null);\n"
 KITTY_RESIZE_REPLACEMENT = "    if (self.no_scrollback) self.eraseHistory(null);\n"
-KITTY_CLEAR_REPLACEMENT = """    if (comptime build_options.kitty_graphics) {
-        self.kitty_images.eraseHistory(self.io, self, bl);
-    }
-    self.pages.eraseHistory(bl);
-"""
 
 
 def inject_kitty_clear(staging):
-    """Install history-image cleanup in generated source after checking all anchors."""
+    """Retain the resize cleanup hook and regressions around upstream history cleanup."""
     screen = staging / "src/terminal/Screen.zig"
     storage = staging / "src/terminal/kitty/graphics_storage.zig"
     source = screen.read_text()
     storage_source = storage.read_text()
-    marker = "    /// Clear placements intersecting the active screen, then reclaim every\n"
     if (source.count(KITTY_CLEAR_ANCHOR) != 1
             or source.count(KITTY_RESIZE_ANCHOR) != 1
-            or storage_source.count(marker) != 1):
+            or storage_source.count(KITTY_STORAGE_ANCHOR) != 1):
         raise RuntimeError("Ghostty history image cleanup changed; review before building")
-    screen.write_text(source.replace(KITTY_CLEAR_ANCHOR, KITTY_CLEAR_REPLACEMENT, 1)
-                      .replace(KITTY_RESIZE_ANCHOR, KITTY_RESIZE_REPLACEMENT, 1))
-    storage.write_text(storage_source.replace(marker, (ROOT / "native/ghostty/kitty-clear.zig.inc").read_text() + marker, 1))
+    screen.write_text(source.replace(KITTY_RESIZE_ANCHOR, KITTY_RESIZE_REPLACEMENT, 1))
     with (staging / "src/renderer/image.zig").open("a") as file:
         file.write((ROOT / "native/ghostty/kitty-clear-tests.zig.inc").read_text())
+
+
+LIBXEV_URL = "https://deps.files.ghostty.org/libxev-819ffa180ca20e31c7eded74e2e1aceb1eab557f.tar.gz"
+LIBXEV_HASH = "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn"
+
+
+def extract_libxev(archive, destination):
+    destination.mkdir()
+    for member in archive.getmembers():
+        relative = Path(member.name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RuntimeError("Unsafe libxev archive path: " + member.name)
+        target = destination / relative
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif member.isfile():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.extractfile(member) as source, target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(member.mode & 0o755)
+        else:
+            raise RuntimeError("Unsupported libxev archive entry: " + member.name)
+
+
+def inject_libxev(staging, zig):
+    manifest = staging / "build.zig.zon"
+    source = manifest.read_text()
+    declarations = list(re.finditer(r"        \.libxev = \.\{.*?\n        \},", source, re.DOTALL))
+    if len(declarations) != 1:
+        raise RuntimeError("Ghostty libxev declaration changed; review the kqueue patch")
+    declaration = declarations[0].group()
+    if (declaration.count(f'.url = "{LIBXEV_URL}"') != 1
+            or declaration.count(f'.hash = "{LIBXEV_HASH}"') != 1):
+        raise RuntimeError("Ghostty libxev pin changed; review the kqueue patch")
+    cache = staging / ".awesomux-libxev-cache"
+    package_hash = subprocess.check_output(
+        [zig, "fetch", LIBXEV_URL], text=True, timeout=120,
+        env=dict(os.environ, ZIG_GLOBAL_CACHE_DIR=str(cache)),
+    ).strip()
+    if package_hash != LIBXEV_HASH:
+        raise RuntimeError("Fetched libxev package hash differs from the Ghostty pin")
+    # Zig 0.17 stores fetched packages as archives rather than unpacked trees.
+    unpacked = cache / "source"
+    with tarfile.open(cache / "p" / (package_hash + ".tar.gz")) as file:
+        extract_libxev(file, unpacked)
+    manifests = list(unpacked.rglob("build.zig.zon"))
+    if len(manifests) != 1:
+        raise RuntimeError("Unexpected libxev source archive layout")
+    package = staging / "pkg/awesomux-libxev"
+    shutil.copytree(manifests[0].parent, package)
+    command = ["git", "apply", "--directory=pkg/awesomux-libxev"]
+    for name in ("kqueue.patch", "machport.patch"):
+        patch = str(ROOT / "native/libxev" / name)
+        subprocess.run(command + ["--check", patch], cwd=staging, check=True)
+        subprocess.run(command + [patch], cwd=staging, check=True)
+    with (package / "src/backend/kqueue.zig").open("a") as file:
+        for name in ("batch-regression.zig.inc", "machport-regressions.zig.inc"):
+            file.write("\n" + (ROOT / "native/libxev" / name).read_text())
+    manifest.write_text(source.replace(declaration, '        .libxev = .{ .path = "./pkg/awesomux-libxev", .lazy = true },', 1))
 
 
 def fingerprint():
@@ -125,7 +189,7 @@ def fingerprint():
     return digest.hexdigest()
 
 
-def prepare(vendor, destination):
+def prepare(vendor, destination, zig="zig"):
     sha = subprocess.check_output(["git", "-C", str(vendor), "rev-parse", "HEAD"], text=True).strip()
     identity = sha + "-" + fingerprint()
     target = destination / identity
@@ -136,6 +200,7 @@ def prepare(vendor, destination):
     try:
         subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(vendor), str(staging)], check=True)
         subprocess.run(["git", "-C", str(staging), "checkout", "--quiet", "--detach", sha], check=True)
+        inject_libxev(staging, zig)
         inject_remote_pwd(staging)
         inject_command_status(staging)
         inject_kitty_clear(staging)
@@ -189,5 +254,6 @@ if __name__ == "__main__":
     parser.add_argument("--fingerprint", action="store_true")
     parser.add_argument("--vendor", type=Path, default=ROOT / "vendor/ghostty")
     parser.add_argument("--destination", type=Path, default=ROOT / ".build/ghostty-sources")
+    parser.add_argument("--zig", default="zig")
     args = parser.parse_args()
-    print(fingerprint() if args.fingerprint else prepare(args.vendor, args.destination))
+    print(fingerprint() if args.fingerprint else prepare(args.vendor, args.destination, args.zig))

@@ -151,7 +151,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
         case .appearance: "Appearance"
         case .terminal: "Terminal"
         case .agents: "Agents"
-        case .companion: String(localized: "awesoMux Companion", comment: "Companion settings sidebar title.")
+        case .companion: String(localized: "Companion", comment: "Companion settings sidebar title.")
         case .notifications: "Notifications"
         case .workspaces: "Workspaces"
         case .keys: "Keys"
