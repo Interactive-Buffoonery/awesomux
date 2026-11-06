@@ -68,6 +68,7 @@ def digest(path):
 
 
 def open_fixture_root(value, temporary_directory):
+    """Open an owned mode-0700 fixture directory below macOS user temp without following symlinks."""
     root = Path(value)
     if not root.is_absolute() or ".." in root.parts:
         raise Blocked("Fixture root must be an absolute path without parent traversal")
@@ -214,6 +215,7 @@ def diagnostic_command(argv, path, seconds=8, limit=1024 * 1024):
 
 
 def main():
+    """Run the selected native journey and retain its result, diagnostics, and scoped cleanup."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--bundle", type=Path, default=ROOT / "dist/awesoMux.app")
@@ -351,6 +353,7 @@ def main():
         save()
 
     def retain_startup_diagnostics():
+        """Collect bounded sample and log evidence after verifying the owned process identity."""
         if app_pid is None or "startupDiagnostics" in report:
             return
         evidence = {"pid": app_pid, "commands": []}
@@ -386,6 +389,7 @@ def main():
             save()
 
     def retain_failure():
+        """Retain startup diagnostics and any available owned-window failure evidence."""
         retain_startup_diagnostics()
         if app_pid:
             diagnostic_path = output / "failure-diagnostic.json"
@@ -458,6 +462,7 @@ def main():
                     raise RuntimeError("Challenge response in sibling history: " + sibling)
 
     def challenge(session, scenario):
+        """Verify a session-specific response and reject execution in any sibling terminal."""
         nonce = secrets.token_hex(12)
         report.setdefault("challenges", []).append({"scenario": scenario, "nonce": nonce,
                                                    "session": session, "siblings": sorted(sessions() - {session})})
@@ -631,6 +636,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 raise RuntimeError("LaunchServices app exited before identity verification")
             save()
             def initial_window():
+                """Wait for one unambiguous owned content window and retain failed observations."""
                 if not owned_running():
                     raise RuntimeError("Owned app exited before window readiness")
                 try:
@@ -663,6 +669,7 @@ export GHOSTTY_SHELL_FEATURES=""
             if not activation["activationRequested"]:
                 raise RuntimeError("Cannot activate owned window: " + json.dumps(activation))
             def activated_window():
+                """Return the owned window only after both app activation and window focus succeed."""
                 observed = snapshot()
                 report["lastActivationObservation"] = observed
                 return observed if observed["frontmost"] and observed["ownedWindowFocused"] else None
@@ -699,6 +706,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 claude.mkdir(parents=True); codex.mkdir(parents=True)
                 ids = [f"10000000-0000-4000-8000-{n:012d}" for n in range(1,5)]
                 def write(path, rows):
+                    """Write synthetic transcript records with owner-only file permissions."""
                     path.write_text("".join(json.dumps(row)+"\n" for row in rows))
                     path.chmod(0o600)
                 write(claude/(ids[0]+".jsonl"), [{"type":"user", "sessionId":ids[0], "cwd":str(project), "message":{"content":"PR775_CLAUDE_SYNTHETIC"}}])
@@ -709,12 +717,16 @@ export GHOSTTY_SHELL_FEATURES=""
                 poll("terminal ready", lambda: any(terminal_matches(t,first) for t in snapshot()["terminals"]))
                 menu("Pane", "Browse Project Transcripts")
                 def listed():
+                    """Return browser contents once both expected project transcripts appear."""
                     nodes=native("dump",window_id)
                     text=json.dumps(nodes)
                     return nodes if ids[0] in text and ids[1] in text else None
                 listing=poll("project transcript rows",listed)
                 listing_text=json.dumps(listing)
-                assert ids[2] not in listing_text and ids[3] not in listing_text
+                if ids[2] in listing_text:
+                    raise RuntimeError("Transcript browser included an unrelated project transcript")
+                if ids[3] in listing_text:
+                    raise RuntimeError("Transcript browser included a child transcript")
                 (output/"browser-ax.json").write_text(json.dumps(listing,indent=2))
                 capture("browser-scale-"+os.environ.get("PR775_SCALE","1.0"))
                 refresh_id = "10000000-0000-4000-8000-000000000005"
@@ -723,6 +735,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 write(claude/(refresh_id+".jsonl"), [{"type":"user", "sessionId":refresh_id, "cwd":str(project), "message":{"content":"PR775_REFRESH_SYNTHETIC"}}])
                 native("press",window_id,"Refresh")
                 def refreshed():
+                    """Return browser contents once Refresh reveals the newly created transcript."""
                     nodes = listed()
                     return nodes if nodes and refresh_id in json.dumps(nodes) else None
                 refreshed_listing = poll("new transcript appears after refresh", refreshed)
@@ -735,6 +748,7 @@ export GHOSTTY_SHELL_FEATURES=""
                 poll("rows after reopen",listed)
                 native("press",window_id,"Open")
                 def opened():
+                    """Return document contents once a synthetic transcript marker appears."""
                     nodes=native("dump",window_id)
                     text=json.dumps(nodes)
                     return nodes if "PR775_" in text and "SYNTHETIC" in text else None
@@ -742,8 +756,10 @@ export GHOSTTY_SHELL_FEATURES=""
                 (output/"document-ax.json").write_text(json.dumps(document,indent=2))
                 focus=snapshot()
                 report["documentFocus"]=focus
-                assert not focus["focusedTerminal"]
-                assert "PR775_" in focus["focusedValue"]
+                if focus["focusedTerminal"]:
+                    raise RuntimeError("Opening a transcript left focus in the terminal")
+                if "PR775_" not in focus["focusedValue"]:
+                    raise RuntimeError("Opened synthetic transcript did not receive document focus")
                 capture("opened-document")
                 report["browserVerification"]={"expectedIDs":ids[:2]+[refresh_id],"excludedIDs":ids[2:],"scale":os.environ.get("PR775_SCALE","1.0"),"font":"Georgia","voiceOverSpeech":"not tested"}
                 log("PR775", "pass", checks=["project and child filtering", "refresh", "cancel and reopen", "open", "document focus"])
@@ -811,6 +827,7 @@ export GHOSTTY_SHELL_FEATURES=""
                     raise RuntimeError("Soft close destroyed persistent shell")
                 menu("Workspace", "Reopen Closed Workspace")
                 def reopened():
+                    """Check that reopening restores the same single terminal."""
                     terminals = snapshot()["terminals"]
                     return len(terminals) == 1 and terminal_matches(terminals[0], second)
                 poll("reopened same terminal", reopened)
