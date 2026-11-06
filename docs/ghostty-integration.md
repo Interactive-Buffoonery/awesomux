@@ -4,21 +4,21 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `cf0ab14aed55315a53de668bc1bbcf4a13ce0ddd` (untagged `origin/main`, post-`v1.4.0`)
 - License: MIT
 
-> This update adds upstream fixes for a
-> [scrollback cursor-page use-after-free](https://github.com/ghostty-org/ghostty/commit/65ff54c67),
-> [PTY and terminal resize synchronization](https://github.com/ghostty-org/ghostty/pull/14706),
-> and [mouse-button release reporting at prompts](https://github.com/ghostty-org/ghostty/pull/14710).
-> These changes affect awesoMux's terminal engine; upstream's macOS application
-> changes do not replace awesoMux's own window and command handling.
->
-> The generated awesoMux scrollback and path-link extensions build against this
-> pin and pass their native regression suites. The ReleaseFast archive inventory
-> remains at 277 members with digest
-> `dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82`.
-> The bundled Ghostty license is byte-identical to the file at this revision.
+> This pin includes upstream's [Kitty history cleanup](https://github.com/ghostty-org/ghostty/pull/14832)
+> and [color-scheme report fix](https://github.com/ghostty-org/ghostty/pull/14834).
+> awesoMux now uses upstream's history cleanup and retains its no-scrollback
+> resize hook and regression checks. Color-scheme reports are sent directly
+> during configuration changes, avoiding a write back to the I/O thread's own
+> mailbox. This pin also fixes stale scrollback pins, cursor style and hyperlinks
+> after history pruning, and malformed UTF-8 configuration handling. Shell
+> integration escapes directory names before writing terminal control sequences.
+> This revision adds DEC column operations, corrects VT formatter wrapping,
+> and rejects empty prefixed commands. It also updates embedded tmux control
+> handling and z2d rasterization to 0.13.2.
+> The public embedded C header and bundled Ghostty license are unchanged.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -34,7 +34,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > synchronously and leave it resident — see the ceiling notes in
 > `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
 >
-> The pin includes Ghostty's Zig 0.16 static-link workarounds. Its current
+> The pin requires Zig 0.17 and retains the static-link post-processor. Its current
 > archive post-processor leaves compiler-rt's `_memset` private-external, which
 > ld64 still rejects beside Ghostty's own override; our build script finishes
 > that one-symbol localization before publishing the archive. The zmx and
@@ -44,6 +44,15 @@ The integration uses Ghostty's Darwin XCFramework output,
 `macos/GhosttyKit.xcframework`, produced under `.build/ghostty/` and linked from
 the SwiftPM app via the `GhosttyKit` system-library module and
 `GhosttyKitLinker` target (see `Package.swift`).
+
+## libxev kqueue fixes
+
+The generated build copy applies the [libxev kqueue patch](../native/libxev/README.md)
+without changing the Ghostty submodule or its libxev pin. It prevents duplicate
+completion queueing and preserves rearm/cancellation state. The full patched
+libxev tests, including the300-pipe batch-boundary regression, run before every
+native Ghostty build. Source package hashes and patch context are checked before
+applying it. All patch and regression inputs participate in the artifact fingerprint.
 
 ## Build The XCFramework
 
@@ -185,7 +194,7 @@ Focused native regression, with `AWESOMUX_ZIG` set to the compatible Zig binary
 used by the standard native build:
 
 ```sh
-heavy-gate -- sh -c '
+process-gate -- sh -c '
   set -eu
   generated_source=$(python3 script/prepare_ghostty_source.py)
   cd "$generated_source"
@@ -272,10 +281,11 @@ and placements in retained history are preserved; relative children of removed
 placements are cleaned up through upstream orphan handling. Image data remains
 available for later placements under the existing storage limit.
 
-`native/ghostty/kitty-clear.zig.inc` is inserted into image storage and called
-before `Screen.eraseHistory` mutates page coordinates. The vendor pin and source
-remain unchanged. All three insertion anchors fail closed on missing or duplicate
-matches, and the fragments participate in artifact fingerprinting. Native builds
+Ghostty now provides history-image cleanup in `Screen.eraseHistory` and image
+storage. Generated source routes no-scrollback resize through that same cleanup.
+The upstream call, storage function and resize anchors fail closed on missing or
+duplicate matches. The resize hook and regression fragments participate in
+artifact fingerprinting. Native builds
 run `awesomux-kitty-clear` renderer and storage regressions, including partial
 history erasure and histories spanning multiple pages. No-scrollback resize
 uses the same cleanup before discarding history, including on the alternate
@@ -596,3 +606,15 @@ git add vendor/ghostty
 ```
 
 After updating, rebuild the XCFramework and run the awesoMux test/build checks.
+
+## Input while a surface starts
+
+Local panes hold early key events during surface creation for up to two seconds
+and 256 events. If that input is discarded, further typing and paste are blocked
+to avoid submitting only the end of a command. Press Escape, or move focus away
+and back, before typing the full command again. Escape acknowledges the discarded
+input and is not sent to the shell.
+
+Remote panes discard early input instead of replaying it into an SSH client that
+may still be asking for credentials. This applies to both direct SSH and local
+amx carriers. A spawned process does not establish remote shell readiness.

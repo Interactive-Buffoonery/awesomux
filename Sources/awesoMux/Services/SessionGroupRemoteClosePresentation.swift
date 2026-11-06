@@ -6,8 +6,9 @@ struct SessionGroupRemoteClosePresentation {
 
     var requiresConfirmation: Bool { lossText != nil }
 
-    /// Closing a group soft-closes its workspaces: it never kills the local
-    /// `amx` daemons, but the remote panes they backed are still dropped and
+    /// Closing a group soft-closes its workspaces: it preserves local
+    /// shell-owning `amx` daemons. It stops remote-owned panes' SSH carriers.
+    /// The local-amx remote panes are still dropped and
     /// cannot be reattached after close. Panes the far host owns
     /// are the exception — their session keeps running under its declared name
     /// (ADR-0023 amendment #214), so the copy must not sweep them into the same

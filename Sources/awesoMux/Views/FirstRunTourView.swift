@@ -44,12 +44,12 @@ enum FirstRunTourCopy {
         (
             visible: String(
                 localized:
-                    "Every project gets a workspace — its own shell, its own name in the sidebar. Press \(newWorkspace.displaySymbol) to make one.",
+                    "Start with a workspace — a shell with its own name in the sidebar. Press \(newWorkspace.displaySymbol) to make one. Use it like any terminal. No agent required.",
                 comment:
                     "Welcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."),
             spoken: String(
                 localized:
-                    "Every project gets a workspace — its own shell, its own name in the sidebar. Press \(newWorkspace.spokenForm) to make one.",
+                    "Start with a workspace — a shell with its own name in the sidebar. Press \(newWorkspace.spokenForm) to make one. Use it like any terminal. No agent required.",
                 comment:
                     "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.")
         )
@@ -58,7 +58,7 @@ enum FirstRunTourCopy {
     static func sidebarBeat() -> Body {
         let text = String(
             localized:
-                "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, as many panes as your heart desires. Go wild!",
+                "Drag workspaces into groups to keep a project together. Split a workspace for terminals side by side — its panes still share one sidebar row. Go wild!",
             comment: "Welcome tour beat two, explaining the sidebar and panes.")
         return (visible: text, spoken: text)
     }
@@ -66,7 +66,7 @@ enum FirstRunTourCopy {
     static func agentsBeat() -> Body {
         let text = String(
             localized:
-                "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app.",
+                "Run an agent you've already installed, such as Claude Code or Codex. Set up its integration in Agents settings for more reliable activity updates. Allow notifications for alerts while you're in another app; delivery follows your notification settings.",
             comment: "Welcome tour beat three, introducing agent awareness and notifications.")
         return (visible: text, spoken: text)
     }
@@ -75,12 +75,12 @@ enum FirstRunTourCopy {
         (
             visible: String(
                 localized:
-                    "\(floatingPanel.displaySymbol) opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. \(popUpTerminal.displaySymbol) opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch.",
+                    "\(floatingPanel.displaySymbol) opens a temporary Floating Panel for this workspace. \(popUpTerminal.displaySymbol) opens the Terminal Companion, a single shell that keeps running as you switch workspaces.",
                 comment:
                     "Welcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols."),
             spoken: String(
                 localized:
-                    "\(floatingPanel.spokenForm) opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. \(popUpTerminal.spokenForm) opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch.",
+                    "\(floatingPanel.spokenForm) opens a temporary Floating Panel for this workspace. \(popUpTerminal.spokenForm) opens the Terminal Companion, a single shell that keeps running as you switch workspaces.",
                 comment:
                     "Spoken form of beat four. Arguments are those two shortcuts spelled out.")
         )
@@ -90,12 +90,12 @@ enum FirstRunTourCopy {
         (
             visible: String(
                 localized:
-                    "\(commandPalette.displaySymbol) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.displaySymbol) shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
+                    "Find commands with \(commandPalette.displaySymbol), or open the keyboard cheatsheet with \(keyboardCheatsheet.displaySymbol). The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
                 comment:
                     "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot."),
             spoken: String(
                 localized:
-                    "\(commandPalette.spokenForm) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.spokenForm) shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
+                    "Find commands with \(commandPalette.spokenForm), or open the keyboard cheatsheet with \(keyboardCheatsheet.spokenForm). The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
                 comment:
                     "Spoken form of beat five. Arguments are those two shortcuts spelled out.")
         )

@@ -79,6 +79,16 @@ struct AgentPluginCardState: Equatable, Sendable {
     /// `.notInstalled` fallback's install guidance under a Checking label.
     var statusDetail: String { isCheckingInitialStatus ? "" : status.detail }
 
+    var needsAttention: Bool {
+        if distWarning != nil || note != nil || guidance != nil || failureSummary != nil || diagnostics != nil {
+            return true
+        }
+        switch status {
+        case .needsReview, .updateAvailable, .needsRepair, .unsupported: return true
+        default: return false
+        }
+    }
+
     private var canMutate: Bool { !isBusy && !isCheckingInitialStatus }
     var allowsEnable: Bool { status.allowsEnable && canMutate }
     var allowsRepair: Bool { status.allowsRepair && canMutate }
@@ -225,7 +235,7 @@ final class AgentPluginSettingsViewModel {
             status: status,
             renderedSourcePath: renderedSourcePaths[provider],
             helperPath: helper?.path,
-            distWarning: (helper?.isDevelopmentBundle ?? false)
+            distWarning: setup.enabled && (helper?.isDevelopmentBundle ?? false)
                 ? "This is a dist/ development build. The status hook breaks if that build folder is removed; use a release build for a durable install."
                 : nil,
             note: setup.enabled ? report?.note : nil,

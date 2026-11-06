@@ -46,63 +46,27 @@ struct AgentsSettingsPane: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(
                 index: 1,
-                title: String(localized: "Permissions", comment: "Agents settings title."),
+                title: String(localized: "Agent integrations", comment: "Agents settings title."),
                 subtitle: String(
-                    localized: "How awesoMux handles tool-use prompts from coding agents.", comment: "Agents settings subtitle.")
-            ) {
-                SettingsField(
-                    label: String(localized: "Permission posture", comment: "Agents settings label."),
-                    hint: String(localized: "Applies to new agent sessions.", comment: "Agents settings hint."),
-                    isFirst: true
-                ) {
-                    SettingsSegmented(
-                        options: postureOptions,
-                        selection: appSettingsStore.agents.binding(\.permissionPosture)
-                    )
-                }
-
-                SettingsField(
-                    label: String(localized: "Remember allowed tools", comment: "Agents settings label."),
-                    hint: String(
-                        localized: "Cache trust decisions per workspace once you have approved them.", comment: "Agents settings hint."),
-                    forwardsAccessibilityToControl: true
-                ) {
-                    Toggle("Remember allowed tools", isOn: appSettingsStore.agents.binding(\.rememberToolTrust))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-            }
-
-            AgentSetupsSettingsSection()
-
-            if showsOutsideAppAccess {
-                AssistantAccessSettingsSection()
-                    .onAppear { keepsOutsideAppAccess = true }
-            }
-
-            SettingsSection(
-                index: showsOutsideAppAccess ? 4 : 3,
-                title: String(localized: "Local status hooks", comment: "Agents settings title."),
-                subtitle: String(
-                    localized: "Provider-owned files that report identity and coarse runtime state.", comment: "Agents settings subtitle.")
+                    localized:
+                        "Turn a provider on for status checks and updates. Set up its integration separately for each config folder where shown. This does not install the agent itself.",
+                    comment: "Agents settings subtitle.")
             ) {
                 // Card states come from the cached model; body evaluation never
                 // reads the manifest or byte-compares templates. Before the
                 // first probe lands this returns layout-stable placeholder
                 // cards with actions disabled.
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(AgentIntegrationDisplayProvider.allCases, id: \.self) { display in
-                        Text(
-                            String.localizedStringWithFormat(
-                                String(localized: "%lld enabled setups share this status hook."),
-                                Int64(agentSetupStore.setups.filter { $0.enabled && $0.provider == display.agentKind }.count)
-                            )
-                        )
-                        .font(.caption)
+                        if display != AgentIntegrationDisplayProvider.allCases.first {
+                            Divider().overlay(Color.aw.border)
+                        }
+                        let enabledSetupCount = agentSetupStore.setups.filter { $0.enabled && $0.provider == display.agentKind }.count
                         if let provider = display.installable {
                             let state = cardModel.state(for: provider, setup: draftSetup(for: provider))
                             AgentIntegrationSettingsCard(
                                 state: state,
+                                enabledSetupCount: enabledSetupCount,
                                 isEnabled: enabledBinding(provider: provider),
                                 binaryPath: draftBinding(provider: provider, keyPath: \.binaryPath),
                                 configHome: draftBinding(provider: provider, keyPath: \.configHome),
@@ -121,6 +85,7 @@ struct AgentsSettingsPane: View {
                                 state: folders[0],
                                 folders: folders,
                                 installSummary: pluginViewModel.installSummary(provider: pluginProvider, setup: pluginSetup),
+                                enabledSetupCount: enabledSetupCount,
                                 isEnabled: pluginEnabledBinding(provider: pluginProvider),
                                 binaryPath: pluginDraftBinding(provider: pluginProvider, keyPath: \.binaryPath),
                                 configHome: pluginDraftBinding(provider: pluginProvider, keyPath: \.configHome),
@@ -145,11 +110,22 @@ struct AgentsSettingsPane: View {
                     }
 
                 }
+                .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5)
+                }
+            }
+
+            AgentSetupsSettingsSection()
+
+            if showsOutsideAppAccess {
+                AssistantAccessSettingsSection()
+                    .onAppear { keepsOutsideAppAccess = true }
             }
 
             #if DEBUG
                 SettingsSection(
-                    index: 99,
+                    index: showsOutsideAppAccess ? 4 : 3,
                     title: String(localized: "Debug", comment: "Agents settings title."),
                     subtitle: String(
                         localized: "Debug builds only. Forces the diagnostics disclosure with a sample payload.",
@@ -475,26 +451,6 @@ struct AgentsSettingsPane: View {
         return trimmed
     }
 
-    private var postureOptions: [SettingsSegmented<AgentConfig.PermissionPosture>.Option] {
-        [
-            .init(
-                value: .askEveryTime,
-                label: "Ask each time",
-                accessibilityLabel: String(localized: "Ask before every agent tool use")
-            ),
-            .init(
-                value: .rememberPerWorkspace,
-                label: "Per workspace",
-                accessibilityLabel: String(localized: "Remember approvals per workspace")
-            ),
-            .init(
-                value: .trustKnownTools,
-                label: "Trust known",
-                accessibilityLabel: String(localized: "Trust known tools without asking")
-            ),
-        ]
-    }
-
     private func setup(for provider: AgentIntegrationInstallProvider) -> AgentIntegrationSetup {
         switch provider {
         case .openCode:
@@ -631,6 +587,7 @@ enum AgentIntegrationSettingsFocusedField: Hashable {
 
 private struct AgentIntegrationSettingsCard: View {
     let state: AgentIntegrationSettingsCardState
+    var enabledSetupCount: Int = 0
     @Binding var isEnabled: Bool
     @Binding var binaryPath: String
     @Binding var configHome: String
@@ -644,26 +601,27 @@ private struct AgentIntegrationSettingsCard: View {
     @State private var lastAnnouncedStatusLabel: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
-            // The full card stays present in every state so the layout never
-            // jumps. Before opt-in the fields and action row are greyed and
-            // read-only via `.disabled(!isEnabled)`, which also keeps their
-            // bindings from firing a commit — the toggle is the only path that
-            // writes config.
+        AgentIntegrationDisclosureRow(
+            title: state.title, subtitle: state.subtitle,
+            needsAttention: needsAttention, enabledSetupCount: enabledSetupCount
+        ) {
+            statusBadge
+        } toggle: {
+            enableToggle
+        } content: {
             fieldGrid
                 .disabled(!isEnabled)
-            pathSummary
             // The action row is not gated on `isEnabled`: a file installed before
             // the provider was turned off must stay removable without re-enabling.
             // The per-button `canInstall`/`canUninstall` flags carry the gate.
             actionRow
-        }
-        .padding(14)
-        .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.aw.border, lineWidth: 0.5)
+            DisclosureGroup {
+                pathSummary.padding(.top, 6)
+            } label: {
+                Text(String(localized: "Technical details", comment: "Agent integration paths disclosure."))
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(Color.aw.text2)
+            }
         }
         .accessibilityElement(children: .contain)
         // Placeholder → authoritative (and advisory → re-authoritative)
@@ -686,32 +644,27 @@ private struct AgentIntegrationSettingsCard: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(state.title)
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.text)
-                Text(state.subtitle)
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text3)
-            }
-
-            Spacer(minLength: 12)
-
-            Toggle("Enable \(state.title)", isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .help(isEnabled ? "Disable \(state.title)" : "Enable \(state.title)")
-                .accessibilityLabel("\(state.title) integration")
-                .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
-                .accessibilityHint(
-                    isEnabled
-                        ? "Disabling stops awesoMux from checking paths or applying local status events"
-                        : "Enabling allows checks and events; installing the provider plugin is a separate step")
-
-            statusBadge
+    private var needsAttention: Bool {
+        if actionError != nil || state.binaryValidation.blockingMessage != nil || state.configHomeValidation.blockingMessage != nil {
+            return true
         }
+        switch state.status {
+        case .updateAvailable, .installStateRepairRequired, .timedOut, .blocked: return true
+        default: return false
+        }
+    }
+
+    private var enableToggle: some View {
+        Toggle("Enable \(state.title)", isOn: $isEnabled)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .help(isEnabled ? "Disable \(state.title)" : "Enable \(state.title)")
+            .accessibilityLabel("\(state.title) integration")
+            .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
+            .accessibilityHint(
+                isEnabled
+                    ? "Disabling stops awesoMux from checking paths or applying local status events"
+                    : "Enabling allows checks and events; installing the provider plugin is a separate step")
     }
 
     /// Shown whenever the card has no confirmed observation — before the first
@@ -837,7 +790,7 @@ private struct AgentIntegrationSettingsCard: View {
     }
 
     private var actionRow: some View {
-        HStack(alignment: .center, spacing: 10) {
+        AgentActionFlowLayout(spacing: 10) {
             Button(action: onInstall) {
                 Label(state.actionTitle, systemImage: state.actionSystemImage)
             }
@@ -863,7 +816,6 @@ private struct AgentIntegrationSettingsCard: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Spacer(minLength: 0)
         }
     }
 

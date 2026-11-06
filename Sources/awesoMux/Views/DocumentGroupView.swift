@@ -83,6 +83,8 @@ struct DocumentGroupView: View {
     // context PINS the document + target pane resolved when the composer opened, so
     // a tab switch while it's open can't retarget the send or the focus restore.
     @State private var composerContext: ComposerContext?
+    @State private var handoffStatus: String?
+    @State private var composerCopyDocumentID: DocumentPane.ID?
     @State private var composerFocusPaneID: TerminalPane.ID?
     // INT-683: tracks the document's comment count across reloads to detect the
     // "all comments resolved" (> 0 -> 0) transition, and whether the resulting
@@ -389,6 +391,7 @@ struct DocumentGroupView: View {
                     runtime: runtime,
                     showAllResolvedNotice: $showAllResolvedNotice,
                     onCompose: { presentComposer() },
+                    handoffStatus: handoffStatus,
                     sectionKeys: tabMemory.sectionIndex(for: document)?.keys ?? [],
                     collapsedSections: tabMemory.collapsedSections(for: document),
                     onSetCollapsedSections: { tabMemory.setCollapsedSections($0, for: document) }
@@ -438,10 +441,12 @@ struct DocumentGroupView: View {
                 reviewedFilePath: context.fileURL.path,
                 receivingTerminal: context.terminalTitle,
                 capturedWorkingDirectory: context.workingDirectory,
+                isCopy: context.providerKind == .codex,
                 onSend: { stageComposerText($0, in: context) },
                 onClose: { composerContext = nil }
             )
         }
+        .onChange(of: document.fileURL) { handoffStatus = nil }
         .onChange(of: documentTabActions.focusRequest) { _, _ in
             applyPendingFocusRequest()
         }
@@ -457,6 +462,7 @@ struct DocumentGroupView: View {
                 for: newGroup.selectedTabID, in: session.id
             )
             if oldGroup.selectedTabID != newGroup.selectedTabID {
+                handoffStatus = nil
                 documentFocus.selectedTabDidChange(to: newGroup.selectedTabID)
             }
             if oldGroup.selectedTabID != newGroup.selectedTabID,
@@ -843,7 +849,9 @@ struct DocumentGroupView: View {
                 return Self.unmappedProviderHandoffPresentation
             }
             return AnnotationHandoffPresentation(
-                title: String(
+                title: target.agentKind == .codex
+                    ? String(localized: "Copy for Codex", comment: "Annotation handoff action for Codex")
+                    : String(
                     localized: "Send to \(provider.displayName)",
                     comment: "Annotation handoff button naming the verified target provider"
                 ),
@@ -851,13 +859,16 @@ struct DocumentGroupView: View {
                 unavailableDescription: nil
             )
         case .unavailable(let reason):
+            let isCodexCopy = session.layout.documentSendTarget(for: document.id)?.agentKind == .codex
             return AnnotationHandoffPresentation(
-                title: String(
+                title: isCodexCopy
+                    ? String(localized: "Copy for Codex", comment: "Unavailable Codex annotation handoff action")
+                    : String(
                     localized: "Send to Agent",
                     comment: "Disabled annotation handoff button when no verified provider is available"
                 ),
                 isEnabled: false,
-                unavailableDescription: DocumentPaneSendBar.unavailableDescription(for: reason)
+                unavailableDescription: DocumentPaneSendBar.unavailableDescription(for: reason, forCodexCopy: isCodexCopy)
             )
         }
     }
@@ -894,7 +905,9 @@ struct DocumentGroupView: View {
             openAnnotationIDs
             ?? tabMemory.render(for: document)?.renderedDoc?.openAnnotationIDs
             ?? []
-        composerFocusPaneID = target.id
+        handoffStatus = nil
+        composerCopyDocumentID = target.agentKind == .codex ? document.id : nil
+        composerFocusPaneID = target.agentKind == .codex ? nil : target.id
         composerContext = ComposerContext(
             documentID: document.id,
             fileURL: document.fileURL,
@@ -902,7 +915,9 @@ struct DocumentGroupView: View {
             providerKind: target.agentKind,
             terminalTitle: target.title,
             workingDirectory: target.workingDirectory,
-            title: String(
+            title: target.agentKind == .codex
+                ? String(localized: "Copy for Codex", comment: "Title of the Codex clipboard prompt composer")
+                : String(
                 localized: "Send to \(target.agentKind.displayName)",
                 comment: "Title of the multiline provider handoff composer"
             ),
@@ -917,12 +932,19 @@ struct DocumentGroupView: View {
         )
     }
 
-    /// Restores first responder to the pinned target terminal when the composer
+    /// Restores the document for Copy, or the pinned terminal for Send, when the composer
     /// closes (Cancel, Esc, close button, or a successful send) so keyboard/
     /// VoiceOver focus isn't stranded. Uses the captured pane id — which
     /// `focusSurface` safely no-ops for if it died — rather than re-running the
     /// eligibility probe, so an SSH/unverifiable target still restores focus.
     private func restoreFocusAfterComposer() {
+        if let documentID = composerCopyDocumentID {
+            composerCopyDocumentID = nil
+            if session.layout.firstDocumentGroup?.selectedTabID == documentID {
+                documentFocus.request(documentID)
+            }
+            return
+        }
         guard let paneID = composerFocusPaneID else { return }
         runtime.focusSurface(toPane: paneID)
         composerFocusPaneID = nil
@@ -934,7 +956,7 @@ struct DocumentGroupView: View {
     /// pinned composer resolves against session.layout regardless of the tab shown.
     private func resolveSendTarget(for documentID: DocumentPane.ID) -> DocumentNudgeTargetResolution {
         let integrations = appSettingsStore.agentIntegrations.value
-        return DocumentPaneSendBar.resolveNudgeTarget(
+        return DocumentPaneSendBar.resolveHandoffTarget(
             in: session.layout,
             for: documentID,
             isIntegrationEnabled: { kind in
@@ -963,7 +985,8 @@ struct DocumentGroupView: View {
         )
     }
 
-    /// Stages the composed draft into the PINNED target terminal. Re-resolves the
+    /// Copies Codex drafts; stages other providers into the PINNED terminal.
+    /// Codex availability authorizes clipboard delivery only. Re-resolves the
     /// pinned document at submit (the target may have died or its association
     /// changed while the composer was open) and refuses to send if the resolved
     /// target no longer matches — a tab switch can't retarget the paste. The
@@ -975,7 +998,13 @@ struct DocumentGroupView: View {
             currentDocument.isEditable,
             currentDocument.fileURL.isFileURL
         else {
-            let reason = String(
+            let reason =
+                context.providerKind == .codex
+                ? String(
+                    localized:
+                        "Couldn't copy — the reviewed document changed or is no longer editable. Close this composer and reopen Copy for Codex.",
+                    comment: "Copy refusal when the pinned document changed")
+                : String(
                 localized:
                     "Couldn't send — the reviewed document changed or is no longer editable. Close this composer and reopen Send to Agent.",
                 comment: "Composer refusal when the captured local document identity changed"
@@ -984,7 +1013,13 @@ struct DocumentGroupView: View {
             return .failed(reason)
         }
         guard NudgeComposer.absoluteLocalPath(for: context.fileURL) != nil else {
-            let reason = String(
+            let reason =
+                context.providerKind == .codex
+                ? String(
+                    localized:
+                        "Couldn't copy — this file path contains control or direction-formatting characters. Your draft is preserved.",
+                    comment: "Copy refusal when the exact document path is unsafe")
+                : String(
                 localized:
                     "Couldn't send — this file path contains control or direction-formatting characters that cannot be pasted exactly. Your draft is preserved.",
                 comment: "Composer refusal when path sanitization would name a different file"
@@ -996,9 +1031,14 @@ struct DocumentGroupView: View {
         guard case .available(let target) = resolution, target.id == context.targetPaneID else {
             let reason: String
             if case .unavailable(let why) = resolution {
-                reason = DocumentPaneSendBar.unavailableDescription(for: why)
+                reason = DocumentPaneSendBar.unavailableDescription(for: why, forCodexCopy: context.providerKind == .codex)
             } else {
-                reason = String(
+                reason =
+                    context.providerKind == .codex
+                    ? String(
+                        localized: "Couldn't copy — this document's terminal isn't available",
+                        comment: "Copy refusal when the associated terminal is unavailable")
+                    : String(
                     localized: "Couldn't send — this document's terminal isn't available",
                     comment: "Composer failure when a document has no eligible send target"
                 )
@@ -1007,7 +1047,12 @@ struct DocumentGroupView: View {
             return .failed(reason)
         }
         guard target.agentKind == context.providerKind else {
-            let reason = String(
+            let reason =
+                context.providerKind == .codex
+                ? String(
+                    localized: "Couldn't copy — this document's agent changed. Close this composer and reopen the handoff action.",
+                    comment: "Copy refusal when the pinned provider changed")
+                : String(
                 localized: "Couldn't send — the receiving terminal's agent changed. Close this composer and reopen Send to Agent.",
                 comment: "Composer refusal when the pinned pane now has a different provider"
             )
@@ -1016,12 +1061,31 @@ struct DocumentGroupView: View {
         }
         let payload = RichInputStaging.stagedPayload(draft)
         guard !payload.isEmpty else {
-            let reason = String(
+            let reason =
+                context.providerKind == .codex
+                ? String(localized: "Nothing to copy", comment: "Copy refusal for an empty sanitized prompt")
+                : String(
                 localized: "Nothing to send",
                 comment: "Composer failure when the draft is empty after sanitizing"
             )
             TerminalAccessibilityAnnouncer.announce(reason)
             return .failed(reason)
+        }
+        if context.providerKind == .codex {
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.setString(payload, forType: .string) else {
+                let reason = String(
+                    localized: "Couldn't copy — your draft is preserved. Try again.",
+                    comment: "Clipboard handoff failure with the composer still open")
+                TerminalAccessibilityAnnouncer.announce(reason)
+                return .failed(reason)
+            }
+            let message = String(
+                localized: "Copied for Codex — paste when ready", comment: "Visible and spoken confirmation after copying a document prompt"
+            )
+            handoffStatus = message
+            TerminalAccessibilityAnnouncer.announce(message)
+            return .sent
         }
         if runtime.sendText(payload, toPane: context.targetPaneID) {
             TerminalAccessibilityAnnouncer.announce(

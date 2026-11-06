@@ -208,20 +208,20 @@ struct DaemonGarbageCollectorTests {
         }
     }
 
-    @Test("restore and recovery guards still suppress launch sweeps")
+    @Test("restore and recovery guards restrict launch sweeps to carriers")
     func safetyGuardsSuppressSweep() {
         #expect(
             DaemonGarbageCollector.launchSweepConfiguration(
                 terminalSettings: .defaultValue,
                 isRestoreEnabled: false,
                 hasUnresolvedRecoveryWarning: false
-            ) == nil)
+            ).carriersOnly)
         #expect(
             DaemonGarbageCollector.launchSweepConfiguration(
                 terminalSettings: .defaultValue,
                 isRestoreEnabled: true,
                 hasUnresolvedRecoveryWarning: true
-            ) == nil)
+            ).carriersOnly)
     }
 
     // MARK: - sessionSocketExists (INT-914 profile fence)

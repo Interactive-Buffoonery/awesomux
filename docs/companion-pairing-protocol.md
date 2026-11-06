@@ -249,6 +249,18 @@ Only these operations are accepted:
 - `watch_terminal`, with required `paneID`, `targetVersion`, and `streamVersion`
   plus an optional `grid`; requires a separate Mac-approved watch scope. See
   [`watch_terminal`](#watch_terminal).
+- `create_terminal`, with an optional `workspaceID` to split an existing
+  workspace, or no argument to create a local workspace. Requires Terminal
+  authority covering the workspace and Input on. The success envelope's
+  `createdTerminal` contains UUID strings `workspaceID`, `paneID` and
+  `targetVersion`. New workspaces require all-workspaces Terminal authority.
+  A workspace containing a remote-owned (`.remoteZmx`) pane returns
+  `remote_workspace_unsupported` before any mutation. Local-amx SSH splits use
+  native Cmd-D behavior: they inherit the execution plan and local launch
+  directory, but do not carry over the reported remote working directory.
+  See [ADR-0042](adr/0042-phone-terminals.md) for exact request/response shapes,
+  authorization, hydration and lost-reply behavior. Like `rename_pane`, this
+  Mac-only decoder does not require a shared protocol package change.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
   `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
@@ -283,17 +295,17 @@ The usual 8 KiB request bound applies.
 Each phone's optional persisted `paneRenameScope` is independent of status,
 context, and terminal-preview permissions. Missing means denied for both legacy
 and new grants. Only the Mac's **Allow pane renaming** control can enable or
-disable it; the phone cannot grant itself rename permission. Enabling captures
-that phone's current status scope. At mutation time both the status scope and
-rename scope must allow the exact target. Granting rename never widens status
-visibility. Turning the control off removes the grant. Every change rotates the
+disable it; the phone cannot grant itself rename permission. Enabling stores
+`allWorkspaces`, covering every current and future workspace. Older non-nil
+rename scopes migrate to `allWorkspaces` when loaded; missing grants stay off.
+Turning the control off removes the grant. Every change rotates the
 connection revision and invalidates pending requests before saving; a failed
 save denies this phone for the run until Retry Save succeeds.
 
 The endpoint rechecks the original certificate and lease under the authority
 lock, then checks cancellation and its monotonic deadline before a synchronous
 MainActor `SessionStore` rename. The lock remains held with no suspension.
-A revoked, replaced, disabled, or scope-changed grant cannot perform a pending
+A revoked, replaced, disabled, or changed grant cannot perform a pending
 mutation. Response writes recheck the same lease too. A rename already applied
 before a disconnect/revocation may have no receipt; reconnect and read the pane
 roster to reconcile. Retrying the same target and title has the native idempotent
@@ -303,7 +315,7 @@ The native title sanitizer trims whitespace, removes unsafe display scalars,
 and caps titles at 200 Characters. A title that sanitizes to empty returns
 `invalid_title`; it never resets the native custom-title pin. A missing workspace
 or pane, or a pane no longer in the supplied workspace, returns `stale_target`.
-An existing document-group leaf returns `nonterminal_target`. Scope/grant denial
+An existing document-group leaf returns `nonterminal_target`. Grant denial
 returns `permission_denied` before target lookup. Cancellation and expiry return
 `cancelled` and `timeout` without mutating. Success is the standard envelope with
 `profile`, `appInstanceID`, and `capturedAt`, without roster or content. The native
@@ -542,6 +554,15 @@ reject v2 links and continue using their existing v1 pairing.
 
 ### `watch_terminal`
 
+[ADR-0041](adr/0041-paired-device-terminal-input.md) extends the original
+Watch-only implementation below with the interactive role when Input is on.
+[ADR-0042](adr/0042-phone-terminals.md) changes phone opening to send a fresh
+`claim` with its grid after `snapshot_end` in Input mode. Watch is explicit;
+Input off stays Mac-enforced Watch. A restored `awaitingHydration` pane has a
+target version and may be opened: the Mac starts its native surface/SSH attach
+before accepting the stream. Initial failures include `pane_exited`,
+`pane_disconnected`, `terminal_unavailable`, `stale_target` and `timeout`.
+
 Implements the live terminal stream from [ADR-0040](adr/0040-live-terminal-stream.md)
 for #786, watch role only. The Mac attaches to the pane's zmx session as a
 watch-only client ([ADR-0036](adr/0036-multi-client-terminal-leadership.md)) and
@@ -549,10 +570,11 @@ translates that stream into typed frames; raw zmx messages and the socket path
 never reach the phone, and no phone input reaches the pane.
 
 Watch access is a per-phone scope persisted as `terminalWatchScope` in companion
-metadata; absent or `null` means off, and new pairings default off. The
-**Allow watching terminals in selected workspaces** controls in Mac Companion
-settings grant only the selected workspace IDs, including future panes in those
-workspaces. New workspaces need their own approval. A phone with the scope sees
+metadata; absent or `null` means off. New pairings get `allWorkspaces`, so a
+paired phone can watch any terminal, including future workspaces. The
+**Allow watching terminals** switch in Mac Companion settings turns this off and
+on per phone. When older pairing metadata loads, any existing Watch scope
+migrates to `allWorkspaces` and is saved; an absent scope stays off. A phone with the scope sees
 a `terminalStream` object on
 `get_connection_status` holding the limits below; no object means `watch_terminal`
 returns `permission_denied`. The paired `get_capabilities` operation always
@@ -1091,19 +1113,25 @@ Delivery uses direct LAN/Tailscale polling. Phone settings UI and push delivery
 remain follow-up work.
 
 For focused persistence, journal and event-time store verification, run
-`heavy-gate swift run companion-pairing-e2e --alert-preferences-only`.
-The full `heavy-gate ./script/run_companion_pairing_e2e.sh` also checks strict
+`process-gate swift run companion-pairing-e2e --alert-preferences-only`.
+The full `process-gate ./script/run_companion_pairing_e2e.sh` also checks strict
 preference arguments and self-only access over pinned mutual TLS. Its isolated
 store fixture retains its diagnostic directory and prints the path. These host
 cases do not prove native focus, visibility or lock transitions; exercise those
 with the worktree app separately.
-## Scoped permission decisions
+## Permission decisions
 
 `list_pending_decisions` and `decide` are Companion-only operations, separate
 from the bearer local API. They require a default-off Decide grant on the Mac
-for explicitly selected workspace IDs. Pairing, previews, status and pane
-renaming never grant decision access. Grant changes rotate the connection
-revision; deleting a workspace removes its grant.
+controlled by **Allow answering permission requests**. The `decisionsAllowed`
+Boolean covers every workspace, including workspaces created later. A non-empty
+legacy `decideWorkspaceIDs` list migrates to on and is replaced on disk; absent
+or empty legacy grants stay off. Pairing, previews, status and pane renaming
+never grant decision access. Grant changes rotate the connection revision.
+If saving a migration fails, connections remain visible and companion access
+pauses until Retry Save succeeds; Outside-app grants stay active. Older Mac
+builds reject the new metadata field, so downgrading pauses access until a
+compatible build reads the preserved file.
 
 The shared protocol's `CompanionDecisionIdentity` binds runtime instance,
 workspace, pane, target version, provider session, hook invocation and request
@@ -1131,9 +1159,9 @@ and 128 per authenticated device; cached retries still work at either limit.
 Cache expiry never recreates a request. Recorded means the core accepted an
 answer; delivered requires a helper ACK and does not prove provider execution.
 
-Scope, exact target, device certificate and revisioned grant are checked before
+Exact target, device certificate and revisioned device grant are checked before
 commit, each response chunk, actual socket delivery and every file publication
-attempt. Every grant edit rotates the lease, including workspace scope expansion,
+attempt. Every grant edit rotates the lease,
 and conservatively cancels an in-flight answer recorded under the prior lease. Revocation cancels a known-unsent remote answer; an answer that may
 have escaped becomes unknown. Choice-free terminal replies still reach the exact
 hook after device revocation; they never carry an allow or deny. File publication

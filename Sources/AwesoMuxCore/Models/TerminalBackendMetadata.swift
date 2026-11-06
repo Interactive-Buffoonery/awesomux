@@ -43,9 +43,12 @@ public enum AmxAttachDisposition: Hashable, Sendable {
 }
 
 extension TerminalBackendMetadata {
+    /// A local daemon carrying SSH; it does not own the remote shell or its cwd.
+    public static let amxRemoteCarrier = Self(rawValue: "amx:v1:remote-carrier")
+
     public var amxAttachDisposition: AmxAttachDisposition {
         switch rawValue {
-        case "", "amx:v1:established": .createOrAttach
+        case "", "amx:v1:established", Self.amxRemoteCarrier.rawValue: .createOrAttach
         default: .existingOnly
         }
     }
