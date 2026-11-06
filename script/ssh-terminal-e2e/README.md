@@ -37,7 +37,8 @@ It also checks that other TERMs pass through, and that `--portable` maps them
 to `xterm-256color`. With
 `--terminfo`, it also runs setup through a PTY: declined, installed, cached host
 keeps `xterm-ghostty`, present (no rewrite), `--force`, `--forget`, a host with
-no `tic`, and a read-only home. The fixture sshd's `ForceCommand` points the
+no `tic`, a read-only home, retrying declined or failed setup for a remembered
+host, and an unverifiable existing definition when `infocmp` is absent. The fixture sshd's `ForceCommand` points the
 remote `HOME` at a fixture directory, so setup never writes to your real
 `~/.terminfo`.
 
@@ -49,7 +50,7 @@ bottle used during development crashed when loading the pinned upstream Ghostty
 fish startup script, so that integration remains a separate manual check.
 
 Also run the existing mouse-recovery PTY suite against a disposable SSH target,
-including SSH suspend/resume, then `./script/preflight.sh`.
+including SSH and `awesomux-ssh` suspend/resume, then `./script/preflight.sh`.
 
 For the original report, open a fresh local pane in the built demo, narrow the
 window, run ordinary `ssh sandbox`, confirm `echo "$TERM"` prints

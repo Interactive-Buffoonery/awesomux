@@ -26,7 +26,10 @@ active, or run `awesomux-ssh --setup-terminfo <host>` in a local zsh or fish
 pane. awesoMux asks before it connects. With your approval it installs the
 definition in `~/.terminfo` for your user on that host. It does not need admin
 rights, and it writes nothing if the host already has the definition. It then
-checks that the host can find the definition, and only then remembers the host.
+checks the definition with remote `infocmp`, and only then remembers the host.
+If `infocmp` is unavailable, setup keeps the portable fallback without writing
+a definition. Re-running setup clears the previous approval for that host;
+declining or failing setup leaves it on the portable fallback.
 
 New SSH connections to a remembered host keep `xterm-ghostty`. Every other host
 still gets `xterm-256color`. Until you set up a host, awesoMux does no lookups

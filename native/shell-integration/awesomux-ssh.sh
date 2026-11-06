@@ -51,14 +51,11 @@ remote_script() {
     printf 'force=%s\n' "$1"
     cat <<'SCRIPT'
 found() {
-    if command -v infocmp >/dev/null 2>&1; then
-        infocmp xterm-ghostty >/dev/null 2>&1
-    else
-        [ -e "$HOME/.terminfo/x/xterm-ghostty" ] || [ -e "$HOME/.terminfo/78/xterm-ghostty" ]
-    fi
+    command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1
 }
 if [ "$force" = 0 ] && found; then echo AWESOMUX-TERMINFO:present; exit 0; fi
 command -v tic >/dev/null 2>&1 || { echo AWESOMUX-TERMINFO:no-tic; exit 0; }
+command -v infocmp >/dev/null 2>&1 || { echo AWESOMUX-TERMINFO:no-infocmp; exit 0; }
 tmp=$(mktemp "${TMPDIR:-/tmp}/awesomux-terminfo.XXXXXX") || { echo AWESOMUX-TERMINFO:no-temp-file; exit 0; }
 trap 'rm -f "$tmp"' EXIT
 cat > "$tmp" <<'AWESOMUX_TERMINFO_END'
@@ -80,8 +77,8 @@ remember() {
     printf '%s\n' "$1" >> "$cache"
 }
 
-forget() {
-    key=$(destination_key "$@") || { echo "awesomux-ssh: could not resolve the destination with ssh -G" >&2; return 2; }
+forget_key() {
+    key=$1
     if ! grep -Fqx -- "$key" "$cache" 2>/dev/null; then
         echo "$key was not set up; it already uses xterm-256color."
         return 0
@@ -98,10 +95,17 @@ forget() {
     fi
 }
 
+forget() {
+    key=$(destination_key "$@") || { echo "awesomux-ssh: could not resolve the destination with ssh -G" >&2; return 2; }
+    forget_key "$key"
+}
+
 setup() {
     force=0
     if [ "${1-}" = --force ]; then force=1; shift; fi
     key=$(destination_key "$@") || { echo "awesomux-ssh: could not resolve the destination with ssh -G" >&2; return 2; }
+    # Revalidate a remembered host; declined or failed setup must fall back.
+    forget_key "$key" >/dev/null || return 1
     definition=$(local_definition) || { echo "awesomux-ssh: the bundled xterm-ghostty definition is unavailable" >&2; return 1; }
     echo "Set up the xterm-ghostty terminal definition on $key?"
     echo "This connects once and, if the definition is missing, writes it to ~/.terminfo"
@@ -117,10 +121,12 @@ setup() {
     output=$(remote_script "$force" "$definition" | TERM=xterm-256color ssh -T "$@" sh)
     status=$?
     result=$(printf '%s\n' "$output" | tr -d '\r' | sed -n "s/^$marker:\([a-z-]*\)\$/\1/p" | tail -n 1)
+    [ "$status" -eq 0 ] || result=
     case "$result" in
         present | installed)
             remember "$key" || { echo "awesomux-ssh: could not update $cache" >&2; return 1; }
             echo "xterm-ghostty is $result on $key. New connections will use it." ;;
+        no-infocmp) echo "$key has no infocmp command to verify the definition, so it keeps using xterm-256color."; return 1 ;;
         no-tic) echo "$key has no tic command, so it keeps using xterm-256color."; return 1 ;;
         not-writable) echo "Could not write ~/.terminfo on $key, so it keeps using xterm-256color."; return 1 ;;
         not-visible) echo "The definition was written but $key cannot find it, so it keeps using xterm-256color."; return 1 ;;

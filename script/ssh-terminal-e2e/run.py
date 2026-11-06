@@ -46,7 +46,7 @@ def helper_cases(args, fixture, client_config, cache, helper):
     shim_dir = fixture / 'helper-bin'
     shim_dir.mkdir()
     log = fixture / 'ssh-invocations'
-    (shim_dir / 'ssh').write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> ' + shlex.quote(str(log)) + '\nexec /usr/bin/ssh "$@"\n')
+    (shim_dir / 'ssh').write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> ' + shlex.quote(str(log)) + '\nif [ "$1" != -G ] && [ "${AWESOMUX_E2E_SSH_FAIL:-}" = 1 ]; then echo AWESOMUX-TERMINFO:present; exit 255; fi\nexec /usr/bin/ssh "$@"\n')
     (shim_dir / 'ssh').chmod(0o700)
     env = {**os.environ, 'TERM': 'xterm-ghostty', 'AWESOMUX_SSH_TERMINFO_HOSTS': str(cache),
            'PATH': str(shim_dir) + ':' + os.environ.get('PATH', '/usr/bin:/bin')}
@@ -63,8 +63,9 @@ def helper_cases(args, fixture, client_config, cache, helper):
         assert ('REMOTE:' + expected).encode() in result.stdout, f'{case}: {result.stdout!r}'
         return log.read_text().splitlines()
 
-    def setup(case, answer, home, *extra, path=None):
-        case_env = {**env, 'AWESOMUX_E2E_HOME': str(home)}
+    def setup(case, answer, home, *extra, path=None, fail_transport=False):
+        case_env = {**env, 'AWESOMUX_E2E_HOME': str(home),
+                    'AWESOMUX_E2E_SSH_FAIL': '1' if fail_transport else ''}
         if path:
             case_env['AWESOMUX_E2E_PATH'] = str(path)
         master, slave = pty.openpty()
@@ -120,6 +121,7 @@ def helper_cases(args, fixture, client_config, cache, helper):
     assert status == 0 and b'installed' in output, output
     assert any((home / '.terminfo').glob('*/xterm-ghostty')), 'definition not written'
     results.append('PASS setup-installed')
+    remembered = cache.read_text()
     connect('cached', 'xterm-ghostty')
     results.append('PASS helper-cached-host')
 
@@ -161,6 +163,39 @@ def helper_cases(args, fixture, client_config, cache, helper):
         read_only.chmod(0o700)
     assert status == 1 and b'Could not write' in output and cache.read_text() == '', output
     results.append('PASS setup-read-only-home')
+
+    other = 'someone@elsewhere:22\n'
+    cache.write_text(other + remembered)
+    status, output = setup('remembered-declined', 'n', home)
+    assert status == 1 and cache.read_text() == other, output
+    connect('remembered-declined', 'xterm-256color')
+    results.append('PASS remembered-setup-declined (forgets only that host)')
+
+    cache.write_text(other + remembered)
+    read_only.chmod(0o500)
+    try:
+        status, output = setup('remembered-failed', 'y', read_only, '--force')
+    finally:
+        read_only.chmod(0o700)
+    assert status == 1 and cache.read_text() == other, output
+    connect('remembered-failed', 'xterm-256color')
+    results.append('PASS remembered-setup-failed (forgets only that host)')
+
+    cache.write_text(other + remembered)
+    status, output = setup('transport-failed', 'y', home, fail_transport=True)
+    assert status == 1 and b'ssh exit 255' in output and cache.read_text() == other, output
+    connect('transport-failed', 'xterm-256color')
+    results.append('PASS failed-transport-rejects-success-marker')
+
+    cache.write_text('')
+    (remote_bin / 'tic').symlink_to('/usr/bin/tic')
+    invalid = fixture / 'invalid-definition-home/.terminfo/x/xterm-ghostty'
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text('invalid definition')
+    status, output = setup('no-infocmp', 'y', invalid.parents[2], path=remote_bin)
+    assert status == 1 and b'no infocmp' in output and cache.read_text() == '', output
+    assert invalid.read_text() == 'invalid definition', 'unverifiable definition was rewritten'
+    results.append('PASS invalid-existing-definition-without-infocmp')
     return results
 
 
