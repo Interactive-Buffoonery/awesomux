@@ -12,7 +12,7 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
     public internal(set) var droppedDocumentTabs: Int
     /// Duplicate group/session/split/pane IDs rewritten to fresh UUIDs during restore.
     /// These are structural-hygiene changes the user can't perceive, so they
-    /// produce no `severitySummaryLines` — but they still alter the persisted
+    /// produce no user-facing summary — but they still alter the persisted
     /// graph, so they count toward `totalAdjustments` to trigger a recovery
     /// archive of the original snapshot before the cleaned state overwrites it.
     public internal(set) var idReassignments: Int
@@ -88,31 +88,5 @@ public struct SessionRestoreSanitizationSummary: Equatable, Sendable {
     public var fallbackItemCount: Int {
         activePaneFallbacks
             + selectedSessionFallbacks
-    }
-
-    public var severitySummaryLines: [String] {
-        [
-            removedItemCount > 0
-                ? "\(removedItemCount) \(Self.itemNoun(for: removedItemCount)) could not be restored and \(Self.wasWere(for: removedItemCount)) removed."
-                : nil,
-            changedItemCount > 0
-                ? "\(changedItemCount) \(Self.itemNoun(for: changedItemCount)) \(Self.wasWere(for: changedItemCount)) cleaned up, such as invalid names or paths."
-                : nil,
-            fallbackItemCount > 0
-                ? "\(fallbackItemCount) fallback \(Self.valueNoun(for: fallbackItemCount)) \(Self.wasWere(for: fallbackItemCount)) used."
-                : nil,
-        ].compactMap { $0 }
-    }
-
-    private static func itemNoun(for count: Int) -> String {
-        count == 1 ? "item" : "items"
-    }
-
-    private static func valueNoun(for count: Int) -> String {
-        count == 1 ? "value" : "values"
-    }
-
-    private static func wasWere(for count: Int) -> String {
-        count == 1 ? "was" : "were"
     }
 }

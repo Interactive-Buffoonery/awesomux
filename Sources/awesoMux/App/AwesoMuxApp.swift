@@ -6880,7 +6880,17 @@ extension AwesoMuxApp {
                     comment: "Lead line for a sanitized-restore warning raised at launch"
                 )
         ]
-        informativeLines.append(contentsOf: warning.sanitizationSummary?.severitySummaryLines ?? [])
+        if let summary = warning.sanitizationSummary {
+            let adjustments = LocalizedPluralStrings.recoverySummaryLines(summary)
+            if !adjustments.isEmpty {
+                informativeLines.append(
+                    String(
+                        localized: "Some saved data couldn't be restored as it was:",
+                        comment: "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
+                    ) + "\n" + adjustments.joined(separator: "\n")
+                )
+            }
+        }
         if warning.archivedSnapshotURL != nil {
             informativeLines.append("The original saved workspace file was copied for recovery.")
         }

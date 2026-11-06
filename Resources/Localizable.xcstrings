@@ -5275,6 +5275,9 @@
     "Some folders could not be checked" : {
       "comment" : "Agent plugin card summary when a folder status check failed"
     },
+    "Some saved data couldn't be restored as it was:" : {
+      "comment" : "Heading for adjustments to reconstructed saved data, not changes to open workspaces."
+    },
     "Something replaced the saved workspace file while awesoMux was checking it, and awesoMux could not preserve the version it had already read. Your open workspaces are untouched, but automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown mid-session when saved workspace data changed while being read and the opened bytes could not be archived"
     },
