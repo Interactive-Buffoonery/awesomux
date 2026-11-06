@@ -524,7 +524,7 @@ The surface bridge is split into focused app-target files under
         -z ${SSH_CLIENT:-} &&
         -z ${SSH_TTY:-} ]]; then
     fastfetch --config - <<'JSON'
-  {"modules":[{"type":"terminal","format":"{$TERM_PROGRAM} {$TERM_PROGRAM_VERSION}"}]}
+  {"logo":null,"modules":[{"type":"terminal","format":"{$TERM_PROGRAM} {$TERM_PROGRAM_VERSION}"}]}
   JSON
   else
     fastfetch
