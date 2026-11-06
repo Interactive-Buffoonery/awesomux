@@ -6135,9 +6135,6 @@
     "Unknown" : {
       "comment" : "Composer placeholder when the terminal has not reported a folder\nFallback status when GitHub reports no check status"
     },
-    "Unknown Ghostty configuration problem." : {
-
-    },
     "Unmute" : {
 
     },
