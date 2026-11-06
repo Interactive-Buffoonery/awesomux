@@ -280,24 +280,25 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// references the caller could not know about at scheduling are protected
     /// by the captured authored generation and pending-write leases.
     func schedulePruneUnreferenced(keeping referencedFileURLs: Set<URL>) {
-        let cache = self
-        let scheduled = scheduledPrune()
+        let prune = pruneOperation(keeping: referencedFileURLs)
         Task.detached(priority: .utility) {
-            cache.pruneUnreferenced(
+            prune()
+        }
+    }
+
+    func pruneUnreferencedImmediately(keeping referencedFileURLs: Set<URL>) {
+        pruneOperation(keeping: referencedFileURLs)()
+    }
+
+    func pruneOperation(keeping referencedFileURLs: Set<URL>) -> @Sendable () -> Void {
+        let scheduled = scheduledPrune()
+        return {
+            pruneUnreferenced(
                 keeping: referencedFileURLs,
                 scheduledID: scheduled.id,
                 protecting: scheduled.authoredPaths
             )
         }
-    }
-
-    func pruneUnreferencedImmediately(keeping referencedFileURLs: Set<URL>) {
-        let scheduled = scheduledPrune()
-        pruneUnreferenced(
-            keeping: referencedFileURLs,
-            scheduledID: scheduled.id,
-            protecting: scheduled.authoredPaths
-        )
     }
 
     private func scheduledPrune() -> (id: Int, authoredPaths: Set<String>) {
