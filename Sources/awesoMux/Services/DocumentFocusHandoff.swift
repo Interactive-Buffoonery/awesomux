@@ -12,6 +12,7 @@ final class DocumentFocusHandoff {
     private weak var requestResponder: NSResponder?
     private var inputMonitor: Any?
     private var windowObservers: [NSObjectProtocol] = []
+    private var sheetFocusIntent: DocumentComposeTabActionHandler.FocusIntent?
 
     func request(_ tabID: DocumentPane.ID, in window: NSWindow? = NSApp.keyWindow) {
         cancel()
@@ -25,6 +26,20 @@ final class DocumentFocusHandoff {
             self?.handleSubsequentInput(event)
             return event
         }
+        observeWindow(window)
+        scheduleHandoff()
+    }
+
+    func request(_ tabID: DocumentPane.ID, preserving intent: DocumentComposeTabActionHandler.FocusIntent) {
+        cancel()
+        guard intent.waitsForSheetDismissal, intent.isActive, let window = intent.targetWindow else {
+            intent.cancel()
+            return
+        }
+        sheetFocusIntent = intent
+        requestWindow = window
+        requestResponder = window.firstResponder
+        requestedTabID = tabID
         observeWindow(window)
         scheduleHandoff()
     }
@@ -50,6 +65,8 @@ final class DocumentFocusHandoff {
 
     func cancel() {
         requestedTabID = nil
+        sheetFocusIntent?.cancel()
+        sheetFocusIntent = nil
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
         removeWindowObservers()
@@ -88,8 +105,16 @@ final class DocumentFocusHandoff {
         let center = NotificationCenter.default
         let names = [NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification]
         windowObservers = names.map { name in
-            center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.scheduleHandoff() }
+            center.addObserver(
+                forName: name, object: sheetFocusIntent == nil ? window : nil, queue: .main
+            ) { [weak self] notification in
+                nonisolated(unsafe) let notification = notification
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.requestWindow,
+                        notification.object as? NSWindow === window
+                    else { return }
+                    self.scheduleHandoff()
+                }
             }
         }
     }
@@ -109,6 +134,11 @@ final class DocumentFocusHandoff {
 
     @discardableResult
     func completeIfReady() -> Bool {
+        if let sheetFocusIntent, !sheetFocusIntent.isActive {
+            cancel()
+            return false
+        }
+        if let sheetFocusIntent, !sheetFocusIntent.isReadyForHandoff { return false }
         guard let requestedTabID, requestedTabID == registeredTabID,
             let textView, let window = textView.window, window === requestWindow
         else { return false }

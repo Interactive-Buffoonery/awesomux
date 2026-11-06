@@ -13,12 +13,13 @@ struct ThinkingSpinner: NSViewRepresentable {
     let color: Color
     var isAnimating = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.awAnimateAgentSpinners) private var animateAgentSpinners
 
     func makeNSView(context: Context) -> SpinnerView {
         let view = SpinnerView()
         view.lastColor = color
         view.strokeColor = NSColor(color)
-        view.setSpinning(isAnimating && !reduceMotion)
+        view.setSpinning(isAnimating && animateAgentSpinners && !reduceMotion)
         return view
     }
 
@@ -32,7 +33,7 @@ struct ThinkingSpinner: NSViewRepresentable {
         }
         // Live-reactive to RM toggling, matching the SwiftUI original's
         // `.onChange(of: reduceMotion)`.
-        nsView.setSpinning(isAnimating && !reduceMotion)
+        nsView.setSpinning(isAnimating && animateAgentSpinners && !reduceMotion)
     }
 
     // Load-bearing: the whole issue #146 bug family is fitting-size constraint

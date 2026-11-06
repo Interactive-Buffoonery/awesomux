@@ -3,7 +3,7 @@ import Foundation
 
 /// Decision logic for healing wedged sheet-request state (issue #202).
 ///
-/// `isAnySheetPresented` derives from request *intent* (the eight sheet-request
+/// `isAnySheetPresented` derives from request *intent* (the request sheet
 /// vars plus the scrollback-dump flag), not presentation *truth*. A request
 /// whose sheet never mounts wedges non-nil forever — its dismiss handlers live
 /// inside sheet content that never appeared — which invisibly disables ⌘F, ⌘W,
@@ -11,24 +11,24 @@ import Foundation
 /// snapshots of request intent versus AppKit presentation truth, which pending
 /// keys are genuinely wedged and safe to clear.
 ///
-/// Veto scoping is per operand class: the eight request sheets present on the
+/// Veto scoping is per operand class: the request sheets present on the
 /// primary content window, so only a primary-window sheet vetoes their heal;
 /// scrollback dumps can be hosted in floating/companion panels, so any
 /// window's sheet vetoes theirs. A run-modal window vetoes everything.
 ///
 /// SAFETY INVARIANT: consent, trust, or destructive-confirmation sheets must
 /// never be modeled as healable request vars — every key here must be safe to
-/// silently discard. (Verified at introduction: none of the eight is a trust
+/// silently discard. (Verified at introduction: none is a trust
 /// gate; SSH host-key trust lives in the spawned ssh child.)
 ///
 /// Extracted as pure functions (precedent: `WorkspaceCommandShortcutPolicy`)
 /// so heal/no-heal decisions are unit-testable without AppKit.
 enum SheetWedgeRecoveryPolicy {
     /// Stable name for the scrollback-dump operand, keyed by pane rather than
-    /// being one of the eight request vars.
+    /// being one of the request vars.
     static let scrollbackDumpKey = "scrollbackDump"
 
-    /// Stable keys for the eight request vars — shared by snapshot
+    /// Stable keys for the request vars — shared by snapshot
     /// construction and heal application so the two can never drift apart
     /// (a key present in one but not the other would log a heal without
     /// clearing anything, or never heal at all).
@@ -39,13 +39,14 @@ enum SheetWedgeRecoveryPolicy {
         static let remoteWorkspaceGroupCreate = "remoteWorkspaceGroupCreate"
         static let sshWorkspaceConnect = "sshWorkspaceConnect"
         static let workspaceGroupRename = "workspaceGroupRename"
+        static let projectTranscripts = "projectTranscripts"
         static let quickSettings = "quickSettings"
         static let remoteMarkdownPathOpen = "remoteMarkdownPathOpen"
 
         static let all: Set<String> = [
             workspaceEdit, paneEdit, workspaceGroupCreate,
             remoteWorkspaceGroupCreate, sshWorkspaceConnect,
-            workspaceGroupRename, quickSettings, remoteMarkdownPathOpen,
+            workspaceGroupRename, projectTranscripts, quickSettings, remoteMarkdownPathOpen,
         ]
     }
 
@@ -66,7 +67,7 @@ enum SheetWedgeRecoveryPolicy {
         var anyWindowSheetAttached: Bool
     }
 
-    /// Pure mapping from the eight request vars to their stable keys, so the
+    /// Pure mapping from the request vars to their stable keys, so the
     /// snapshot construction is testable without a hosting harness.
     static func pendingRequestKeys(
         workspaceEdit: Bool,
@@ -75,6 +76,7 @@ enum SheetWedgeRecoveryPolicy {
         remoteWorkspaceGroupCreate: Bool,
         sshWorkspaceConnect: Bool,
         workspaceGroupRename: Bool,
+        projectTranscripts: Bool,
         quickSettings: Bool,
         remoteMarkdownPathOpen: Bool
     ) -> Set<String> {
@@ -85,6 +87,7 @@ enum SheetWedgeRecoveryPolicy {
         if remoteWorkspaceGroupCreate { keys.insert(RequestKey.remoteWorkspaceGroupCreate) }
         if sshWorkspaceConnect { keys.insert(RequestKey.sshWorkspaceConnect) }
         if workspaceGroupRename { keys.insert(RequestKey.workspaceGroupRename) }
+        if projectTranscripts { keys.insert(RequestKey.projectTranscripts) }
         if quickSettings { keys.insert(RequestKey.quickSettings) }
         if remoteMarkdownPathOpen { keys.insert(RequestKey.remoteMarkdownPathOpen) }
         return keys

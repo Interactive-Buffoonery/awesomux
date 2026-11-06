@@ -40,7 +40,9 @@ struct AgentTranscriptStore: Sendable {
 
     /// Writes `markdown` to this session's slot, returning the file to open.
     ///
-    /// Re-rendering the same session REPLACES the same path rather than
+    /// Browser project constraints select a separate slot, so an exact-id
+    /// writer or another project's duplicate cannot replace this document.
+    /// Re-rendering the same session and constraint REPLACES the same path rather than
     /// producing a new one — see `GeneratedDocumentCache.write`.
     ///
     /// - Parameter skippingUnchanged: Return the existing path without writing
@@ -70,10 +72,13 @@ struct AgentTranscriptStore: Sendable {
         _ markdown: String,
         agentKind: AgentKind,
         sessionID: String,
+        projectDirectory: String? = nil,
         skippingUnchanged: Bool = false,
         shouldCommit: () -> Bool = { true }
     ) -> URL? {
-        let key = Self.cacheIdentityKey(agentKind: agentKind, sessionID: sessionID)
+        let key = Self.cacheIdentityKey(
+            agentKind: agentKind, sessionID: sessionID, projectDirectory: projectDirectory
+        )
         var commitWasRefused = false
         let written = cache.write(
             markdown,
@@ -91,9 +96,11 @@ struct AgentTranscriptStore: Sendable {
 
     // MARK: - Naming
 
-    func fileURL(agentKind: AgentKind, sessionID: String) -> URL {
+    func fileURL(agentKind: AgentKind, sessionID: String, projectDirectory: String? = nil) -> URL {
         cache.fileURL(
-            cacheIdentityKey: Self.cacheIdentityKey(agentKind: agentKind, sessionID: sessionID)
+            cacheIdentityKey: Self.cacheIdentityKey(
+                agentKind: agentKind, sessionID: sessionID, projectDirectory: projectDirectory
+            )
         )
     }
 
@@ -112,8 +119,16 @@ struct AgentTranscriptStore: Sendable {
     }
 
     /// Length-prefixed, so the boundary between fields cannot be shifted.
-    static func cacheIdentityKey(agentKind: AgentKind, sessionID: String) -> String {
-        GeneratedDocumentCache.cacheIdentityKey(
+    static func cacheIdentityKey(
+        agentKind: AgentKind, sessionID: String, projectDirectory: String? = nil
+    ) -> String {
+        if let projectDirectory {
+            return GeneratedDocumentCache.cacheIdentityKey(
+                domain: "agent-project-transcript",
+                fields: [agentKind.rawValue, sessionID, projectDirectory]
+            )
+        }
+        return GeneratedDocumentCache.cacheIdentityKey(
             domain: "agent-transcript",
             fields: [agentKind.rawValue, sessionID]
         )
