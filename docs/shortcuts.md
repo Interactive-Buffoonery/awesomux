@@ -38,7 +38,8 @@ Workspace lifecycle, navigation, and notifications. Layout presets live here too
 | ⇧⌘W | Close Workspace | Closes the selected session (sidebar row); recoverable via Reopen |
 | ⇧⌘T | Reopen Closed Workspace | Restores the most recent eligible closed workspace; the **Recently Closed** submenu reaches older entries |
 | ⌥⇧⌘W | Clear Workspace | **Permanent** close: always confirms, no reopen entry, terminates the workspace's sessions |
-| ⇧⌘K | Acknowledge Workspace | Clears attention/unread for the *selected* workspace immediately (bypasses [selection dwell](adr/0003-acknowledge-on-selection-dwell.md)) |
+| ⇧⌘K | Mark Workspace as Seen | Clears notification bookkeeping in the selected workspace while preserving explicit permission/input requests; grants no permission |
+| ⌥⌘J | Next Agent Needing Me | Cycles actionable agent panes across workspaces in observed arrival order; leaves focus unchanged when none remain |
 | ⌘1…⌘9 | Jump to Workspace 1…9 | Jumps to the corresponding workspace in flattened sidebar order. All nine rows are always present; out-of-range ones are disabled, because SwiftUI claims a chord even when the command is disabled |
 | ⇧⌘[ | Previous Workspace | |
 | ⇧⌘] | Next Workspace | |
@@ -78,7 +79,7 @@ The sidebar trio, the compact terminal surfaces, the command palette, and Sessio
 
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |
-| ⌃⌘S | Focus Sidebar | Moves keyboard focus to sidebar search |
+| ⌃⌘S | Focus Sidebar | Focuses search in Workspaces mode, or the first actionable agent in Agents mode |
 | ⌘\\ | Collapse/Expand Sidebar | Collapses to the rail or restores the last non-collapsed width |
 | ⇧⌘\\ | Hide/Show Sidebar | Hides the sidebar or restores it persistently |
 | ⌘' | **Show Floating Panel** / **Hide Floating Panel** | Per-workspace temporary shell; disabled while a sheet is open. Appends " (running)" when the target workspace's floating slot has work backgrounded |

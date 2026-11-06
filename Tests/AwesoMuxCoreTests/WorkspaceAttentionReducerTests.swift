@@ -1,10 +1,35 @@
 import AwesoMuxBridgeProtocol
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import AwesoMuxCore
 
 @Suite("WorkspaceAttentionReducer")
 struct WorkspaceAttentionReducerTests {
+    // A controlled scheduler is necessary to place a new event inside the old dwell window.
+    @MainActor @Test(arguments: ["pane", "workspace", "dismiss"])
+    func explicitSeenDoesNotClearANewerNotification(action: String) async {
+        let session = TerminalSession(
+            title: "agent", workingDirectory: "~", agentKind: .codex, agentState: .needsAttention, unreadNotificationCount: 2)
+        let store = SessionStore(groups: [SessionGroup(name: "Project", sessions: [session])])
+        let scheduler = TestScheduler()
+        store.acknowledgementCoordinator.delay = { _ in
+            await scheduler.wait(for: .zero)
+            try Task.checkCancellation()
+        }
+        store.setActivePane(id: session.activePaneID, in: session.id)
+        #expect(await waitUntil { scheduler.sleeperCount == 1 })
+        switch action {
+        case "pane": store.markPaneSeen(sessionID: session.id, paneID: session.activePaneID)
+        case "workspace": store.markWorkspaceSeen(id: session.id)
+        default: store.dismissAgentAttentionReminder(paneID: session.activePaneID)
+        }
+        store.markSessionNeedsAttention(id: session.id, paneID: session.activePaneID)
+        scheduler.advance()
+        await drainMainQueue()
+        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
+    }
+
     @Test(arguments: [
         (AttentionReason.permissionPrompt, AttentionReason?.some(.permissionPrompt)),
         (.userInputRequired, .some(.userInputRequired)),
@@ -293,7 +318,7 @@ struct WorkspaceAttentionReducerTests {
             change = WorkspaceAttentionReducer.acknowledgeAllPanes(in: &session)
         }
 
-        // ⌘⇧K clears the WHOLE workspace — every pane, not just the active one.
+        // Legacy full dismissal clears every pane; mark-as-seen preserves explicit requests.
         #expect(session.layout.pane(id: a.id)?.attentionReason == nil)
         #expect(session.layout.pane(id: b.id)?.attentionReason == nil)
         #expect(session.unreadNotificationCount == 0)

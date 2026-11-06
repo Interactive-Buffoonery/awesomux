@@ -263,6 +263,21 @@ struct WorkspaceAttentionReducer: Sendable {
         return unreadChange(from: oldUnreadCount, to: session.unreadNotificationCount)
     }
 
+    static func markPaneSeen(
+        _ session: inout TerminalSession,
+        paneID: TerminalPane.ID
+    ) -> UnreadChange? {
+        let oldUnreadCount = session.unreadNotificationCount
+        session.layout = session.layout.mappingPanes { pane in
+            guard pane.id == paneID else { return pane }
+            var pane = pane
+            pane.unreadNotificationCount = 0
+            if pane.attentionReason?.awaitsExplicitAnswer != true { pane.attentionReason = nil }
+            return pane
+        }
+        return unreadChange(from: oldUnreadCount, to: session.unreadNotificationCount)
+    }
+
     /// Mirrors the live bridge permission queue into persistent pane chrome
     /// without clearing unrelated notification counts. Permission prompts add
     /// one unread unit each; draining removes only those units, and clears the
@@ -279,11 +294,26 @@ struct WorkspaceAttentionReducer: Sendable {
         }
         var didMutate = false
 
-        let unreadNotificationCount = max(0, pane.unreadNotificationCount + countDelta)
+        let previousPending = pane.pendingPermissionPromptCount
+        let nextPending = max(0, previousPending + countDelta)
+        let seenPending = max(0, previousPending - pane.unreadPermissionPromptCount)
+        // shortcut: count-only removals cannot identify an expired request; retire seen credits first.
+        // Unread can conservatively persist until seen or drained; exact attribution needs request IDs.
+        let unreadDelta =
+            nextPending > previousPending
+            ? nextPending - previousPending
+            : -max(0, previousPending - nextPending - seenPending)
+        let unreadPermissionCount = max(0, pane.unreadPermissionPromptCount + unreadDelta)
+        if previousPending != nextPending || pane.unreadPermissionPromptCount != unreadPermissionCount {
+            pane.pendingPermissionPromptCount = nextPending
+            didMutate = true
+        }
+        let unreadNotificationCount = max(0, pane.unreadNotificationCount + unreadDelta)
         if pane.unreadNotificationCount != unreadNotificationCount {
             pane.unreadNotificationCount = unreadNotificationCount
             didMutate = true
         }
+        pane.unreadPermissionPromptCount = unreadPermissionCount
         if hasPending {
             if pane.attentionReason != .permissionPrompt {
                 pane.attentionReason = .permissionPrompt
@@ -305,11 +335,8 @@ struct WorkspaceAttentionReducer: Sendable {
         )
     }
 
-    /// Acknowledges every pane in ONE workspace — the ⌘⇧K "Acknowledge Workspace"
-    /// escape hatch. Drops each pane's unread badge and attention so the whole
-    /// workspace row goes quiet, unlike `acknowledgePane` (active pane only).
-    /// The all-WORKSPACES sweep is `acknowledgeAllSessions` ("Clear All
-    /// Notifications"). INT-504 R3.
+    /// Legacy explicit dismissal clears every reason and unread badge in one workspace.
+    /// Mark-as-seen uses the narrower reducer and preserves explicit requests.
     static func acknowledgeAllPanes(in session: inout TerminalSession) -> UnreadChange? {
         let oldUnreadCount = session.unreadNotificationCount
         session.layout = session.layout.mappingPanes { pane in
@@ -325,8 +352,7 @@ struct WorkspaceAttentionReducer: Sendable {
     }
 
     /// The all-workspaces escape hatch ("Clear All Notifications"): clears every
-    /// pane in every session. ⌘⇧K ("Acknowledge Workspace") clears one workspace
-    /// via `acknowledgeAllPanes(in:)`.
+    /// pane in every session, including stale requests. It never decides provider permissions.
     static func acknowledgeAllSessions(in groups: inout [SessionGroup]) {
         for groupIndex in groups.indices {
             for sessionIndex in groups[groupIndex].sessions.indices {

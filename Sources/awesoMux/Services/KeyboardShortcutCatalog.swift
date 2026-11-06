@@ -426,9 +426,17 @@ enum KeyboardShortcutCatalog {
         )
     }
 
+    static let nextAgentNeedingAttention = KeyBinding(
+        id: "nextAgentNeedingAttention",
+        action: String(localized: "Next Agent Needing Me", comment: "Agent navigation and notification command"),
+        key: "j",
+        modifiers: [.command, .option],
+        keyDisplay: "J"
+    )
+
     static let acknowledgeWorkspace = KeyBinding(
         id: "acknowledgeWorkspace",
-        action: "Acknowledge Workspace",
+        action: String(localized: "Mark Workspace as Seen", comment: "Agent navigation and notification command"),
         key: "k",
         modifiers: [.command, .shift],
         keyDisplay: "K"
@@ -661,8 +669,16 @@ enum KeyboardShortcutCatalog {
             KeyboardShortcutSection(
                 title: "Workspaces",
                 entries: [
-                    KeyboardShortcutEntry(acknowledgeWorkspace, detail: "Clear attention on the active workspace"),
-                    KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to sidebar search"),
+                    KeyboardShortcutEntry(
+                        acknowledgeWorkspace,
+                        detail: String(
+                            localized: "Mark notifications seen without approving requests",
+                            comment: "Agent navigation and notification command")),
+                    KeyboardShortcutEntry(
+                        resolved(Self.nextAgentNeedingAttention, keyboard: keyboard),
+                        detail: String(
+                            localized: "Go to the next agent needing attention", comment: "Agent navigation and notification command")),
+                    KeyboardShortcutEntry(focusSidebar, detail: "Move keyboard focus to workspace search or the agent list"),
                     KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
                     KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
                 ]

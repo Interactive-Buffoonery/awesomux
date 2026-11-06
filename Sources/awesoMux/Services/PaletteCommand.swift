@@ -150,6 +150,7 @@ struct PaletteAppActions {
     let returnPaneToSourceWorkspace: @MainActor () -> Void
     let focusPane: @MainActor (Int) -> Void
     let acknowledgeWorkspace: @MainActor () -> Void
+    let nextAgentNeedingAttention: @MainActor () -> Void
     let focusPermissionPrompt: @MainActor () -> Void
     let clearAllNotifications: @MainActor () -> Void
     let toggleFloatingPanel: @MainActor () -> Void
@@ -233,6 +234,7 @@ struct PaletteAppActions {
             returnPaneToSourceWorkspace: action,
             focusPane: indexedAction,
             acknowledgeWorkspace: action,
+            nextAgentNeedingAttention: action,
             focusPermissionPrompt: action,
             clearAllNotifications: action,
             toggleFloatingPanel: action,
@@ -332,7 +334,7 @@ enum PaletteCommandRegistry {
         let hasSelectedSession = selected != nil
         let selectedNeedsAcknowledgement =
             selected.map {
-                $0.unreadNotificationCount > 0 || $0.needsAcknowledgement
+                sessionStore.canMarkWorkspaceSeen(id: $0.id)
             } ?? false
         let activePaneID = selected?.activePaneID
         let selectedSessionID = selected?.id
@@ -814,8 +816,18 @@ enum PaletteCommandRegistry {
 
         commands.append(contentsOf: [
             PaletteCommand(
+                id: KeyboardShortcutCatalog.nextAgentNeedingAttention.id,
+                title: String(localized: "Next Agent Needing Me", comment: "Agent navigation and notification command"),
+                subtitle: nil,
+                keywords: ["agent", "attention", "waiting", "permission", "question", "next"],
+                shortcut: KeyboardShortcutCatalog.nextAgentNeedingAttention,
+                isEnabled: !availability.isAnySheetPresented,
+                selectionScope: .none,
+                run: actions.nextAgentNeedingAttention
+            ),
+            PaletteCommand(
                 id: KeyboardShortcutCatalog.acknowledgeWorkspace.id,
-                title: "Acknowledge Workspace",
+                title: String(localized: "Mark Workspace as Seen", comment: "Agent navigation and notification command"),
                 subtitle: nil,
                 keywords: ["mark", "read", "clear", "notification"],
                 shortcut: KeyboardShortcutCatalog.acknowledgeWorkspace,
@@ -842,7 +854,7 @@ enum PaletteCommandRegistry {
                 subtitle: nil,
                 keywords: ["acknowledge", "mark", "read"],
                 shortcut: nil,
-                isEnabled: sessionStore.unreadNotificationTotal > 0,
+                isEnabled: sessionStore.hasAttentionToDismiss,
                 selectionScope: .none,
                 run: actions.clearAllNotifications
             ),

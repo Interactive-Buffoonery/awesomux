@@ -309,6 +309,16 @@ roster from the projected entries, so its workspace count drops the lifted
 workspace whether the group is expanded or collapsed, and the collapsed rail's
 `.needs` rollup badge drops it too.
 
+### Alternate Agents sidebar
+
+The Workspaces/Agents switch changes navigation without moving workspaces or panes. Agents mode fills the sidebar with pane-grain rows grouped into **Needs You**, **Working**, and **Settled**, retaining group/workspace provenance and resolved titles. The footer opens or retargets this same view; its Needs count includes the same actionable panes as the queue, including errors. Workspaces search and collapse state are retained separately.
+
+`AgentActivityRoster` carries raw execution, attention reason and unread state. A generic `waiting` signal remains **Waiting**; only known completion is **Finished**, with unread shown separately. Generic provider input notifications use **Needs your attention** because they do not prove that a question exists. Permission prompts use **Permission requested**. A process-error reason can say **Failed**; a generic error may mean a denied operation and uses conservative wording.
+
+`SessionStore.actionableAgentPaneIDs` records runtime first-observed actionable episodes. Existing/restored requests start in stable traversal order with unknown historical chronology; new requests append and resolved/closed panes leave. Reason escalation and liveness heartbeats do not reorder an episode. Next Agent Needing Me cycles after the current eligible pane, otherwise starts at the oldest observed remaining request. With no requests, it leaves focus in place and announces that none remain.
+
+Navigation resolves the pane's current owning workspace at invocation, including moved splits. It sends no input and performs no explicit acknowledgment. Navigation focuses the terminal; Focus Permission Prompt remains the separate keyboard-accessible route to the existing approval controls. Mark as seen targets the exact pane without selecting it and retains unresolved explicit requests. Existing selection dwell still clears ordinary notifications after reading, but does not retract explicit prompts. The workspace banner is a quiet navigator to the affected pane; the strong attention cue stays near that pane. Provider updates never move terminal focus, and row placement is held during sidebar interaction. A reserved New activity action makes deferred arrivals explicit; choosing it or a footer state refreshes placement. Section counts are hidden while placement is held, and the footer continues reporting live counts.
+
 ## Agent state contract
 
 `AgentState` is the vocabulary for agent execution and attention. Shell command activity is tracked separately as **Shell activity** so a live login shell does not masquerade as an agent in `running`. `.done` means an agent run or detected agent command completed successfully; terminal process-exit workspace close does not set `.done`.
@@ -320,11 +330,11 @@ workspace whether the group is expanded or collapsed, and the collapsed rail's
 | `waiting` | Agent/session is alive but awaiting the next user turn; no work in flight. | Quiet blue pause indicator, distinct without color alone. | State itself is quiet, but an unfocused turn-completion event can increment unread / notify while remaining visually `waiting`. |
 | `thinking` | Tool call or model response in flight. | Mauve activity indicator. | Never notifies. |
 | `output` | Fresh stdout or visible progress in the recent-output window. | Green output indicator. | Never notifies by default. |
-| `needsAttention` | Blocked on an explicit user decision such as permission, approval, or a blocking choice. | Peach loud pulse. | Increments unread and may drive user notifications. |
+| `needsAttention` | An attention overlay; the raw reason distinguishes explicit permission/input from a generic notification. | Peach loud pulse. | Increments unread and may drive user notifications. |
 | `done` | Agent finished cleanly. | Teal check. | v0: does not notify; often ephemeral because exit may close the pane/session. |
-| `error` | Agent crashed or exited non-zero. | Red error mark. | v0: does not notify; wiring evolves with exit-code plumbing. |
+| `error` | An error signal, including a denied operation; not necessarily a crash. | Red error mark. | v0: does not notify; wiring evolves with exit-code plumbing. |
 
-Acknowledgement clears unread and any attention overlay. For a normal turn-end,
+Mark as seen clears unread, nonblocking notification attention, and finished-turn review reminders while preserving explicit permission/input requests. The permission queue mirror supplies count changes rather than request identities. It retires seen credits first so draining an old prompt cannot erase a newer unrelated notification; with out-of-order expiry, an unread notification can conservatively remain until seen or the queue drains. Badges count notifications, not an exact number of unanswered permission requests. Deliberate Clear All Notifications retains its attention-dismissal behavior; neither action approves a request. For a normal turn-end,
 `Stop` rests directly on `waiting`: the blue pause is the primary "agent is
 waiting for your next turn" semantic. If the turn completed while the terminal
 was not focused, the pane can still receive unread / notification treatment, but

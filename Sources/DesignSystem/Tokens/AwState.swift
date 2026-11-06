@@ -25,7 +25,7 @@ public enum AwState: Int, CaseIterable, Comparable, Sendable {
     ) -> String {
         switch self {
         case .needs:
-            return String(localized: "Needs input", bundle: bundle, locale: locale, comment: "Agent state label")
+            return String(localized: "Needs attention", bundle: bundle, locale: locale, comment: "Agent state label")
         case .error:
             return String(localized: "Error", bundle: bundle, locale: locale, comment: "Agent state label")
         case .thinking:

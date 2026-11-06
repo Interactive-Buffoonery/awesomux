@@ -105,7 +105,18 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     public var agentKindIsRuntimeEstablished: Bool
     public var agentExecutionState: AgentExecutionState
     public var attentionReason: AttentionReason?
-    public var unreadNotificationCount: Int
+    public var unreadNotificationCount: Int {
+        didSet {
+            if unreadNotificationCount == 0 { unreadPermissionPromptCount = 0 }
+        }
+    }
+    // Runtime queue accounting: draining a seen prompt must not debit a later notification.
+    var pendingPermissionPromptCount = 0
+    var unreadPermissionPromptCount = 0
+
+    public var canMarkSeen: Bool {
+        unreadNotificationCount > 0 || (attentionReason != nil && attentionReason?.awaitsExplicitAnswer != true)
+    }
     /// Wall-clock time of the most recent execution-state mutation. Runtime-only;
     /// not persisted. Used to demote stale active states in quit-risk checks —
     /// see INT-217 for the underlying drift problem this guards against.
@@ -435,7 +446,8 @@ public extension TerminalPane {
             state: effectiveChromeState,
             unread: unreadNotificationCount,
             needsAcknowledgement: attentionReason != nil,
-            attentionReason: attentionReason
+            attentionReason: attentionReason,
+            executionState: agentExecutionState
         )
     }
 

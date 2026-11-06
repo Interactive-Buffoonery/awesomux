@@ -31,6 +31,7 @@ struct SessionDetailView: View {
     // so this body was already re-running on every window activation.
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.awAccent) private var accentResolver
+    let onFocusAgentPane: (TerminalSession.ID, UUID) -> Void
     @State private var presentedPathBarMenu: PathBarMenu?
 
     var body: some View {
@@ -38,25 +39,15 @@ struct SessionDetailView: View {
             VStack(spacing: 0) {
                 ZStack {
                     VStack(spacing: 0) {
-                        if session.needsAcknowledgement {
-                            // No transition/animation here — animating this in/out
-                            // resizes the terminal grid continuously mid-transition
-                            // (worse than one instant jump; see libghostty resize
-                            // gotchas elsewhere in this codebase). Tried and reverted.
-                            NeedsInputBar(
-                                session: session,
-                                acknowledgeWorkspace: KeyboardShortcutCatalog.resolved(
-                                    KeyboardShortcutCatalog.acknowledgeWorkspace,
-                                    keyboard: appSettingsStore.keyboard.value
-                                ),
-                                onAcknowledge: {
-                                    // Workspace-scoped, matching the ⌘⇧K action the
-                                    // button advertises: the banner shows when ANY
-                                    // pane needs input, so an active-pane-only ack
-                                    // silently no-ops whenever the attention sits on
-                                    // a sibling pane in a split.
-                                    sessionStore.acknowledgeAllPanes(in: session.id)
-                                }
+                        if let row = AgentActivityRoster.build(sessions: [session], includingShells: true)
+                            .orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs)
+                            .first(where: { $0.section == .needsYou })
+                        {
+                            AgentAttentionBar(
+                                row: row,
+                                paneNumber: (session.layout.paneIDs.firstIndex(of: row.paneID) ?? 0) + 1,
+                                onNavigate: { onFocusAgentPane(row.sessionID, row.paneID) },
+                                onMarkSeen: { sessionStore.markPaneSeen(sessionID: row.sessionID, paneID: row.paneID) }
                             )
                         }
 
@@ -890,104 +881,48 @@ private struct SSHManagementNoticeIdentity: Hashable {
     let host: String
 }
 
-private struct NeedsInputBar: View {
-    let session: TerminalSession
-    /// Resolved by the caller for the same reason the empty state resolves its
-    /// own: the default is only right until someone rebinds the action.
-    let acknowledgeWorkspace: KeyBinding
-    let onAcknowledge: () -> Void
-
-    /// In a single-pane layout the pane's own always-reserved accent band sits
-    /// directly under the banner — peach, since the lone pane is the needy one —
-    /// so the banner's bottom bar would double it at a mismatched width. The
-    /// pane band is the separator; drop the banner's. Multi-pane keeps it: the
-    /// peach rail may be on a non-adjacent pane.
-    private var showsBottomAccent: Bool {
-        session.layout.hasMultiplePanes
-    }
+private struct AgentAttentionBar: View {
+    let row: AgentActivityRoster.Row
+    let paneNumber: Int
+    let onNavigate: () -> Void
+    let onMarkSeen: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            StatusDot(.needs)
-
-            Text("permission needed")
-                .awFont(AwFont.Mono.kicker)
-                .tracking(1.1)
-                .textCase(.uppercase)
-                .foregroundStyle(Color.aw.status.needs)
-                .lineLimit(1)
-                .layoutPriority(0)
-
-            Text(session.title)
-                .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text)
-                .lineLimit(1)
-                .layoutPriority(0)
-
-            Spacer(minLength: 12)
-
-            Button {
-                onAcknowledge()
-            } label: {
-                Text("Acknowledge")
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.status.onLoud)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.aw.status.needs, in: RoundedRectangle(cornerRadius: AwRadius.pill))
-            }
-            .buttonStyle(.plain)
-            .layoutPriority(1)
-            .help("\(acknowledgeWorkspace.action) (\(acknowledgeWorkspace.displaySymbol))")
-            .accessibilityLabel(
-                "\(acknowledgeWorkspace.action), \(acknowledgeWorkspace.spokenForm)")
+        ViewThatFits(in: .horizontal) {
+            content(horizontal: true)
+            content(horizontal: false)
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 12)
-        // The accents are overlays, so they paint over the bar's own edges
-        // without reserving any. Padding each accented edge by its own
-        // thickness centres the row in the space that stays visible. Without
-        // it the always-present top accent eats 3pt that nothing gives back,
-        // and the row rides high — invisible in multi-pane, where the bottom
-        // accent balances it, and visible in single-pane, where it is dropped.
-        .padding(.top, Self.accentThickness)
-        .padding(.bottom, showsBottomAccent ? Self.accentThickness : 0)
-        .frame(minHeight: 46)
-        .background {
-            LinearGradient(
-                colors: [
-                    Color.aw.status.needs.opacity(0.22),
-                    Color.aw.status.needs.opacity(0.08),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
-        .overlay(alignment: .leading) { edgeAccent }
-        .overlay(alignment: .trailing) { edgeAccent }
-        .overlay(alignment: .top) { horizontalAccent }
-        .overlay(alignment: .bottom) {
-            if showsBottomAccent {
-                horizontalAccent
-            }
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.aw.surface.sidebar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
-    /// Shared by the bars and by the padding that compensates for them; they
-    /// have to move together or the row goes off-centre again.
-    private static let accentThickness: CGFloat = 3
-
-    private var edgeAccent: some View { accentBar(width: Self.accentThickness) }
-    private var horizontalAccent: some View { accentBar(height: Self.accentThickness) }
-
-    // Decorative; state is already carried by StatusDot + the "permission
-    // needed" text, same rationale as StatusDot's own accessibilityHidden use.
-    private func accentBar(width: CGFloat? = nil, height: CGFloat? = nil) -> some View {
-        Rectangle()
-            .fill(Color.aw.status.needs)
-            .frame(width: width, height: height)
-            .awGlow(color: Color.aw.status.needs.opacity(0.7), radius: 7)
-            .accessibilityHidden(true)
+    private func content(horizontal: Bool) -> some View {
+        let layout = horizontal ? AnyLayout(HStackLayout(spacing: 10)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+        return layout {
+            Text("Pane \(paneNumber) · \(row.detail)")
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.railText)
+                .lineLimit(2)
+            if horizontal { Spacer(minLength: 4) }
+            HStack(spacing: 12) {
+                Button(
+                    row.attentionReason == .permissionPrompt
+                        ? String(localized: "Go to waiting pane", comment: "Navigate without approving or answering")
+                        : String(localized: "Go to pane", comment: "Navigate to the pane with attention"), action: onNavigate)
+                if row.canMarkSeen {
+                    Button(String(localized: "Mark as seen", comment: "Clear notification without approving a request"), action: onMarkSeen)
+                        .accessibilityHint(
+                            String(
+                                localized: "Clears the notification; permission approval remains separate",
+                                comment: "Mark seen boundary hint"))
+                }
+            }
+            .buttonStyle(.plain)
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text)
+        }
     }
 }
 
