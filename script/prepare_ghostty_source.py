@@ -233,7 +233,7 @@ def prepare(vendor, destination, zig="zig"):
             staging / "src/shell-integration/fish/vendor_conf.d/awesomux-ssh-compat.fish",
         )
         # Run as `/bin/sh <path>`: Ghostty installs resources without the executable bit.
-        shutil.copyfile(INPUTS[15], staging / "src/shell-integration/awesomux-ssh")
+        shutil.copyfile(ROOT / "native/shell-integration/awesomux-ssh.sh", staging / "src/shell-integration/awesomux-ssh")
         with (integration / ".zshenv").open("a") as file:
             file.write(
                 '\nif [[ -o interactive ]]; then\n'
