@@ -16,7 +16,7 @@ _awesomux_ssh_mouse_recovery_init() {
         (( ZSH_SUBSHELL == 0 )) || return 0
         builtin local -a words
         words=(${(z)2})
-        [[ $words[1] == ssh || $words[1] == /usr/bin/ssh ]] || return 0
+        [[ $words[1] == ssh || $words[1] == /usr/bin/ssh || $words[1] == awesomux-ssh ]] || return 0
         if [[ $words[1] == ssh ]] && (( $+functions[ssh] )); then
             [[ $functions[ssh] == ${functions[_awesomux_ssh_compat]-} ]] || return 0
         fi

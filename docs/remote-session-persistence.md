@@ -15,9 +15,36 @@ when it inherits `xterm-ghostty`. Other terminal selections are preserved.
 User-defined `ssh` aliases/functions take precedence; `command ssh` and absolute
 SSH paths bypass the wrapper. For those paths, other shells, disabled integration,
 or existing persistent local shells, use `TERM=xterm-256color ssh <host>`.
-This fallback does not probe hosts or install remote files. Normal fish startup
-still needs manual verification; its wrapper has been verified independently.
-Remote terminfo setup is tracked in [#760](https://github.com/Interactive-Buffoonery/awesomux/issues/760).
+Normal fish startup still needs manual verification; its wrapper has been
+verified independently.
+
+### Use xterm-ghostty on a host
+
+To keep Ghostty's full terminal definition on a host, run **Set Up Ghostty
+Terminal on Remote Host…** from the command palette while an SSH pane is
+active, or run `awesomux-ssh --setup-terminfo <host>` in a local zsh or fish
+pane. awesoMux asks before it connects. With your approval it installs the
+definition in `~/.terminfo` for your user on that host. It does not need admin
+rights, and it writes nothing if the host already has the definition. It then
+checks that the host can find the definition, and only then remembers the host.
+
+New SSH connections to a remembered host keep `xterm-ghostty`. Every other host
+still gets `xterm-256color`. Until you set up a host, awesoMux does no lookups
+of its own and SSH behaves exactly as described above.
+
+- `awesomux-ssh --forget <host>` puts a host back on `xterm-256color`. Use it
+  if you remove `~/.terminfo` on that host or the host is rebuilt.
+- `awesomux-ssh --setup-terminfo --force <host>` replaces an existing copy in
+  `~/.terminfo`.
+- Remembered hosts live in `~/Library/Application Support/awesoMux/ssh-terminfo-hosts`,
+  keyed by the user, host name and port that `ssh -G` reports.
+- Once any host is set up, each new `ssh` from an `xterm-ghostty` pane first
+  runs `ssh -G` to look up the destination. That reruns `Match exec` in your
+  SSH config and may look up DNS.
+- Two machines that share a user, host name and port (for example the same
+  private address behind different jump hosts) count as one host.
+- Running persistent sessions keep the terminal they started with.
+- Pass SSH options and a host to setup, but no remote command.
 
 This setup uses `amx` or `zmx` on the remote host. It doesn't use the
 [`awesomux-bridge-helper`](remote-linux-helper.md). The bridge helper provides
