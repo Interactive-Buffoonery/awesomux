@@ -552,7 +552,7 @@ enum PaletteCommandRegistry {
                 id: KeyboardShortcutCatalog.openAgentTranscript.id,
                 title: "Open Agent Transcript",
                 subtitle: selected?.activePane?.title,
-                keywords: ["agent", "transcript", "session", "history", "log", "resume", "claude", "codex", "pi"],
+                keywords: ["agent", "transcript", "session", "history", "log", "resume", "review", "claude", "codex", "pi"],
                 shortcut: KeyboardShortcutCatalog.openAgentTranscript,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
