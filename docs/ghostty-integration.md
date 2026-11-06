@@ -438,9 +438,9 @@ Terminal appearance is split between visual config and terminal identity:
 - Identity and capability are deliberately split: `TERM_PROGRAM=awesoMux` (with
   `TERM_PROGRAM_VERSION` set to the app's bundle version) names the terminal for
   env-trusting tools, while `TERM=xterm-ghostty` stays the Ghostty-capability
-  signal (ADR-0011 follow-up). Process-tree walkers like fastfetch still see the
-  `amx` daemon's process name; fixing that display requires an upstream
-  fastfetch mapping, not env changes. Background `amx` sessions spawned before
+  signal (ADR-0011 follow-up). Fastfetch 2.71.0 looks at the process tree first,
+  so it can show `amx` even when `TERM_PROGRAM` is `awesoMux`. The example below
+  changes that display, not detection. Background `amx` sessions spawned before
   an identity change keep their original env until the session itself is
   recreated — a live process's environment can't be rewritten from outside.
 
@@ -512,6 +512,28 @@ The surface bridge is split into focused app-target files under
   ```zsh
   [[ -z ${AWESOMUX_COMPACT_TERMINAL:-} ]] && fastfetch
   ```
+
+  To display awesoMux's name and version, run this in a local awesoMux pane.
+  It shows only the Terminal line and leaves your config files unchanged.
+  Fastfetch 2.71.0 no longer supports `--terminal-format`.
+
+  ```zsh
+  if [[ ${TERM_PROGRAM:-} == awesoMux &&
+        -z ${TMUX:-} &&
+        -z ${SSH_CONNECTION:-} &&
+        -z ${SSH_CLIENT:-} &&
+        -z ${SSH_TTY:-} ]]; then
+    fastfetch --config - <<'JSON'
+  {"logo":null,"modules":[{"type":"terminal","format":"{$TERM_PROGRAM} {$TERM_PROGRAM_VERSION}"}]}
+  JSON
+  else
+    fastfetch
+  fi
+  ```
+
+  When tmux or SSH markers are set, this runs ordinary fastfetch. These
+  environment checks are only a guard: inherited values may be stale, and the
+  version may be empty.
 
 - each pane receives `AWESOMUX_PROFILE=production|development|development:<id>`
   after inherited values are scrubbed, so profile-aware maintenance commands
