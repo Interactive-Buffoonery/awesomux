@@ -9,6 +9,7 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
     public let agentKind: AgentKind
     public let state: AgentDisplayState
     public let unread: Int
+    public let executionState: AgentExecutionState
     /// Raw `attentionReason != nil` for the pane — the acknowledgement signal.
     /// Carried separately from `state` to match `TerminalSession.needsAcknowledgement` instead
     /// of inferring it from the chrome-collapsed `state == .needsAttention`,
@@ -28,7 +29,8 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
         state: AgentDisplayState,
         unread: Int,
         needsAcknowledgement: Bool,
-        attentionReason: AttentionReason? = nil
+        attentionReason: AttentionReason? = nil,
+        executionState: AgentExecutionState? = nil
     ) {
         self.paneID = paneID
         self.agentKind = agentKind
@@ -36,6 +38,7 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
         self.unread = unread
         self.needsAcknowledgement = needsAcknowledgement
         self.attentionReason = attentionReason
+        self.executionState = executionState ?? state.executionState ?? .idle
     }
 }
 

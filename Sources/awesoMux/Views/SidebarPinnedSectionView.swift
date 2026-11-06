@@ -25,6 +25,7 @@ struct SidebarPinnedSectionView: View {
     let onRename: (TerminalSession) -> Void
     let onSetEmoji: (TerminalSession) -> Void
     let onRemoveEmoji: (TerminalSession) -> Void
+    let markSeenSessionIDs: Set<TerminalSession.ID>
     let onAcknowledge: (TerminalSession) -> Void
     let onToggleNotificationsMute: (TerminalSession) -> Void
     let canMakeWorkspaceManaged: (TerminalSession) -> Bool
@@ -251,6 +252,7 @@ struct SidebarPinnedSectionView: View {
         let session = item.entry.session
         SidebarSessionTile(
             session: session,
+            canMarkSeen: markSeenSessionIDs.contains(session.id),
             match: item.entry.match,
             tint: ProjectTint(
                 group: item.originGroup,

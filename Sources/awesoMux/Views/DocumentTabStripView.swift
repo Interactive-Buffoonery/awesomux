@@ -42,12 +42,9 @@ struct DocumentTabStripView: View {
     let onRevisionInteractionChanged: (Bool) -> Void
     let onToggleFiles: () -> Void
 
-    /// The strip owns the focus-accent reservation terminal panes render as a
-    /// separate band. The extra 4pt is
-    /// plain chrome. Folding it in lets pills center within the full visual
-    /// bar (INT-738 round 3 — anything centered in a 24pt sub-band of the
-    /// 28pt chrome reads bottom-aligned) while a document pane's total chrome
-    /// height still matches a multi-pane terminal's accent band + title bar.
+    /// Include the terminal panes' focus-accent reservation so the strip's
+    /// total chrome height matches an accent band plus title bar. Pills center
+    /// within the full strip rather than a title-bar-only sub-band.
     static let height: CGFloat = PaneTitleBarView.height + PaneFocusAccent.reservedHeight
 
     /// Every pill in the strip (tabs, Files toggle, revision) shares this

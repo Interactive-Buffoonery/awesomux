@@ -43,13 +43,10 @@ struct CRTScanlinesOverlay: View {
 }
 
 struct PaneFocusAccent: View {
-    /// Constant height of the focus-indicator band the title bar reserves on
-    /// every pane (focused or not) so the bar can't bounce vertically when focus
-    /// moves. Also a hard cap on the rail's *solid* fill: `thickness` can reach
-    /// 9 (DWC + `.needs`), and anything past this height is clipped rather than
-    /// painted onto the title bar or the terminal's first text row. The halo is
-    /// deliberately exempt — it is cast from the clipped shape and spills.
-    static let reservedHeight: CGFloat = 4
+    /// Reserve the maximum rail thickness (DWC + `.needs`) on every pane so
+    /// focus and attention changes never move the title bar or terminal rows.
+    /// Clip the solid fill to this band; only the halo may spill beyond it.
+    static let reservedHeight: CGFloat = 9
 
     let state: AwState
     let differentiateWithoutColor: Bool
@@ -75,12 +72,6 @@ struct PaneFocusAccent: View {
         // way), standing in for the busier 4-side border this replaced
         // (INT-111).
         //
-        // The bump is computed but NOT currently rendered: `reservedHeight`
-        // caps the solid fill at 4pt (see the clip below), so every thickness
-        // over that is clipped. It has been that way since the band was
-        // introduced. Kept whole rather than deleted because the fix is to grow
-        // the band, not to drop the cue — until then the escalation reads
-        // through colour and halo alone.
         let baseThickness = PaneFocusStyle.thickness(
             differentiateWithoutColor: differentiateWithoutColor,
             terminalIsDark: Color.aw.backgroundIsDark(terminalBackground)
@@ -101,12 +92,6 @@ struct PaneFocusAccent: View {
             // so the halo escapes while the opaque rail cannot. Without the cap
             // a `.needs` rail (7pt dark, 9pt with DWC) paints over the title bar
             // or, in a single-pane session, the terminal's first text row.
-            //
-            // Consequence worth naming: the thickness bump above 4pt is
-            // therefore still not visible, so the escalation cue rests entirely
-            // on colour and the halo. That is the status quo, not a new
-            // regression — the band has always clipped it — and fixing it means
-            // growing the band, tracked separately.
             .frame(height: PaneFocusAccent.reservedHeight, alignment: .top)
             .clipped()
             .awGlow(
