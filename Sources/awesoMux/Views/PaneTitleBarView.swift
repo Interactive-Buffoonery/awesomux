@@ -186,7 +186,7 @@ struct PaneTitleBarView: View {
         // its click isn't swallowed by the source filling the bar. Hidden while
         // editing. Sets up the tabs route (a per-tab close affordance).
         .overlay(alignment: .trailing) {
-            if !isEditing {
+            if !isEditing, session.layout.hasMultiplePanes {
                 // A real NSButton with `refusesFirstResponder` — clicking it does
                 // NOT steal first responder from the terminal surface, so closing
                 // a pane behaves EXACTLY like ⌘W (the surface keeps / its sibling
@@ -194,10 +194,15 @@ struct PaneTitleBarView: View {
                 // focus on click, which broke the surface's vacant-responder
                 // reclaim path. Being a real button also keeps VoiceOver semantics.
                 PaneCloseButton(tint: titleColor.opacity(0.85)) {
+                    // A retained action must not close the workspace after a sibling disappears.
+                    guard let current = sessionStore.session(id: session.id),
+                        current.layout.hasMultiplePanes,
+                        current.layout.contains(paneID: pane.id)
+                    else { return }
                     // Pair the store close with surface disposal — otherwise the
                     // native libghostty surface + its agent event-file watcher +
                     // refresh task leak until the next app-resign sweep.
-                    // The bar is multi-pane-only, so this is always `.pane`.
+                    // Final-terminal closing stays on the app's workspace-close path.
                     if case let .pane(closedPaneID)? =
                         sessionStore.closePane(id: pane.id, in: session.id)
                     {
@@ -548,6 +553,7 @@ extension PaneTitleBarView: Equatable {
             && lhs.pane.color == rhs.pane.color
             && lhs.pane.remotePresentationHost == rhs.pane.remotePresentationHost
             && lhs.session.id == rhs.session.id
+            && lhs.session.layout.hasMultiplePanes == rhs.session.layout.hasMultiplePanes
             && lhs.reduceTransparency == rhs.reduceTransparency
     }
 }
