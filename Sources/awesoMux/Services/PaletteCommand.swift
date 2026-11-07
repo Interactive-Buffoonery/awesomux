@@ -1,6 +1,7 @@
 import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
+import UnicodeHygiene
 
 enum PaletteCommandSelectionScope: Equatable {
     case none
@@ -1260,9 +1261,10 @@ enum PaletteCommandRegistry {
         }
     }
 
+    /// Removes unsafe alert-body scalars and limits the preview to 72 characters.
     private static func boundedSafePreview(_ value: String) -> String {
         let safeScalars = value.unicodeScalars.filter {
-            !GhosttyRuntime.isUnsafeAlertBodyScalar($0)
+            !UnicodeHygiene.isUnsafeAlertBodyScalar($0)
         }
         return String(String.UnicodeScalarView(safeScalars).prefix(72))
     }

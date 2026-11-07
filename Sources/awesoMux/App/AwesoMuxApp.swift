@@ -5,6 +5,7 @@ import AwesoMuxCore
 import AwesoMuxLocalAPIAccess
 import DesignSystem
 import SwiftUI
+import UnicodeHygiene
 import UniformTypeIdentifiers
 import os
 @preconcurrency import UserNotifications
@@ -6094,6 +6095,7 @@ struct AwesoMuxApp: App {
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
+    /// Reloads terminal settings once at a time and reports sanitized diagnostics.
     private func reloadGhosttyConfiguration() {
         guard !isConfigurationReloadInProgress else { return }
         isConfigurationReloadInProgress = true
@@ -6116,7 +6118,7 @@ struct AwesoMuxApp: App {
         case .applied(let diagnostics):
             message = String(localized: "Ghostty configuration reloaded with warnings. Valid settings were applied.")
             details = diagnostics.map { diagnostic in
-                String(diagnostic.unicodeScalars.filter { !GhosttyRuntime.isUnsafeAlertBodyScalar($0) })
+                String(diagnostic.unicodeScalars.filter { !UnicodeHygiene.isUnsafeAlertBodyScalar($0) })
             }.joined(separator: "\n")
         case .unavailable:
             message = String(localized: "Could not reload Ghostty configuration.")

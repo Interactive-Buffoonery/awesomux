@@ -3,43 +3,6 @@ import AwesoMuxConfig
 import Observation
 import SwiftUI
 
-enum KeyboardCheatsheetLayout {
-    static let defaultSize = CGSize(width: 860, height: 630)
-    static let inset: CGFloat = 16
-
-    static func resolvedSize(
-        desired: CGSize = defaultSize,
-        screenFrame: CGRect?
-    ) -> CGSize {
-        guard let screenFrame else { return desired }
-        return CGSize(
-            width: min(desired.width, max(0, screenFrame.width - inset * 2)),
-            height: min(desired.height, max(0, screenFrame.height - inset * 2))
-        )
-    }
-
-    static func origin(
-        panelSize: CGSize,
-        referenceFrame: CGRect?,
-        screenFrame: CGRect?
-    ) -> CGPoint? {
-        guard let screenFrame else { return nil }
-        let reference = referenceFrame ?? screenFrame
-        let unclamped = CGPoint(
-            x: reference.midX - panelSize.width / 2,
-            y: reference.midY - panelSize.height / 2
-        )
-        let minX = screenFrame.minX + inset
-        let maxX = max(minX, screenFrame.maxX - panelSize.width - inset)
-        let minY = screenFrame.minY + inset
-        let maxY = max(minY, screenFrame.maxY - panelSize.height - inset)
-        return CGPoint(
-            x: min(max(unclamped.x, minX), maxX),
-            y: min(max(unclamped.y, minY), maxY)
-        )
-    }
-}
-
 @MainActor
 @Observable
 final class KeyboardCheatsheetController {
@@ -225,11 +188,12 @@ final class KeyboardCheatsheetController {
         return true
     }
 
+    /// Fits the cheatsheet to the visible screen and centers it relative to its anchor.
     private func position(_ panel: FloatingSwiftUIPanelWindow, relativeTo anchor: NSWindow?) {
         let visibleFrame = anchor?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-        let size = KeyboardCheatsheetLayout.resolvedSize(screenFrame: visibleFrame)
+        let size = UtilityPanelLayout.keyboardCheatsheet.resolvedSize(screenFrame: visibleFrame)
         panel.setFixedContentSize(size)
-        if let origin = KeyboardCheatsheetLayout.origin(
+        if let origin = UtilityPanelLayout.keyboardCheatsheet.origin(
             panelSize: size,
             referenceFrame: anchor?.frame,
             screenFrame: visibleFrame
@@ -245,7 +209,8 @@ final class KeyboardCheatsheetController {
         return NSApp.mainWindow ?? NSApp.keyWindow
     }
 
+    /// Returns the cheatsheet preset size before screen bounds are applied.
     private static func defaultPanelSize() -> CGSize {
-        KeyboardCheatsheetLayout.defaultSize
+        UtilityPanelLayout.keyboardCheatsheet.defaultSize
     }
 }

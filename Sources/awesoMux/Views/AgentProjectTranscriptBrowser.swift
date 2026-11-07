@@ -23,8 +23,8 @@ struct AgentProjectTranscriptBrowser: View {
         }
         .palettePanelStyle(isKeyWindow: controlActiveState != .inactive)
         .frame(
-            minWidth: 560, idealWidth: CommandPaletteLayout.defaultSize.width,
-            minHeight: 400, idealHeight: CommandPaletteLayout.defaultSize.height
+            minWidth: 560, idealWidth: UtilityPanelLayout.commandPalette.defaultSize.width,
+            minHeight: 400, idealHeight: UtilityPanelLayout.commandPalette.defaultSize.height
         )
         .presentationBackground(.clear)
         .task(id: generation) { await load() }

@@ -140,50 +140,19 @@ struct ProcessResourceSnapshot {
         return "\(machPortCount)"
     }
 
+    /// Samples process resources, using -1 for unavailable memory and sampling ports only on request.
     static func capture(
         surfaceCount: Int,
         sampleMachPorts: Bool = false,
         machPortCountProvider: () -> Int64 = processMachPortCount
     ) -> ProcessResourceSnapshot {
-        let memory = memorySnapshot()
+        let memory = ProcessMemorySnapshot.capture()
         return ProcessResourceSnapshot(
             surfaceCount: surfaceCount,
-            residentBytes: memory?.residentBytes ?? -1,
-            physFootprintBytes: memory?.physFootprintBytes ?? -1,
+            residentBytes: memory.map { Int64($0.residentBytes) } ?? -1,
+            physFootprintBytes: memory.map { Int64($0.physFootprintBytes) } ?? -1,
             threadCount: processThreadCount(),
             machPortCount: sampleMachPorts ? machPortCountProvider() : nil
-        )
-    }
-
-    private struct MemorySnapshot {
-        let residentBytes: Int64
-        let physFootprintBytes: Int64
-    }
-
-    private static func memorySnapshot() -> MemorySnapshot? {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(
-            MemoryLayout<task_vm_info_data_t>.stride / MemoryLayout<integer_t>.stride
-        )
-
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
-                task_info(
-                    mach_task_self_,
-                    task_flavor_t(TASK_VM_INFO),
-                    rebound,
-                    &count
-                )
-            }
-        }
-
-        guard result == KERN_SUCCESS else {
-            return nil
-        }
-
-        return MemorySnapshot(
-            residentBytes: Int64(info.resident_size),
-            physFootprintBytes: Int64(info.phys_footprint)
         )
     }
 
