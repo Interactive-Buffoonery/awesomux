@@ -1,7 +1,9 @@
 # Shared local agent API
 
 For the local skill package and pending phone acceptance procedure, see
-[Read-only awesoMux access from Dot](dot-read-only.md).
+[Read-only awesoMux access from Dot](dot-read-only.md). For source-scoped T3
+thread and authorized pane discovery, see the
+[orchestrator visibility contract and runbook](orchestrator-visibility.md).
 
 The app-owned status transport is opt-in. Installation grants nothing. A user
 adds each local client in **Settings → Agents → Outside app access**, reviews
