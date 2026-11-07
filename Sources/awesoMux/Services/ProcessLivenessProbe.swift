@@ -67,6 +67,10 @@ enum ProcessLivenessProbe {
     /// A child whose session cannot be read counts, unless it has already exited.
     static func hasChildrenInOwnSession(pid: pid_t) -> Bool? {
         guard let children = childPIDs(pid: pid) else { return nil }
+        return anyChildInOwnSession(pid: pid, children: children)
+    }
+
+    private static func anyChildInOwnSession(pid: pid_t, children: [pid_t]) -> Bool? {
         guard !children.isEmpty else { return false }
         let session = getsid(pid)
         guard session > 0 else { return nil }
@@ -209,7 +213,10 @@ enum ProcessLivenessProbe {
     static func bridgedLiveness(
         daemonPID: pid_t,
         childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },
-        comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) }
+        comm: (pid_t) -> String? = { ProcessLivenessProbe.foregroundComm(pid: $0) },
+        anyChildInOwnSession: (pid_t, [pid_t]) -> Bool? = {
+            ProcessLivenessProbe.anyChildInOwnSession(pid: $0, children: $1)
+        }
     ) -> ForegroundProcessLiveness {
         guard let daemonChildren = childPIDs(daemonPID) else { return .bridgedBusy }
         // Zero children is NOT verified-idle: no root shell was identified or
@@ -224,7 +231,7 @@ enum ProcessLivenessProbe {
             guard
                 ForegroundProcessLiveness.classifyBridged(
                     rootComm: childComm,
-                    rootHasChildren: !children.isEmpty
+                    rootHasChildren: anyChildInOwnSession(childPID, children)
                 ) == .bridged
             else { return .bridgedBusy }
         }
