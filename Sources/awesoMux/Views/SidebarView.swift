@@ -2150,7 +2150,7 @@ private struct SidebarActivitySection: View, Equatable {
             searchText = ""
             if let scrollTarget {
                 let roster = AgentActivityRoster.build(sessions: sessionStore.groups.flatMap(\.sessions))
-                if let target = roster.rows.first(where: {
+                if let target = roster.orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs).first(where: {
                     scrollTarget == .needsAttention ? $0.section == .needsYou : $0.state == scrollTarget
                 }) {
                     collapsedAgentSections.remove(target.section)
