@@ -21,13 +21,14 @@ public struct AgentActivityRoster: Equatable, Sendable {
     }
 
     public enum Section: Int, CaseIterable, Hashable, Sendable {
-        case needsYou, working, settled
+        case needsYou, working, finished, idleWaiting
 
         public var label: String {
             switch self {
             case .needsYou: String(localized: "Needs You", comment: "Actionable agents section")
             case .working: String(localized: "Working", comment: "Active agents section")
-            case .settled: String(localized: "Settled", comment: "Inactive agents section; not proof of success")
+            case .finished: String(localized: "Finished", comment: "Completed agent executions")
+            case .idleWaiting: String(localized: "Idle & Waiting", comment: "Inactive agents without confirmed completion")
             }
         }
     }
@@ -52,7 +53,8 @@ public struct AgentActivityRoster: Equatable, Sendable {
             }
             switch executionState {
             case .running, .thinking, .output: return .working
-            case .idle, .waiting, .done, .error: return .settled
+            case .done: return .finished
+            case .idle, .waiting, .error: return .idleWaiting
             }
         }
 

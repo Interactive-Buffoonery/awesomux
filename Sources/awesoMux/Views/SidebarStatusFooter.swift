@@ -9,12 +9,22 @@ struct SidebarStatusFooter: View {
     let onOpenQuickSettings: () -> Void
     let onShowWelcomeTour: () -> Void
     let onSelectNextMatchingState: (AwState) -> Void
-    /// Toggle the roster panel (expanded mode). nil = opened via the total label
-    /// (no scroll target); a state opens the panel scrolled to that group.
+    /// nil switches sidebars; a state chip opens the full roster at that state.
     let onToggleActivityPanel: (AgentDisplayState?) -> Void
-    /// Whether the roster panel is open — flips the total label's disclosure
-    /// chevron and tooltip so the label reads as clickable.
+    /// Whether Agents is the primary sidebar.
     let activityPanelOpen: Bool
+    let previewOpen: Bool
+    let previewAvailable: Bool
+    let onTogglePreview: () -> Void
+    let focusRequestID: UUID
+    let focusSwitch: Bool
+    let accent: AwAccent
+    let increasedContrast: Bool
+
+    private enum Control: Hashable { case preview, sidebar }
+    @FocusState private var focusedControl: Control?
+    @AccessibilityFocusState private var accessibleControl: Control?
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     @Environment(\.openURL) private var openURL
 
@@ -26,7 +36,7 @@ struct SidebarStatusFooter: View {
 
     static func modeSwitchLabel(total: Int, activityPanelOpen: Bool) -> String {
         activityPanelOpen
-            ? String(localized: "Workgroups", comment: "Return from Agents to workspace organization")
+            ? String(localized: "Workspaces", comment: "Workspace preview and sidebar destination")
             : LocalizedPluralStrings.footerAgentsTotal(count: total)
     }
 
@@ -59,53 +69,103 @@ struct SidebarStatusFooter: View {
 
             Spacer(minLength: 4)
 
-            // Rendered even when total == 0: it is the panel's only entry point
-            // once every chip is hidden.
-            Button {
-                onToggleActivityPanel(nil)
-            } label: {
-                // Degrade "19 agents" to "19" rather than wrapping to two lines.
-                // The full plural stays on the Button's accessibilityLabel below,
-                // so VoiceOver output is identical at every width.
-                if activityPanelOpen {
-                    totalLabel(Self.modeSwitchLabel(total: total, activityPanelOpen: true))
-                } else {
-                    ViewThatFits(in: .horizontal) {
-                        totalLabel(Self.modeSwitchLabel(total: total, activityPanelOpen: false))
-                    // Bare interpolation emits ASCII digits; `.formatted()`
-                    // renders through the user's locale like the wide
-                    // candidate's stringsdict plural does.
-                    totalLabel(total.formatted())
+            HStack(spacing: 4) {
+                Text(Self.modeSwitchLabel(total: total, activityPanelOpen: activityPanelOpen))
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(Color.aw.railText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                if previewAvailable {
+                    Button(action: onTogglePreview) {
+                        Image(systemName: "rectangle.bottomthird.inset.filled")
+                            .frame(width: 26, height: 26)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(previewOpen ? Color.aw.accentOnChrome(accent) : Color.aw.railText)
+                    .background(
+                        previewOpen ? Color.aw.accentOnChrome(accent).opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 4)
+                    )
+                    .focusable()
+                    .focused($focusedControl, equals: .preview)
+                    .focusEffectDisabled()
+                    .overlay { focusRing(.preview) }
+                    .onKeyPress(keys: [.space, .return], phases: .down) { press in
+                        guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                        onTogglePreview()
+                        return .handled
+                    }
+                    .accessibilityFocused($accessibleControl, equals: .preview)
+                    .accessibilityLabel(previewLabel)
+                    .accessibilityValue(
+                        previewOpen
+                            ? String(localized: "Expanded", comment: "Preview disclosure state")
+                            : String(localized: "Collapsed", comment: "Preview disclosure state")
+                    )
+                    .help(previewLabel)
                 }
+                Button {
+                    onToggleActivityPanel(nil)
+                } label: {
+                    Image(systemName: "rectangle.2.swap")
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.aw.railText)
+                .focusable()
+                .focused($focusedControl, equals: .sidebar)
+                .focusEffectDisabled()
+                .overlay { focusRing(.sidebar) }
+                .onKeyPress(keys: [.space, .return], phases: .down) { press in
+                    guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                    onToggleActivityPanel(nil)
+                    return .handled
+                }
+                .accessibilityFocused($accessibleControl, equals: .sidebar)
+                .accessibilityLabel(switchLabel)
+                .help(switchLabel)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Self.modeSwitchLabel(total: total, activityPanelOpen: activityPanelOpen))
-            // State rides accessibilityValue, not just the hint — hints are
-            // user-suppressible in VoiceOver verbosity settings.
-            .accessibilityValue(activityPanelOpen
-                    ? String(localized: "Agents", comment: "Selected sidebar mode")
-                    : String(localized: "Workspaces", comment: "Selected sidebar mode")
-            )
-            .accessibilityHint(activityPanelOpen
-                    ? String(
-                        localized: "Shows the Workspaces sidebar",
-                        comment: "Accessibility hint for the footer total button while the panel is open")
-                    : String(
-                        localized: "Shows the Agents sidebar",
-                        comment: "Accessibility hint for the footer total button while the panel is closed")
-            )
-            .help(activityPanelOpen
-                    ? String(
-                        localized: "Show Workspaces Sidebar",
-                        comment: "Tooltip for the footer total button while the agent activity panel is open")
-                    : String(
-                        localized: "Show Agents Sidebar",
-                        comment: "Tooltip for the footer total button while the agent activity panel is closed"))
+            .layoutPriority(1)
+
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(minHeight: AwSpacing.footerChrome)
+        .onChange(of: focusRequestID) { _, _ in
+            focusedControl = !focusSwitch && previewAvailable ? .preview : .sidebar
+            if voiceOverEnabled { accessibleControl = focusedControl }
+        }
+    }
+
+    private var switchLabel: String {
+        activityPanelOpen
+            ? String(localized: "Show Workspaces Sidebar", comment: "Switch sidebar destination")
+            : String(localized: "Show Agents Sidebar", comment: "Switch sidebar destination")
+    }
+
+    @ViewBuilder
+    private func focusRing(_ control: Control) -> some View {
+        if focusedControl == control {
+            RoundedRectangle(cornerRadius: 4)
+                .inset(by: 1)
+                .stroke(
+                    Color.aw.accentOnChrome(accent),
+                    lineWidth: AwFocusRing.lineWidth(increasedContrast: increasedContrast)
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var previewLabel: String {
+        if activityPanelOpen {
+            return previewOpen
+                ? String(localized: "Hide workspace preview", comment: "Footer preview control")
+                : String(localized: "Show workspace preview", comment: "Footer preview control")
+        }
+        return previewOpen
+            ? String(localized: "Hide agent preview", comment: "Footer preview control")
+            : String(localized: "Show agent preview", comment: "Footer preview control")
     }
 
     private var collapsedFooter: some View {
@@ -246,31 +306,7 @@ struct SidebarStatusFooter: View {
         openURL(Self.feedbackURL)
     }
 
-    /// One rendering of the total label, so both `ViewThatFits` candidates keep
-    /// identical styling and chevron direction and can't drift apart.
-    @ViewBuilder
-    private func totalLabel(_ text: String) -> some View {
-        HStack(spacing: 4) {
-            Text(text)
-                .monospacedDigit()
-                // Load-bearing, not decoration: `ViewThatFits` falls back to its
-                // LAST candidate unconditionally when none fit, so without this
-                // a narrow enough rail still wraps — just with the bare count.
-                .lineLimit(1)
-            // The panel slides in directly above the footer, so the disclosure
-            // points up when closed and down when open.
-            Image(systemName: activityPanelOpen ? "chevron.down" : "chevron.up")
-                .font(.system(size: 8, weight: .semibold))
-                .accessibilityHidden(true)
-        }
-        .awFont(AwFont.Mono.meta)
-        .foregroundStyle(Color.aw.textFaint)
-        // Match the chips' hit target — this is the panel's only guaranteed
-        // entry point, so bare text height is too small a target (WCAG 2.5.8).
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
+
 }
 
 struct EmptySidebarFilterView: View {

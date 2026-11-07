@@ -9,24 +9,26 @@ struct AgentActivityPanelNavigationTests {
     @Test func collapsedSectionsKeepHeadersButExcludeRowsAndClosedPanes() {
         let waiting = UUID(), working = UUID(), closed = UUID()
         let targets = AgentActivityPanel.navigationTargets(
-            rows: [(waiting, .needsYou), (working, .working), (closed, .settled)],
+            rows: [(waiting, .needsYou), (working, .working), (closed, .idleWaiting)],
             collapsedSections: [.needsYou], livePaneIDs: [waiting, working], hasUpdates: true)
-        #expect(targets == [.section(.needsYou), .updates, .section(.working), .pane(working), .section(.settled)])
+        #expect(targets == [.section(.needsYou), .updates, .section(.working), .pane(working), .section(.idleWaiting)])
     }
 
     @Test func allCollapsedAndEmptyPlacementStillExposeUpdateControl() {
         let pane = UUID()
         #expect(
             AgentActivityPanel.navigationTargets(
-                rows: [(pane, .settled)], collapsedSections: [.settled], livePaneIDs: [pane], hasUpdates: false) == [.section(.settled)])
+                rows: [(pane, .idleWaiting)], collapsedSections: [.idleWaiting], livePaneIDs: [pane], hasUpdates: false) == [
+                    .section(.idleWaiting)
+                ])
         #expect(
             AgentActivityPanel.navigationTargets(
                 rows: [], collapsedSections: [], livePaneIDs: [], hasUpdates: true) == [.updates])
     }
 
     @Test func footerNamesDestinationInEitherModeIncludingZeroAgents() {
-        #expect(SidebarStatusFooter.modeSwitchLabel(total: 0, activityPanelOpen: true) == "Workgroups")
-        #expect(SidebarStatusFooter.modeSwitchLabel(total: 4, activityPanelOpen: true) == "Workgroups")
+        #expect(SidebarStatusFooter.modeSwitchLabel(total: 0, activityPanelOpen: true) == "Workspaces")
+        #expect(SidebarStatusFooter.modeSwitchLabel(total: 4, activityPanelOpen: true) == "Workspaces")
         #expect(
             SidebarStatusFooter.modeSwitchLabel(total: 0, activityPanelOpen: false) == LocalizedPluralStrings.footerAgentsTotal(count: 0))
         #expect(

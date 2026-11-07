@@ -34,6 +34,7 @@ struct AgentActivityPanel: View {
     let onSelect: (AgentActivityRoster.Row) -> Void
     let onMarkSeen: (AgentActivityRoster.Row) -> Void
     let onDismissReminder: (AgentActivityRoster.Row) -> Void
+    var compact = false
 
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -382,7 +383,7 @@ struct AgentActivityPanel: View {
             if needsAttention { return item.row.state.awState.color }
             return highContrast ? .aw.dividerRestHC : .aw.border
         }()
-        let finished = available && active && item.row.section == .settled && item.row.executionState == .done
+        let finished = available && active && item.row.section == .finished && item.row.executionState == .done
         let unread = available && active && item.row.unread > 0
         let unreadLabel =
             unread && !finished ? String(localized: "Unread", comment: "Agent has unread output; not proof of completion") : ""
@@ -399,16 +400,30 @@ struct AgentActivityPanel: View {
                 navigate(to: item.row)
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        // Identity only; the status line below owns execution state.
-                        AgentTile(agent: item.row.agentKind.awAgentIcon, state: .idle, size: 20, badgeStyle: .collapsed)
-                            .accessibilityHidden(true)
-                        if !item.groupText.isEmpty {
-                            Text(verbatim: item.groupText)
+                    if compact {
+                        HStack(alignment: .top, spacing: 6) {
+                            AgentTile(agent: item.row.agentKind.awAgentIcon, state: .idle, size: 20, badgeStyle: .collapsed)
+                                .accessibilityHidden(true)
+                            Text(verbatim: item.title)
                                 .awFont(AwFont.UI.meta)
-                                .foregroundStyle(Color.aw.railText)
-                                .lineLimit(1)
+                                .fontWeight(.semibold)
+                                .lineLimit(2)
                         }
+                        Text(verbatim: [item.groupText, item.workspaceText].filter { !$0.isEmpty }.joined(separator: " / "))
+                            .awFont(AwFont.UI.meta)
+                            .foregroundStyle(Color.aw.railText)
+                            .lineLimit(1)
+                    } else {
+                        HStack(spacing: 6) {
+                            // Identity only; the status line below owns execution state.
+                            AgentTile(agent: item.row.agentKind.awAgentIcon, state: .idle, size: 20, badgeStyle: .collapsed)
+                                .accessibilityHidden(true)
+                            if !item.groupText.isEmpty {
+                                Text(verbatim: item.groupText)
+                                    .awFont(AwFont.UI.meta)
+                                    .foregroundStyle(Color.aw.railText)
+                                    .lineLimit(1)
+                            }
                     }
                     Text(verbatim: item.title)
                         .awFont(AwFont.UI.label)
@@ -418,6 +433,7 @@ struct AgentActivityPanel: View {
                             .awFont(AwFont.UI.meta)
                             .foregroundStyle(Color.aw.railText)
                             .lineLimit(2)
+                    }
                     }
                     if let host = item.remoteHost {
                         Text(verbatim: host)

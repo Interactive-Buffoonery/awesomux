@@ -435,6 +435,17 @@
         }
       }
     },
+    "%arg, %arg, %arg, pane %arg, %arg, %arg" : {
+      "comment" : "VoiceOver label: workspace, group, agent, pane number, title, state",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, %2$arg, %3$arg, pane %4$arg, %5$arg, %6$arg"
+          }
+        }
+      }
+    },
     "%arg, %arg, PID %arg, CPU %arg, memory %arg, executable %arg" : {
       "comment" : "VoiceOver summary for a Diagnostics process row",
       "localizations" : {
@@ -728,6 +739,9 @@
     "Agent no longer active" : {
       "comment" : "A held row whose terminal is no longer running an agent"
     },
+    "Agent preview" : {
+      "comment" : "Reciprocal sidebar preview"
+    },
     "Agent setup" : {
 
     },
@@ -741,7 +755,7 @@
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
     "Agents" : {
-      "comment" : "Global agent sidebar\nSelected sidebar mode"
+      "comment" : "Global agent sidebar"
     },
     "Agents sidebar opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
@@ -1510,7 +1524,7 @@
 
     },
     "Collapsed" : {
-      "comment" : "Collapsed sidebar section\nDisclosure state.\nVoiceOver state for hidden remote connection details"
+      "comment" : "Collapsed sidebar section\nDisclosure state.\nPreview disclosure state\nVoiceOver state for hidden remote connection details"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -2492,11 +2506,20 @@
     "Exit status: %arg" : {
 
     },
+    "Expand" : {
+      "comment" : "Open the preview collection as the full sidebar"
+    },
     "Expand All" : {
       "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
+    "Expand agent preview" : {
+      "comment" : "Open the agent preview as the full sidebar"
+    },
+    "Expand workspace preview" : {
+      "comment" : "Open the workspace preview as the full sidebar"
+    },
     "Expanded" : {
-      "comment" : "Disclosure state.\nExpanded sidebar section\nVoiceOver state for visible remote connection details"
+      "comment" : "Disclosure state.\nExpanded sidebar section\nPreview disclosure state\nVoiceOver state for visible remote connection details"
     },
     "Expires in %@" : {
       "comment" : "Companion pairing countdown."
@@ -2580,7 +2603,7 @@
       "comment" : "Feedback when a document tab shortcut is blocked by an open annotation draft"
     },
     "Finished" : {
-      "comment" : "Agent execution completed; not a review verdict"
+      "comment" : "Agent execution completed; not a review verdict\nCompleted agent executions"
     },
     "Finished — unread" : {
       "comment" : "Completed agent with unread output"
@@ -2748,14 +2771,23 @@
     "Help and feedback" : {
 
     },
+    "Hide" : {
+      "comment" : "Hide the sidebar preview"
+    },
     "Hide Resolved Annotations" : {
 
     },
     "Hide Sidebar" : {
       "comment" : "Menu and command palette action that hides the sidebar persistently."
     },
+    "Hide agent preview" : {
+      "comment" : "Footer preview control"
+    },
     "Hide resolved annotations" : {
 
+    },
+    "Hide workspace preview" : {
+      "comment" : "Footer preview control"
     },
     "Hides remote connection details" : {
       "comment" : "VoiceOver hint for an expanded remote connection details button"
@@ -2791,6 +2823,9 @@
           }
         }
       }
+    },
+    "Idle & Waiting" : {
+      "comment" : "Inactive agents without confirmed completion"
     },
     "Idle threshold" : {
       "comment" : "Terminal settings label."
@@ -2922,6 +2957,9 @@
     },
     "Jumps to the next matching agent" : {
       "comment" : "Accessibility hint for a collapsed-rail footer chip that jumps to the next agent pane in that state"
+    },
+    "Jumps to this pane" : {
+      "comment" : "Workspace preview navigation"
     },
     "Keep Asking" : {
 
@@ -3558,6 +3596,9 @@
     },
     "No workspaces" : {
 
+    },
+    "No workspaces to show" : {
+      "comment" : "Empty workspace preview"
     },
     "No worktrees" : {
       "comment" : "Worktree Manager empty-state title."
@@ -5160,9 +5201,6 @@
     "Settings…" : {
       "comment" : "Dock right-click menu item that opens the Settings window."
     },
-    "Settled" : {
-      "comment" : "Inactive agents section; not proof of success"
-    },
     "Share Details" : {
 
     },
@@ -5196,7 +5234,7 @@
 
     },
     "Show Agents Sidebar" : {
-      "comment" : "Tooltip for the footer total button while the agent activity panel is closed"
+      "comment" : "Switch sidebar destination"
     },
     "Show Branch Changes" : {
       "comment" : "Workspace menu item that opens the active pane's branch diff as a document"
@@ -5229,10 +5267,13 @@
 
     },
     "Show Workspaces Sidebar" : {
-      "comment" : "Tooltip for the footer total button while the agent activity panel is open"
+      "comment" : "Switch sidebar destination"
     },
     "Show activity by workspace and pane" : {
       "comment" : "Accessibility hint for opening companion away activity summary details."
+    },
+    "Show agent preview" : {
+      "comment" : "Footer preview control"
     },
     "Show awesoMux in the menu bar when a workspace needs input" : {
       "comment" : "Accessibility label for the needs-input menu bar choice"
@@ -5255,6 +5296,9 @@
     "Show workspace details" : {
       "comment" : "Notification settings label."
     },
+    "Show workspace preview" : {
+      "comment" : "Footer preview control"
+    },
     "Showing recent output. Older output is omitted. This snapshot does not update as the terminal changes. The first line may be incomplete." : {
       "comment" : "Notice above a bounded recent terminal snapshot; the notice is not part of the copied terminal text"
     },
@@ -5265,10 +5309,7 @@
       "comment" : "VoiceOver hint for a collapsed remote connection details button"
     },
     "Shows the Agents sidebar" : {
-      "comment" : "Accessibility hint for a footer chip that opens the agent activity panel\nAccessibility hint for the footer total button while the panel is closed"
-    },
-    "Shows the Workspaces sidebar" : {
-      "comment" : "Accessibility hint for the footer total button while the panel is open"
+      "comment" : "Accessibility hint for a footer chip that opens the agent activity panel"
     },
     "Shrink Active Pane" : {
 
@@ -6352,9 +6393,6 @@
     "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running." : {
       "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
     },
-    "Workgroups" : {
-      "comment" : "Return from Agents to workspace organization"
-    },
     "Working" : {
       "comment" : "Active agents section"
     },
@@ -6382,8 +6420,11 @@
     "Workspace name" : {
 
     },
+    "Workspace preview" : {
+      "comment" : "Reciprocal sidebar preview"
+    },
     "Workspaces" : {
-      "comment" : "Selected sidebar mode",
+      "comment" : "Workspace preview and sidebar destination",
       "localizations" : {
         "en" : {
           "stringUnit" : {
