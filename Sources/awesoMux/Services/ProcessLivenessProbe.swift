@@ -55,14 +55,25 @@ enum ProcessLivenessProbe {
         return observedStartTime / 1_000_000 == incarnation.createdAt
     }
 
-    /// Whether `pid` has at least one child process, or nil if the child list
-    /// cannot be resolved. Uses `proc_listpids(PROC_PPID_ONLY, …)`. Returns nil
-    /// (not false) when the pid is gone — the sizing call may return a non-zero
-    /// count for a dead pid, but the write call returns 0; both zero-count paths
-    /// revalidate existence so a vanished parent yields nil (indeterminate) rather
-    /// than false (idle-safe).
-    static func hasChildren(pid: pid_t) -> Bool? {
-        childPIDs(pid: pid).map { !$0.isEmpty }
+    /// Whether `pid` has at least one child in its own session, or nil if the
+    /// child list cannot be resolved. Uses `proc_listpids(PROC_PPID_ONLY, …)`.
+    /// Returns nil (not false) when the pid is gone — the sizing call may return
+    /// a non-zero count for a dead pid, but the write call returns 0; both
+    /// zero-count paths revalidate existence so a vanished parent yields nil
+    /// (indeterminate) rather than false (idle-safe).
+    ///
+    /// Prompt workers (zsh `zpty`) run in a session and terminal of their own, so
+    /// they are not the user's work. Background jobs stay in the shell's session.
+    /// A child whose session cannot be read counts, unless it has already exited.
+    static func hasChildrenInOwnSession(pid: pid_t) -> Bool? {
+        guard let children = childPIDs(pid: pid) else { return nil }
+        guard !children.isEmpty else { return false }
+        let session = getsid(pid)
+        guard session > 0 else { return nil }
+        return children.contains { child in
+            let childSession = getsid(child)
+            return childSession == session || (childSession < 0 && errno != ESRCH)
+        }
     }
 
     /// The foreground process group of `pid`'s controlling terminal
