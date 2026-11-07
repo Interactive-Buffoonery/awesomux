@@ -64,8 +64,10 @@ it with current code, ADRs, and GitHub; flag conflicts.
 - `./script/build_and_run.sh` builds/runs the app; `./script/test.sh all` runs
   zmx and existing Swift tests. Filters match identifiers: require a non-zero count.
 - Before a non-docs PR, run `./script/preflight.sh` directly and preserve its exit
-  status. If unrun, say so. Docs-only changes can use `git diff --check`.
+  status. Docs-only changes can use `git diff --check`.
+- After preflight, run [merge-risk](.agents/skills/merge-risk/SKILL.md) and add its
+  one-line result under Notes in the PR.
 - Link the issue and follow the exact [PR template](.github/pull_request_template.md)
-  headings. Remove placeholders; name unrun checks and why.
-- Ask the contributor to choose AI assistance (`none`, `light`, `moderate`,
-  `substantial`) before opening a PR; never infer it.
+  headings. Remove placeholders. Write PR text and merge risk updates in simple
+  English or ASD-STE100 (Simplified Technical English).
+- List the models that worked on the change after `Models:` in the PR, or `None`.

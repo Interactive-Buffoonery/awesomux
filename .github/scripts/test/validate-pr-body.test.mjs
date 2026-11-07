@@ -11,28 +11,22 @@ Make review safer.
 ## UI / UX
 Not applicable because there is no visible change.
 
-## Validation
-- [x] \`node --test\` passed
+## Notes
+Models: n/a
 
-## AI Assistance
-- Assistance level: moderate
-
-## Risk Notes
-Workflow permissions were reviewed.
-
-## Follow-ups
-None.
+Merge risk: <!-- low / medium / high / unknown, the main reason, and how to recover -->
 `;
 
 const rejectionCases = [
-  ...["Why", "What's Included", "UI / UX", "Validation", "AI Assistance", "Risk Notes", "Follow-ups"].map((heading) => ({
+  ...["Why", "What's Included", "UI / UX", "Notes"].map((heading) => ({
     name: `missing ${heading}`,
     body: fullBody.split(/(?=^## )/m).filter((section) => !section.startsWith(`## ${heading}\n`)).join(""),
     error: heading,
   })),
   { name: "placeholder", body: fullBody.replace("Make review safer.", "<!-- explain why -->"), error: "placeholder" },
   { name: "template instruction", body: fullBody.replace("Make review safer.", "<!-- What changed, and why should this change exist? Lead with the reviewer-facing outcome. -->"), error: "placeholder" },
-  { name: "footer filling a section", body: fullBody.replace("## Follow-ups\nNone.", "## Follow-ups\n") + "<!-- codesmith:footer -->\nManaged footer content.\n<!-- codesmith:autofix:enabled -->\n<!-- /codesmith:footer -->", error: "Follow-ups" },
+  { name: "footer filling a section", body: fullBody.replace(/## Notes[\s\S]*$/, "## Notes\n") + "<!-- codesmith:footer -->\nManaged footer content.\n<!-- codesmith:autofix:enabled -->\n<!-- /codesmith:footer -->", error: "Notes" },
+  { name: "blank models", body: fullBody.replace("Models: n/a", "Models: <!-- e.g. Claude Opus 5.5, or \"None\" -->"), error: "Models" },
 ];
 
 test("rejects missing headings and template placeholders", () => {

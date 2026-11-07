@@ -18,11 +18,11 @@ If you use AI while preparing a pull request:
 - Read and understand what the code, docs, tests, and commands you submit actually do
 - Be ready to explain what changed and why without sending reviewers back to an AI transcript
 - Personally verify the behavior you claim is fixed or added
-- Disclose substantial AI assistance in the pull request body
+- List the models you used after `Models:` in the pull request's Notes, or write
+  `None`
+- Write pull request text and merge risk updates in simple English or ASD-STE100
+  (Simplified Technical English)
 - Review AI-drafted summaries, test plans, comments, and replies before posting them
-- If an AI agent drafts the pull request body, it should ask the contributor how
-  much assistance to disclose after they have reviewed and revised the work:
-  `none`, `light`, `moderate`, or `substantial`
 
 Knowing AI was used gives us context when reviewing PRs. It is not a mark against a pull request. The same quality
 bar applies either way: the change should be clear, tested where practical, and
@@ -72,11 +72,14 @@ For app changes, the normal local gate is:
 
 In a headless session, run `./script/preflight.sh --checks-only` for all guards
 and tests. It omits only the final staged-app build, signing, and launch
-verification. Report that result separately; the full native gate remains
-pending until `./script/preflight.sh` can run.
+verification, so the full native gate remains pending until
+`./script/preflight.sh` can run.
+
+If you work with a coding agent, run the
+[`merge-risk`](.agents/skills/merge-risk/SKILL.md) skill after preflight and add
+its one-line result to the pull request's Notes. This is optional.
 
 For docs-only changes, a lighter check such as `git diff --check` is usually
-enough. If you cannot run the expected validation, say what blocked you in the
-pull request.
+enough.
 
 Any other questions? Reach out to [contact@interactivebuffoonery.com](mailto:contact@interactivebuffoonery.com) or open a GitHub issue.
