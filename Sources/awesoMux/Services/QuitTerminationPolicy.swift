@@ -16,4 +16,13 @@ enum QuitTerminationPolicy {
             ? .presentSystemQuitRiskWarning
             : .presentUserQuitRiskAlert
     }
+
+    /// Each worktree build is its own Dock app, so windowless dev builds pile up.
+    static func terminatesAfterLastWindowClosed(
+        profile: AppRuntimeProfile,
+        quitWasCancelledWithNoWindowsOpen: Bool
+    ) -> Bool {
+        guard case .development = profile else { return false }
+        return !quitWasCancelledWithNoWindowsOpen
+    }
 }
