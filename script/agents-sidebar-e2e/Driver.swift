@@ -28,9 +28,9 @@ struct AgentsSidebarScenarios {
         precondition(rows.count == 5 && !rows.contains { $0.paneID == shell })
         precondition(rows.first { $0.paneID == permission }?.section == .needsYou)
         precondition(rows.first { $0.paneID == question }?.attentionReason == .userInputRequired)
-        precondition(rows.first { $0.paneID == waiting }?.section == .settled)
+        precondition(rows.first { $0.paneID == waiting }?.section == .idleWaiting)
         precondition(rows.first { $0.paneID == waiting }?.executionState == .waiting)
-        precondition(rows.first { $0.paneID == finished }?.section == .settled)
+        precondition(rows.first { $0.paneID == finished }?.section == .finished)
         precondition(rows.first { $0.paneID == failed }?.section == .needsYou)
         precondition(roster.nextNeedingAttention(after: permission, orderedPaneIDs: [question, permission, failed])?.paneID == failed)
         precondition(roster.nextNeedingAttention(after: UUID(), orderedPaneIDs: [question, permission, failed])?.paneID == question)
@@ -42,7 +42,7 @@ struct AgentsSidebarScenarios {
         let denied = AgentActivityRoster.build([.init(sessionID: session, panes: [snapshot(UUID(), .error)])]).rows[0]
         precondition(denied.detail == "Error")
         let staleDone = AgentActivityRoster.build([.init(sessionID: session, panes: [snapshot(UUID(), .done, .bell)])]).rows[0]
-        precondition(staleDone.section == .settled && staleDone.detail == "Finished")
+        precondition(staleDone.section == .finished && staleDone.detail == "Finished")
         let shellAttention = snapshot(shell, .idle, .bell, kind: .shell)
         precondition(AgentActivityRoster.build([.init(sessionID: session, panes: [shellAttention])], includingShells: true).rows.count == 1)
         let untaggedPrompt = snapshot(shell, .waiting, .permissionPrompt, kind: .shell)
@@ -171,7 +171,7 @@ struct AgentsSidebarScenarios {
             "Turn-review-only reminders must enable every workspace mark-seen entry point")
         let reviewRoster = AgentActivityRoster.build(
             sessions: reviewStore.groups.flatMap(\.sessions), unansweredTurnPaneIDs: reviewStore.unansweredTurnPaneIDs)
-        precondition(reviewRoster.rows.first?.section == .settled)
+        precondition(reviewRoster.rows.first?.section == .idleWaiting)
         precondition(reviewStore.actionableAgentPaneIDs.isEmpty)
         precondition(reviewRoster.nextNeedingAttention(after: nil, orderedPaneIDs: []) == nil)
         reviewStore.markWorkspaceSeen(id: reviewWorkspace.id)
