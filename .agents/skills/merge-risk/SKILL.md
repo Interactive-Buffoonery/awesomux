@@ -7,12 +7,15 @@ description: Assess how risky a change is to merge and where human attention wou
 
 Assess the exposure left in a change, for reviewers. This is not merge approval
 or a gate. Do not edit, build, run tests, start reviewers, post comments, or
-merge. `script/terminal-lifecycle-e2e/run.py --check-freshness REPORT` is allowed.
+merge. `script/terminal-lifecycle-e2e/run.py --check-freshness REPORT` is allowed
+only when you trust the checkout, because the command runs that checkout's `run.py`.
 
 ## Evidence
 
 Reuse results from this revision, then read the diff and its callers. Missing,
 older, or inconclusive evidence is unknown, never passing.
+A `--check-freshness` pass covers source only. Also confirm the staged app was
+built from this revision, or treat the lifecycle report as unknown.
 
 - Required PR checks are guards. They never build or test Swift.
 - `./script/preflight.sh` proves guards, tests, and that a dev-signed app launches

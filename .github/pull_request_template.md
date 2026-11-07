@@ -10,7 +10,7 @@
 
 ## UI / UX
 
-<!-- Required for visible UI, design-system, or asset changes. Include before/after screenshots or a short video from the running app, or write "Not applicable". -->
+<!-- Required for visible UI, design-system, or asset changes. Include before/after screenshots or a short video from the running app, or write "Not applicable" and delete the table. -->
 
 | Before | After |
 | --- | --- |
