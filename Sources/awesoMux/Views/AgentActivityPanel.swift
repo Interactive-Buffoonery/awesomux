@@ -399,11 +399,16 @@ struct AgentActivityPanel: View {
                 navigate(to: item.row)
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    if !item.groupText.isEmpty {
-                        Text(verbatim: item.groupText)
-                            .awFont(AwFont.UI.meta)
-                            .foregroundStyle(Color.aw.railText)
-                            .lineLimit(1)
+                    HStack(spacing: 6) {
+                        // Identity only; the status line below owns execution state.
+                        AgentTile(agent: item.row.agentKind.awAgentIcon, state: .idle, size: 20, badgeStyle: .collapsed)
+                            .accessibilityHidden(true)
+                        if !item.groupText.isEmpty {
+                            Text(verbatim: item.groupText)
+                                .awFont(AwFont.UI.meta)
+                                .foregroundStyle(Color.aw.railText)
+                                .lineLimit(1)
+                        }
                     }
                     Text(verbatim: item.title)
                         .awFont(AwFont.UI.label)
