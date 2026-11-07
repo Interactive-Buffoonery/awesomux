@@ -79,7 +79,9 @@ public enum OpenCodeTranscriptDatabase {
             return .failure(.databaseUnavailable)
         }
 
-        switch sessionExists(database: database, sessionID: sessionID) {
+        let isV2 = tableExists("session_v2", database: database)
+        let sessionTable = isV2 ? "session_v2" : "session"
+        switch sessionExists(database: database, sessionID: sessionID, table: sessionTable) {
         case .success(false): return .failure(.notFound)
         case .failure: return .failure(.databaseUnavailable)
         case .success(true): break
@@ -88,6 +90,7 @@ public enum OpenCodeTranscriptDatabase {
         let turnLimit = min(max(1, maximumTurns), Int(Int32.max) - 1)
         let partLimit = min(max(1, maximumParts), Int(Int32.max) - 1)
         let sourceByteLimit = max(1, maximumSourceBytes)
+        let outputField = isV2 ? "content" : "output"
         let renderablePart = """
             CASE WHEN json_valid(p.data) THEN
                 CASE
@@ -95,41 +98,91 @@ public enum OpenCodeTranscriptDatabase {
                         THEN json_type(p.data, '$.text') = 'text'
                             AND length(json_extract(p.data, '$.text')) > 0
                     WHEN json_extract(p.data, '$.type') = 'tool'
-                        THEN COALESCE(json_type(p.data, '$.state.output'), 'null') != 'null'
+                        THEN COALESCE(json_type(p.data, '$.state.\(outputField)'), 'null') != 'null'
                             OR COALESCE(json_type(p.data, '$.state.input'), 'null') != 'null'
                     ELSE 0
                 END
             ELSE 0 END
             """
+        let inlinePart = renderablePart.replacingOccurrences(of: "p.data", with: "content.value")
+        let candidateMessages =
+            isV2
+            ? """
+            SELECT m.id, m.seq AS time_created, json_object('role', m.type) AS data
+            FROM session_message AS m
+            WHERE m.session_id = ?1 AND (
+                CASE WHEN json_valid(m.data) THEN
+                    (m.type IN ('user', 'synthetic', 'system')
+                     AND json_type(m.data, '$.text') = 'text'
+                     AND length(json_extract(m.data, '$.text')) > 0)
+                    OR (m.type = 'assistant' AND EXISTS (
+                        SELECT 1 FROM json_each(m.data, '$.content') AS content
+                        WHERE content.type = 'object' AND \(inlinePart) = 1
+                    ))
+                ELSE 0 END
+                OR EXISTS (
+                    SELECT 1 FROM session_part AS p
+                    WHERE p.message_id = m.id AND p.session_id = m.session_id
+                      AND \(renderablePart) = 1
+                )
+            )
+            ORDER BY m.seq DESC, m.id DESC LIMIT ?2
+            """
+            : """
+            SELECT m.id, m.time_created, m.data FROM message AS m
+            WHERE m.session_id = ?1 AND EXISTS (
+                SELECT 1 FROM part AS p
+                WHERE p.message_id = m.id AND p.session_id = m.session_id
+                  AND \(renderablePart) = 1
+            )
+            ORDER BY m.time_created DESC, m.id DESC LIMIT ?2
+            """
+        // Choose the bounded message window before expanding parts. V2 may store
+        // content inline, in ordinal rows, or as ordinal rows followed by inline
+        // content after a downgrade/re-upgrade. Normalize only retained bytes below.
+        let sources =
+            isV2
+            ? """
+            SELECT m.id AS message_id, m.session_id, -1 AS id, -1 AS time_created,
+                   json_object('type', 'text', 'text', json_extract(m.data, '$.text')) AS data
+            FROM ranked_messages AS r CROSS JOIN session_message AS m ON m.id = r.id
+            WHERE r.turn_rank <= ?3 AND m.session_id = ?1
+              AND m.type IN ('user', 'synthetic', 'system') AND json_valid(m.data)
+            UNION ALL
+            SELECT p.message_id, p.session_id, p.ordinal AS id, p.ordinal AS time_created, p.data
+            FROM ranked_messages AS r CROSS JOIN session_part AS p ON p.message_id = r.id
+            WHERE r.turn_rank <= ?3 AND p.session_id = ?1
+            UNION ALL
+            SELECT m.id AS message_id, m.session_id, CAST(content.key AS INTEGER) AS id,
+                   (SELECT COALESCE(MAX(ordinal) + 1, 0) FROM session_part
+                    WHERE message_id = m.id AND session_id = ?1) + CAST(content.key AS INTEGER) AS time_created,
+                   content.value AS data
+            FROM ranked_messages AS r CROSS JOIN session_message AS m ON m.id = r.id
+            JOIN json_each(CASE WHEN json_valid(m.data) THEN m.data ELSE '{}' END, '$.content') AS content
+            WHERE r.turn_rank <= ?3 AND m.session_id = ?1 AND m.type = 'assistant'
+              AND content.type = 'object'
+            """
+            : "SELECT id, message_id, session_id, time_created, data FROM part WHERE session_id = ?1"
+        // V2's UNION must stream as a coroutine. V1's simple table source must
+        // stay behind the ranked window so its session index bounds the lookup.
+        let partJoin =
+            isV2
+            ? "source_parts AS p CROSS JOIN ranked_messages AS r"
+            : "ranked_messages AS r JOIN part AS p"
         let sql = """
-            WITH candidate_messages AS (
-                SELECT m.id, m.time_created, m.data
-                FROM message AS m
-                WHERE m.session_id = ?1
-                  AND EXISTS (
-                      SELECT 1
-                      FROM part AS p
-                      WHERE p.message_id = m.id
-                        AND p.session_id = m.session_id
-                        AND \(renderablePart) = 1
-                  )
-                ORDER BY m.time_created DESC, m.id DESC
-                LIMIT ?2
-            ), ranked_messages AS (
+            WITH candidate_messages AS (\(candidateMessages)), ranked_messages AS (
                 SELECT id, time_created, data,
                        ROW_NUMBER() OVER (ORDER BY time_created DESC, id DESC) AS turn_rank,
                        (SELECT COUNT(*) FROM candidate_messages) AS candidate_count
                 FROM candidate_messages
-            )
+            ), source_parts AS (\(sources))
             SELECT r.id,
                    CASE WHEN octet_length(r.data) <= ?4 THEN r.data ELSE NULL END,
                    CASE WHEN octet_length(p.data) <= ?5 THEN p.data ELSE NULL END,
                    octet_length(p.data),
                    r.candidate_count
-            FROM ranked_messages AS r
-            JOIN part AS p ON p.message_id = r.id AND p.session_id = ?1
-            WHERE r.turn_rank <= ?3
-              AND \(renderablePart) = 1
+            FROM \(partJoin) ON p.message_id = r.id AND p.session_id = ?1
+            WHERE r.turn_rank <= ?3 AND \(renderablePart) = 1
             ORDER BY r.time_created DESC, r.id DESC, p.time_created DESC, p.id DESC
             LIMIT ?6
             """
@@ -186,7 +239,7 @@ public enum OpenCodeTranscriptDatabase {
             sourceByteCount += retainedRowBytes
 
             let part = OpenCodeTranscriptSnapshot.Part(
-                data: data(at: 2, in: statement),
+                data: normalizedPart(data(at: 2, in: statement), isV2: isV2),
                 byteCount: Int(sqlite3_column_int64(statement, 3))
             )
             if currentID == id {
@@ -217,14 +270,40 @@ public enum OpenCodeTranscriptDatabase {
         )
     }
 
+    private static func normalizedPart(_ data: Data?, isV2: Bool) -> Data? {
+        guard isV2, let data,
+            var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            object["type"] as? String == "tool"
+        else { return data }
+        object["tool"] = object.removeValue(forKey: "name")
+        if var state = object["state"] as? [String: Any] {
+            state["output"] = state.removeValue(forKey: "content")
+            object["state"] = state
+        }
+        return try? JSONSerialization.data(withJSONObject: object)
+    }
+
+    private static func tableExists(_ name: String, database: OpaquePointer) -> Bool {
+        var statement: OpaquePointer?
+        guard
+            sqlite3_prepare_v2(
+                database, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", -1, &statement, nil
+            ) == SQLITE_OK, let statement
+        else { return false }
+        defer { sqlite3_finalize(statement) }
+        guard bind(name, to: 1, in: statement) == SQLITE_OK else { return false }
+        return sqlite3_step(statement) == SQLITE_ROW
+    }
+
     private static func sessionExists(
         database: OpaquePointer,
-        sessionID: String
+        sessionID: String,
+        table: String
     ) -> Result<Bool, AgentTranscriptUnavailable> {
         var statement: OpaquePointer?
         guard
             sqlite3_prepare_v2(
-                database, "SELECT 1 FROM session WHERE id = ?1 LIMIT 1", -1, &statement, nil
+                database, "SELECT 1 FROM \(table) WHERE id = ?1 LIMIT 1", -1, &statement, nil
             ) == SQLITE_OK,
             let statement
         else {

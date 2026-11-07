@@ -458,36 +458,67 @@ not use `AWESOMUX_AGENT_ENABLED_SOURCES` as a consent gate because it is fixed
 when the pane's child process starts and can be stale after Settings changes. See
 [ADR 0010](adr/0010-opencode-pi-opt-in-agent-integrations.md).
 
-OpenCode template:
+OpenCode package:
 
-- Source template:
-  `Resources/AgentIntegrations/open_code/awesomux-opencode-status.js.template`
-- Runtime destination: `~/.config/opencode/plugins/awesomux-opencode-status.js`
-- Behavior: when awesoMux runtime-event environment is present, maps OpenCode
-  events to the synthetic hook names above, then invokes
-  `"${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook}" --provider opencode` with only
-  `{"hook_event_name":"..."}` on stdin.
+- Source templates: `Resources/AgentIntegrations/open_code/awesomux-opencode-status.js.template`
+  (`index.js`), `awesomux-opencode-tui.js.template` (`tui.js`), and
+  `awesomux-opencode-legacy.js.template` (the V1 discovery entry).
+- Runtime destination: `~/.config/opencode/plugins/awesomux-opencode-status/`.
+- OpenCode 2 loads a default server definition with `id` and `setup`. The server
+  part deliberately emits no status: V2 shares one background server across
+  clients, so its environment cannot identify the pane that owns a session.
+- The TUI part runs in each terminal client and uses that client's awesoMux
+  environment. It follows the selected session's known root; navigating to a
+  child keeps its root identity. Other clients' sessions and child completion
+  cannot stop the pane's root. A missing session or unknown ancestry fails closed.
+- Client state reports running, idle, and failed execution. Pending permissions
+  and forms in the selected root's family take precedence over running state.
+  Resolving the final prompt clears attention and restores the current state.
+  Session switching and unload end the previous pane association.
+- Helper calls pass only `hook_event_name` and `session_id` on stdin, use literal
+  executable/argument tokens without a shell, run in order, and time out after
+  one second. Prompts, questions, tool contents, and server events are never
+  forwarded to the helper.
 
-OpenCode exposes two distinct surfaces, and the template uses both. Plugin **hook
-keys** are registered by name; session lifecycle arrives through the generic
-`event` catch-all keyed on `event.type`. The mapping (pinned to OpenCode plugin
-API v1.x; the keys are version-specific):
+| OpenCode 2 client state | Synthetic hook |
+| --- | --- |
+| Selected root changes | `SessionEnd` for previous root, `SessionStart` for next |
+| Root running | `UserPromptSubmit` |
+| Root idle | `Stop` |
+| Root execution failed | `StopFailure` |
+| Pending family permission | `PermissionRequest` |
+| Pending family form/question | `Notification` |
+| Last pending attention clears | `PermissionReplied`, then current execution state |
+| TUI unloads or leaves a session | `SessionEnd` |
 
-| OpenCode surface | Name | Synthetic hook |
-| --- | --- | --- |
-| `event` type | `session.created` | `SessionStart` |
-| hook key | `chat.message` | `UserPromptSubmit` |
-| hook key | `permission.ask` | `PermissionRequest` |
-| `event` type | `permission.asked` | `PermissionRequest` |
-| `event` type | `permission.replied` | `PermissionReplied` |
-| hook key | `tool.execute.before` | `PreToolUse` |
-| hook key | `tool.execute.after` | `PostToolUse` |
-| `event` type | `session.idle` | `Stop` |
-| `event` type | `session.error` | `StopFailure` |
+OpenCode 1.18.29 and newer discover the top-level
+`plugins/awesomux-opencode-status.js` entry, which delegates to the package
+server's V1 implementation. V2 loads this entry as a separate no-op definition
+and loads the package's TUI part for status. Older V1 loaders are not supported.
+The V1 lifecycle uses `session.created`, `session.idle`, and `session.error`;
+`chat.message`, `permission.ask`, and tool execution hooks provide turn activity;
+`permission.asked` and `permission.replied` provide permission transitions.
 
-`session.status` is intentionally not used as the turn-start signal: it is a
-state snapshot (`idle` / `busy` / `retry`), so `chat.message` carries
-`UserPromptSubmit` instead.
+Repair migrates an unchanged, manifest-owned legacy
+`plugins/awesomux-opencode-status.js` into the package and replaces the old file
+with the V1 discovery entry. Modified legacy files
+are preserved and require manual cleanup. All three managed files participate in
+status comparison, uninstall validation, and rollback. The file-drop manifest
+is written as version 2 so older single-file installers refuse to remove only
+one part of a package. Version 1 records remain readable and upgrade on write.
+
+OpenCode transcript snapshots accept both V1's `session`/`message`/`part` tables
+and V2's `session_v2`/`session_message`/`session_part` tables. V2 prompt text is
+stored inline; assistant content may be inline or split into ordinal rows.
+Split rows precede an inline tail when both are present, matching OpenCode
+history reconstruction. Reads remain session-specific, read-only, and bounded. The storage
+root is still the standard `~/.local/share/opencode`; custom database locations,
+OpenCode Resume, and transcript live refresh are not supported here. V2 status
+reporting requires the terminal UI; headless `opencode run` and desktop clients
+do not load the TUI part.
+
+See [OpenCode integration verification](../script/opencode-integration-e2e/README.md)
+for repeatable isolated checks and their evidence boundaries.
 
 Pi template:
 
@@ -611,6 +642,8 @@ File-drop install destinations are:
 
 ```text
 ~/.config/opencode/plugins/awesomux-opencode-status.js
+~/.config/opencode/plugins/awesomux-opencode-status/index.js
+~/.config/opencode/plugins/awesomux-opencode-status/tui.js
 ~/.pi/agent/extensions/awesomux-pi-status.ts
 ```
 

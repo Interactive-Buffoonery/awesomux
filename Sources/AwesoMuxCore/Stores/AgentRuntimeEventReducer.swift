@@ -672,9 +672,10 @@ struct AgentRuntimeEventReducer: Sendable {
         // proof. Codex reports its start before PermissionRequest, so its end is
         // authoritative only when all three hooks share the same tool id and
         // the turn has not ended. An event that carries its own attention reason
-        // is a new blocking claim, not a retraction. Scoped to
-        // `.permissionPrompt` only — `.userInputRequired` can still be live
-        // while background tool phases run (issue #404).
+        // is a new blocking claim, not a retraction. Tool phases resolve only
+        // `.permissionPrompt`: `.userInputRequired` can still be live while
+        // background tools run. OpenCode also uses its explicit reply event
+        // for resolved forms, so that event may retract either prompt kind.
         //
         // Provider session IDs reject identifiable child sessions. Tool ids
         // distinguish concurrent work inside the same provider session.
@@ -689,7 +690,9 @@ struct AgentRuntimeEventReducer: Sendable {
                     && state.activeToolEventIDs.contains($0)
             } ?? false)
         let resolvesPendingPermissionPrompt =
-            currentPane.attentionReason == .permissionPrompt
+            (currentPane.attentionReason == .permissionPrompt
+                || (currentPane.attentionReason == .userInputRequired
+                    && event.source == .openCode && event.phase == .permissionReplied))
             && eventMatchesProviderSession
             && (event.phase == .permissionReplied
                 || (event.phase == .toolStart && eventAttentionReason == nil)

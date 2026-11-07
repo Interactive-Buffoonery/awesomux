@@ -17,7 +17,7 @@ enum AgentIntegrationInstallProvider: String, Codable, CaseIterable, Hashable, S
     var renderedFileName: String {
         switch self {
         case .openCode:
-            "awesomux-opencode-status.js"
+            "awesomux-opencode-status/index.js"
         case .pi:
             "awesomux-pi-status.ts"
         }
@@ -60,7 +60,8 @@ struct AgentIntegrationInstallManifest: AgentInstallManifest, Equatable, Sendabl
     var version: Int
     var records: [AgentIntegrationInstallRecord]
 
-    static let currentVersion = 1
+    // Older installers only own one file and cannot safely remove a package.
+    static let currentVersion = 2
     static let empty = AgentIntegrationInstallManifest(
         version: currentVersion,
         records: []
@@ -184,8 +185,12 @@ struct AgentIntegrationInstaller {
         try createPrivateDirectory(rootDirectoryURL)
         let renderedURL = renderedFileURL(provider: provider, setup: setup)
         try createPrivateDirectory(renderedURL.deletingLastPathComponent())
-        let data = try Data(contentsOf: templateURL)
-        try writePrivateFile(data, to: renderedURL)
+        for (source, destination) in templateFiles(provider: provider, templateURL: templateURL, entryURL: renderedURL) {
+            guard fileManager.fileExists(atPath: source.path) else {
+                throw AgentIntegrationInstallerError.missingTemplate(source)
+            }
+            try writePrivateFile(Data(contentsOf: source), to: destination)
+        }
 
         return AgentIntegrationRenderedInstall(
             provider: provider,
@@ -211,7 +216,8 @@ struct AgentIntegrationInstaller {
 
         try manifestStore.importLegacyIfNeededAssumingLock()
         var manifest = try loadManifestForMutationRecoveringEmptyUnsupported()
-        let renderedInstall = try render(provider: provider, setup: setup)
+        let renderedSnapshots = try snapshots(at: renderedFileURL(provider: provider, setup: setup))
+        let renderedInstall: AgentIntegrationRenderedInstall
         let installedURL = try destinationFileURL(
             provider: provider,
             homeDirectory: homeDirectory,
@@ -220,10 +226,24 @@ struct AgentIntegrationInstaller {
         let priorRecord = manifest.records.first { $0.matchesSetup(provider: provider) }
         let priorInstalledPath = priorRecord?.installedPath
         let priorRenderedPath = priorRecord?.renderedPath
-        try createProviderDirectory(installedURL.deletingLastPathComponent())
         let priorInstalledURL = priorInstalledPath.map { URL(fileURLWithPath: $0) }
-        let priorInstalledData = try priorInstalledURL.flatMap { try existingFileData(at: $0) }
-        let destinationData = try existingFileData(at: installedURL)
+        let priorSnapshots = try priorInstalledURL.map { try snapshots(at: $0) } ?? []
+        let destinationSnapshots = try snapshots(at: installedURL)
+        if provider == .openCode {
+            let legacyURL = installedURL.deletingLastPathComponent().deletingLastPathComponent()
+                .appending(path: "awesomux-opencode-status.js")
+            if fileManager.fileExists(atPath: legacyURL.path) {
+                let priorFiles = priorInstalledURL.map { managedFiles(at: $0) } ?? []
+                guard let priorRenderedPath, let index = priorFiles.firstIndex(of: legacyURL) else {
+                    throw AgentIntegrationInstallerError.installedFileModified(legacyURL)
+                }
+                let priorSources = managedFiles(at: URL(fileURLWithPath: priorRenderedPath))
+                guard index < priorSources.count,
+                    let expected = try existingFileData(at: priorSources[index]),
+                    try Data(contentsOf: legacyURL) == expected
+                else { throw AgentIntegrationInstallerError.installedFileModified(legacyURL) }
+            }
+        }
 
         do {
             // A single Remove button tracks one installed file per setup, so when an
@@ -241,8 +261,13 @@ struct AgentIntegrationInstaller {
                 )
             }
 
-            let data = try Data(contentsOf: renderedInstall.renderedURL)
-            try writePrivateFile(data, to: installedURL)
+            // Remove legacy installs before rendering: the V1 rendered filename
+            // is also the new bridge filename for the same setup.
+            renderedInstall = try render(provider: provider, setup: setup)
+            try createProviderDirectory(installedURL.deletingLastPathComponent())
+            for (source, destination) in zip(managedFiles(at: renderedInstall.renderedURL), managedFiles(at: installedURL)) {
+                try writePrivateFile(Data(contentsOf: source), to: destination)
+            }
 
             let record = AgentIntegrationInstallRecord(
                 provider: provider,
@@ -255,11 +280,8 @@ struct AgentIntegrationInstaller {
             manifest.upsert(record)
             try saveManifest(manifest)
         } catch let operationError {
-            var snapshots = [FileSnapshot(data: destinationData, url: installedURL)]
-            if let priorInstalledURL, priorInstalledURL != installedURL {
-                snapshots.append(FileSnapshot(data: priorInstalledData, url: priorInstalledURL))
-            }
-            try throwAfterRollingBack(snapshots, operationError: operationError)
+            let rollback = destinationSnapshots + (priorInstalledURL != installedURL ? priorSnapshots : []) + renderedSnapshots
+            try throwAfterRollingBack(rollback, operationError: operationError)
         }
 
         return AgentIntegrationInstalledTemplate(
@@ -286,15 +308,14 @@ struct AgentIntegrationInstaller {
         }
 
         let installedURL = URL(fileURLWithPath: installedPath)
-        let installedData = try existingFileData(at: installedURL)
-        try removeManagedFile(at: installedURL, renderedPath: manifest.records[index].renderedPath)
-
-        manifest.records.remove(at: index)
+        let installedSnapshots = try snapshots(at: installedURL)
         do {
+            try removeManagedFile(at: installedURL, renderedPath: manifest.records[index].renderedPath)
+            manifest.records.remove(at: index)
             try saveManifest(manifest)
         } catch let operationError {
             try throwAfterRollingBack(
-                [FileSnapshot(data: installedData, url: installedURL)],
+                installedSnapshots,
                 operationError: operationError
             )
         }
@@ -316,6 +337,17 @@ struct AgentIntegrationInstaller {
         installedPath: String,
         templateURL: URL
     ) -> Bool {
+        if templateURL.lastPathComponent == "awesomux-opencode-status.js.template" {
+            let entry = URL(fileURLWithPath: installedPath)
+            guard isOpenCodePackageEntry(entry) else { return true }
+            for (part, source) in zip(
+                managedFiles(at: entry).dropFirst(), ["awesomux-opencode-tui.js.template", "awesomux-opencode-legacy.js.template"])
+            {
+                guard fileManager.fileExists(atPath: part.path) else { return true }
+                let partTemplate = templateURL.deletingLastPathComponent().appending(path: source)
+                if installedContentDiffersFromTemplate(installedPath: part.path, templateURL: partTemplate) { return true }
+            }
+        }
         let cacheKey = "\(installedPath)\u{1F}\(templateURL.path)"
         let installedAttrs = try? fileManager.attributesOfItem(atPath: installedPath)
         let templateAttrs = try? fileManager.attributesOfItem(atPath: templateURL.path)
@@ -358,23 +390,83 @@ struct AgentIntegrationInstaller {
     /// Removes an awesoMux-managed installed file, refusing if the on-disk
     /// contents no longer match the rendered template (or the rendered copy is
     /// gone). A missing installed file is treated as already removed.
+    private func isOpenCodePackageEntry(_ url: URL) -> Bool {
+        url.lastPathComponent == "index.js" && url.deletingLastPathComponent().lastPathComponent == "awesomux-opencode-status"
+    }
+
+    private func managedFiles(at entry: URL) -> [URL] {
+        isOpenCodePackageEntry(entry)
+            ? [entry, entry.deletingLastPathComponent().appending(path: "tui.js"), openCodeBridgeURL(for: entry)]
+            : [entry]
+    }
+
+    private func openCodeBridgeURL(for entry: URL) -> URL {
+        entry.deletingLastPathComponent().deletingLastPathComponent().appending(path: "awesomux-opencode-status.js")
+    }
+
+    private func templateFiles(provider: AgentIntegrationInstallProvider, templateURL: URL, entryURL: URL) -> [(URL, URL)] {
+        var files = [(templateURL, entryURL)]
+        if provider == .openCode {
+            files.append(
+                (
+                    templateURL.deletingLastPathComponent().appending(path: "awesomux-opencode-tui.js.template"),
+                    entryURL.deletingLastPathComponent().appending(path: "tui.js")
+                ))
+            files.append(
+                (
+                    templateURL.deletingLastPathComponent().appending(path: "awesomux-opencode-legacy.js.template"),
+                    openCodeBridgeURL(for: entryURL)
+                ))
+        }
+        return files
+    }
+
+    private func validatePackageDirectory(at entry: URL) throws {
+        guard isOpenCodePackageEntry(entry) else { return }
+        let bridge = openCodeBridgeURL(for: entry)
+        if (try? fileManager.attributesOfItem(atPath: bridge.path)[.type]) as? FileAttributeType == .typeSymbolicLink {
+            throw AgentIntegrationInstallerError.installedFileModified(bridge)
+        }
+        let directory = entry.deletingLastPathComponent()
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        let values = try directory.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values.isSymbolicLink != true else {
+            throw AgentIntegrationInstallerError.installedFileModified(directory)
+        }
+        let files = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey])
+        for file in files {
+            guard ["index.js", "tui.js"].contains(file.lastPathComponent),
+                try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true
+            else { throw AgentIntegrationInstallerError.installedFileModified(file) }
+        }
+    }
+
+    private func snapshots(at entry: URL) throws -> [FileSnapshot] {
+        try validatePackageDirectory(at: entry)
+        return try managedFiles(at: entry).map { FileSnapshot(data: try existingFileData(at: $0), url: $0) }
+    }
+
     private func removeManagedFile(at installedURL: URL, renderedPath: String) throws {
-        guard fileManager.fileExists(atPath: installedURL.path) else {
-            return
-        }
-
+        try validatePackageDirectory(at: installedURL)
         let renderedURL = URL(fileURLWithPath: renderedPath)
-        guard fileManager.fileExists(atPath: renderedURL.path) else {
+        let files = managedFiles(at: installedURL)
+        let sources = managedFiles(at: renderedURL)
+        guard files.count == sources.count else {
             throw AgentIntegrationInstallerError.installedFileModified(installedURL)
         }
-
-        let installedData = try Data(contentsOf: installedURL)
-        let renderedData = try Data(contentsOf: renderedURL)
-        guard installedData == renderedData else {
-            throw AgentIntegrationInstallerError.installedFileModified(installedURL)
+        // Validate every part before removing any, so a modified client cannot
+        // leave the server part removed while its manifest still claims both.
+        for (file, source) in zip(files, sources) where fileManager.fileExists(atPath: file.path) {
+            guard let expected = try existingFileData(at: source), try Data(contentsOf: file) == expected else {
+                throw AgentIntegrationInstallerError.installedFileModified(file)
+            }
         }
-
-        try fileManager.removeItem(at: installedURL)
+        for file in files where fileManager.fileExists(atPath: file.path) {
+            try fileManager.removeItem(at: file)
+        }
+        if isOpenCodePackageEntry(installedURL), fileManager.fileExists(atPath: installedURL.deletingLastPathComponent().path) {
+            try fileManager.removeItem(at: installedURL.deletingLastPathComponent())
+        }
     }
 
     private func existingFileData(at url: URL) throws -> Data? {
@@ -390,6 +482,13 @@ struct AgentIntegrationInstaller {
             try writePrivateFile(data, to: url)
         } else if fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
+        }
+        let directory = url.deletingLastPathComponent()
+        if data == nil, directory.lastPathComponent == "awesomux-opencode-status",
+            fileManager.fileExists(atPath: directory.path),
+            try fileManager.contentsOfDirectory(atPath: directory.path).isEmpty
+        {
+            try fileManager.removeItem(at: directory)
         }
     }
 
@@ -475,6 +574,8 @@ struct AgentIntegrationInstaller {
     }
 
     private func saveManifest(_ manifest: AgentIntegrationInstallManifest) throws {
+        var manifest = manifest
+        manifest.version = AgentIntegrationInstallManifest.currentVersion
         if let manifestWriter {
             try manifestWriter(manifest)
             return

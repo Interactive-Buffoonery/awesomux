@@ -217,8 +217,8 @@ public enum AgentHookEventMapper {
     private static func openCodeMapping(hookEventName: String) -> EventMapping? {
         switch hookEventName {
         case "PermissionReplied":
-            // OpenCode's bus `permission.replied` — authoritative retract for a
-            // hook-raised `.permissionPrompt` (issue #404). Content-free on purpose.
+            // OpenCode's permission and form replies authoritatively retract
+            // the resolved prompt. Content-free on purpose.
             EventMapping(phase: .permissionReplied)
         default:
             localAgentMapping[hookEventName]

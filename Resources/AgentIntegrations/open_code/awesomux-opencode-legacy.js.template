@@ -1,0 +1,9 @@
+import { AwesoMuxOpenCodeStatus } from "./awesomux-opencode-status/index.js"
+
+// V1 discovers files, while V2 discovers the adjacent package and its TUI part.
+// A distinct no-op V2 definition keeps this V1 entry from shadowing the package.
+export default {
+    id: "awesomux.legacy-status",
+    setup() {},
+    server: AwesoMuxOpenCodeStatus,
+}
