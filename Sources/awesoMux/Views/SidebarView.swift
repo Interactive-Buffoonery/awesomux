@@ -79,6 +79,8 @@ struct SidebarView: View {
     @State private var activityPanelOpen = false
     @State private var collapsedAgentSections = Set<AgentActivityRoster.Section>()
     @State private var collapsedPreviewAgentSections = Set<AgentActivityRoster.Section>()
+    @Environment(\.awAccent) private var footerAccent
+    @Environment(\.colorSchemeContrast) private var footerContrast
     @State private var agentPreviewOpen = false
     @State private var workspacePreviewOpen = false
     @State private var sessionPendingRevealInWorkspaces: TerminalSession.ID?
@@ -648,7 +650,9 @@ struct SidebarView: View {
             agentPreviewOpen: agentPreviewOpen,
             workspacePreviewOpen: workspacePreviewOpen,
             activityPanelOpen: activityPanelOpen,
-            collapsedPreviewAgentSections: collapsedPreviewAgentSections
+            collapsedPreviewAgentSections: collapsedPreviewAgentSections,
+            footerAccent: footerAccent.accent,
+            footerIncreasedContrast: footerContrast == .increased
         )
         let activitySection = SidebarActivitySection(
             sessionStore: sessionStore,
@@ -1915,6 +1919,8 @@ struct SidebarActivityInvalidationKey: Equatable {
     let agentPreviewOpen: Bool
     let workspacePreviewOpen: Bool
     let collapsedPreviewAgentSections: Set<AgentActivityRoster.Section>
+    let footerAccent: AwAccent
+    let footerIncreasedContrast: Bool
 
     init(
         groups: [SessionGroup],
@@ -1934,7 +1940,9 @@ struct SidebarActivityInvalidationKey: Equatable {
         agentPreviewOpen: Bool = false,
         workspacePreviewOpen: Bool = false,
         activityPanelOpen: Bool = false,
-        collapsedPreviewAgentSections: Set<AgentActivityRoster.Section> = []
+        collapsedPreviewAgentSections: Set<AgentActivityRoster.Section> = [],
+        footerAccent: AwAccent = .peach,
+        footerIncreasedContrast: Bool = false
     ) {
         self.groups = groups
         self.pinnedSessionIDs = pinnedSessionIDs
@@ -1954,6 +1962,8 @@ struct SidebarActivityInvalidationKey: Equatable {
         self.agentPreviewOpen = agentPreviewOpen
         self.workspacePreviewOpen = workspacePreviewOpen
         self.collapsedPreviewAgentSections = collapsedPreviewAgentSections
+        self.footerAccent = footerAccent
+        self.footerIncreasedContrast = footerIncreasedContrast
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -1979,6 +1989,8 @@ struct SidebarActivityInvalidationKey: Equatable {
             lhs.agentPreviewOpen == rhs.agentPreviewOpen,
             lhs.workspacePreviewOpen == rhs.workspacePreviewOpen,
             lhs.collapsedPreviewAgentSections == rhs.collapsedPreviewAgentSections,
+            lhs.footerAccent == rhs.footerAccent,
+            lhs.footerIncreasedContrast == rhs.footerIncreasedContrast,
             lhs.groups.count == rhs.groups.count
         else { return false }
 
@@ -2159,7 +2171,9 @@ private struct SidebarActivitySection: View, Equatable {
                 previewAvailable: !invalidationKey.workspaceSearchActive,
                 onTogglePreview: togglePreview,
                 focusRequestID: footerFocusRequestID,
-                focusSwitch: footerFocusSwitch
+                focusSwitch: footerFocusSwitch,
+                accent: invalidationKey.footerAccent,
+                increasedContrast: invalidationKey.footerIncreasedContrast
             )
         }
         .onChange(of: invalidationKey.displayMode) { _, mode in

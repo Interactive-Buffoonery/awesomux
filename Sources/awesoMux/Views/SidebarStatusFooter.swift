@@ -18,6 +18,8 @@ struct SidebarStatusFooter: View {
     let onTogglePreview: () -> Void
     let focusRequestID: UUID
     let focusSwitch: Bool
+    let accent: AwAccent
+    let increasedContrast: Bool
 
     private enum Control: Hashable { case preview, sidebar }
     @FocusState private var focusedControl: Control?
@@ -79,10 +81,15 @@ struct SidebarStatusFooter: View {
                             .frame(width: 26, height: 26)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color.aw.railText)
-                    .background(previewOpen ? Color.aw.surface.hover : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(previewOpen ? Color.aw.accentOnChrome(accent) : Color.aw.railText)
+                    .background(
+                        previewOpen ? Color.aw.accentOnChrome(accent).opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 4)
+                    )
                     .focusable()
                     .focused($focusedControl, equals: .preview)
+                    .focusEffectDisabled()
+                    .overlay { focusRing(.preview) }
                     .onKeyPress(keys: [.space, .return], phases: .down) { press in
                         guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
                         onTogglePreview()
@@ -107,6 +114,8 @@ struct SidebarStatusFooter: View {
                 .foregroundStyle(Color.aw.railText)
                 .focusable()
                 .focused($focusedControl, equals: .sidebar)
+                .focusEffectDisabled()
+                .overlay { focusRing(.sidebar) }
                 .onKeyPress(keys: [.space, .return], phases: .down) { press in
                     guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
                     onToggleActivityPanel(nil)
@@ -132,6 +141,20 @@ struct SidebarStatusFooter: View {
         activityPanelOpen
             ? String(localized: "Show Workspaces Sidebar", comment: "Switch sidebar destination")
             : String(localized: "Show Agents Sidebar", comment: "Switch sidebar destination")
+    }
+
+    @ViewBuilder
+    private func focusRing(_ control: Control) -> some View {
+        if focusedControl == control {
+            RoundedRectangle(cornerRadius: 4)
+                .inset(by: 1)
+                .stroke(
+                    Color.aw.accentOnChrome(accent),
+                    lineWidth: AwFocusRing.lineWidth(increasedContrast: increasedContrast)
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     private var previewLabel: String {
