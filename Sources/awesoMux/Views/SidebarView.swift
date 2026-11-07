@@ -2133,7 +2133,7 @@ private struct SidebarActivitySection: View, Equatable {
                         }
                     }
                     .buttonStyle(.plain)
-                    .awFont(AwFont.UI.meta)
+                    .awFont(AwFont.Mono.meta)
                     .foregroundStyle(Color.aw.railText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)

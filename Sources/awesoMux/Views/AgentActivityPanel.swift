@@ -289,7 +289,7 @@ struct AgentActivityPanel: View {
             applyPlacementUpdates()
         }
         .buttonStyle(.plain)
-        .awFont(AwFont.UI.meta)
+        .awFont(AwFont.Mono.meta)
         .foregroundStyle(Color.aw.status.needs)
         .accessibilityLabel(
             String(localized: "New activity — show updates", comment: "Apply deferred agent-list placement changes")
@@ -405,12 +405,12 @@ struct AgentActivityPanel: View {
                             AgentTile(agent: item.row.agentKind.awAgentIcon, state: .idle, size: 20, badgeStyle: .collapsed)
                                 .accessibilityHidden(true)
                             Text(verbatim: item.title)
-                                .awFont(AwFont.UI.meta)
+                                .awFont(AwFont.UI.label)
                                 .fontWeight(.semibold)
                                 .lineLimit(2)
                         }
                         Text(verbatim: [item.groupText, item.workspaceText].filter { !$0.isEmpty }.joined(separator: " / "))
-                            .awFont(AwFont.UI.meta)
+                            .awFont(AwFont.Mono.meta)
                             .foregroundStyle(Color.aw.railText)
                             .lineLimit(1)
                     } else {
@@ -420,7 +420,7 @@ struct AgentActivityPanel: View {
                                 .accessibilityHidden(true)
                             if !item.groupText.isEmpty {
                                 Text(verbatim: item.groupText)
-                                    .awFont(AwFont.UI.meta)
+                                    .awFont(AwFont.Mono.meta)
                                     .foregroundStyle(Color.aw.railText)
                                     .lineLimit(1)
                             }
@@ -430,7 +430,7 @@ struct AgentActivityPanel: View {
                         .lineLimit(2)
                     if !item.workspaceText.isEmpty {
                         Text(verbatim: item.workspaceText)
-                            .awFont(AwFont.UI.meta)
+                                .awFont(AwFont.Mono.meta)
                             .foregroundStyle(Color.aw.railText)
                             .lineLimit(2)
                     }
@@ -473,7 +473,7 @@ struct AgentActivityPanel: View {
                             ? String(localized: "Finished", comment: "Agent execution completed; not a review verdict") : detail
                     )
                     .lineLimit(1)
-                    .awFont(AwFont.UI.meta)
+                    .awFont(AwFont.Mono.meta)
                     .foregroundStyle(needsAttention ? Color.aw.status.needs : Color.aw.railText)
                 }
                 .accessibilityHidden(true)
@@ -483,7 +483,7 @@ struct AgentActivityPanel: View {
                         onMarkSeen(item.row)
                     }
                     .buttonStyle(.plain)
-                    .awFont(AwFont.UI.meta)
+                    .awFont(AwFont.Mono.meta)
                     .foregroundStyle(unread ? Color.aw.status.needs : Color.aw.railText)
                     .accessibilityHint(
                         String(

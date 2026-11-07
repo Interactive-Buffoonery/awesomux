@@ -71,21 +71,32 @@ struct SidebarStatusFooter: View {
 
             HStack(spacing: 4) {
                 Text(Self.modeSwitchLabel(total: total, activityPanelOpen: activityPanelOpen))
-                    .awFont(AwFont.UI.meta)
+                    .awFont(AwFont.Mono.meta)
                     .foregroundStyle(Color.aw.railText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if previewAvailable {
                     Button(action: onTogglePreview) {
                         Image(systemName: "rectangle.bottomthird.inset.filled")
+                            .font(.system(size: 13, weight: .regular))
                             .frame(width: 26, height: 26)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(previewOpen ? Color.aw.accentOnChrome(accent) : Color.aw.railText)
+                    .foregroundStyle(Color.aw.railText)
                     .background(
-                        previewOpen ? Color.aw.accentOnChrome(accent).opacity(0.12) : Color.clear,
+                        previewOpen ? Color.aw.accent(accent).opacity(0.08) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 4)
                     )
+                    .overlay(alignment: .bottom) {
+                        if previewOpen {
+                            Capsule()
+                                .fill(Color.aw.railText)
+                                .frame(width: 10, height: 2)
+                                .padding(.bottom, 2)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .focusable()
                     .focused($focusedControl, equals: .preview)
                     .focusEffectDisabled()
@@ -108,6 +119,7 @@ struct SidebarStatusFooter: View {
                     onToggleActivityPanel(nil)
                 } label: {
                     Image(systemName: "rectangle.2.swap")
+                        .font(.system(size: 13, weight: .regular))
                         .frame(width: 26, height: 26)
                 }
                 .buttonStyle(.plain)
@@ -190,7 +202,7 @@ struct SidebarStatusFooter: View {
                         .frame(width: 32)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color.aw.text3)
+                    .foregroundStyle(Color.aw.railText)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(LocalizedPluralStrings.footerAgentsInState(
                         count: count,
@@ -235,7 +247,7 @@ struct SidebarStatusFooter: View {
         }
         .buttonStyle(.plain)
         .awFont(AwFont.Mono.meta)
-        .foregroundStyle(Color.aw.text3)
+        .foregroundStyle(Color.aw.railText)
         .padding(.horizontal, compact ? 0 : 8)
         .padding(.vertical, compact ? 0 : 4)
         .accessibilityElement(children: .ignore)
@@ -266,7 +278,7 @@ struct SidebarStatusFooter: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Color.aw.text3)
+        .foregroundStyle(Color.aw.railText)
         .accessibilityLabel("Quick Settings")
         .help("Quick Settings")
     }
@@ -294,9 +306,9 @@ struct SidebarStatusFooter: View {
         .fixedSize()
         // .borderlessButton menu labels render their glyph in the control's accent
         // tint and ignore the outer foregroundStyle — .tint is what actually reaches
-        // the label's Image, matching the gear's Color.aw.text3.
-        .tint(Color.aw.text3)
-        .foregroundStyle(Color.aw.text3)
+        // the label's Image, matching the gear's Color.aw.railText.
+        .tint(Color.aw.railText)
+        .foregroundStyle(Color.aw.railText)
         .accessibilityLabel("Help and feedback")
         .accessibilityHint("Opens menu")
         .help("Help & Feedback")
@@ -327,8 +339,8 @@ struct EmptySidebarFilterView: View {
             }
 
             Text(filterDescription)
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text3)
+                .awFont(AwFont.Mono.meta)
+                .foregroundStyle(Color.aw.railText)
                 .fixedSize(horizontal: false, vertical: true)
 
             Button("Clear search") {
