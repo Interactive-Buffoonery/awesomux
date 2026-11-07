@@ -77,6 +77,7 @@ struct SidebarView: View {
     @State private var dragClearScheduler = SidebarDragClearScheduler()
     @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
     @State private var activityPanelOpen = false
+    @State private var collapsedAgentSections = Set<AgentActivityRoster.Section>()
     @State private var sessionPendingRevealInWorkspaces: TerminalSession.ID?
     @State private var activityPanelScrollRequestID = UUID()
     @State private var activityPanelScrollTarget: AgentDisplayState?
@@ -639,7 +640,8 @@ struct SidebarView: View {
             actionableAgentPaneIDs: sessionStore.actionableAgentPaneIDs,
             activityPanelScrollRequestID: activityPanelVisible ? activityPanelScrollRequestID : nil,
             workspaceSearchActive: isFiltering,
-            tintedHighContrast: activityPanelVisible && appSettingsStore.appearance.value.tintedHighContrast
+            tintedHighContrast: activityPanelVisible && appSettingsStore.appearance.value.tintedHighContrast,
+            collapsedAgentSections: collapsedAgentSections
         )
         let activitySection = SidebarActivitySection(
             sessionStore: sessionStore,
@@ -648,6 +650,7 @@ struct SidebarView: View {
             activityPanelOpen: $activityPanelOpen,
             activityPanelScrollTarget: $activityPanelScrollTarget,
             activityPanelScrollRequestID: $activityPanelScrollRequestID,
+            collapsedAgentSections: $collapsedAgentSections,
             onOpenQuickSettings: onOpenQuickSettings,
             onShowWelcomeTour: onShowWelcomeTour,
             onFocusPane: onFocusPane
@@ -1897,6 +1900,7 @@ struct SidebarActivityInvalidationKey: Equatable {
     let activityPanelScrollRequestID: UUID?
     let workspaceSearchActive: Bool
     let tintedHighContrast: Bool
+    let collapsedAgentSections: Set<AgentActivityRoster.Section>
 
     init(
         groups: [SessionGroup],
@@ -1911,7 +1915,8 @@ struct SidebarActivityInvalidationKey: Equatable {
         actionableAgentPaneIDs: [UUID] = [],
         activityPanelScrollRequestID: UUID? = nil,
         workspaceSearchActive: Bool = false,
-        tintedHighContrast: Bool = false
+        tintedHighContrast: Bool = false,
+        collapsedAgentSections: Set<AgentActivityRoster.Section> = []
     ) {
         self.groups = groups
         self.pinnedSessionIDs = pinnedSessionIDs
@@ -1926,6 +1931,7 @@ struct SidebarActivityInvalidationKey: Equatable {
         self.activityPanelScrollRequestID = activityPanelScrollRequestID
         self.workspaceSearchActive = workspaceSearchActive
         self.tintedHighContrast = tintedHighContrast
+        self.collapsedAgentSections = collapsedAgentSections
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -1946,6 +1952,7 @@ struct SidebarActivityInvalidationKey: Equatable {
             lhs.activityPanelScrollRequestID == rhs.activityPanelScrollRequestID,
             lhs.workspaceSearchActive == rhs.workspaceSearchActive,
             lhs.tintedHighContrast == rhs.tintedHighContrast,
+            lhs.collapsedAgentSections == rhs.collapsedAgentSections,
             lhs.groups.count == rhs.groups.count
         else { return false }
 
@@ -2017,6 +2024,7 @@ private struct SidebarActivitySection: View, Equatable {
     @Binding var activityPanelOpen: Bool
     @Binding var activityPanelScrollTarget: AgentDisplayState?
     @Binding var activityPanelScrollRequestID: UUID
+    @Binding var collapsedAgentSections: Set<AgentActivityRoster.Section>
     let onOpenQuickSettings: () -> Void
     let onShowWelcomeTour: () -> Void
     let onFocusPane: (TerminalSession.ID, UUID) -> Void
@@ -2060,6 +2068,7 @@ private struct SidebarActivitySection: View, Equatable {
                     scrollTarget: activityPanelScrollTarget,
                     scrollRequestID: activityPanelScrollRequestID,
                     tintedHighContrast: invalidationKey.tintedHighContrast,
+                    collapsedSections: $collapsedAgentSections,
                     onSelect: selectActivityRow
                 )
             }
@@ -2139,6 +2148,14 @@ private struct SidebarActivitySection: View, Equatable {
         activityPanelScrollTarget = scrollTarget
         if open {
             searchText = ""
+            if let scrollTarget {
+                let roster = AgentActivityRoster.build(sessions: sessionStore.groups.flatMap(\.sessions))
+                if let target = roster.orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs).first(where: {
+                    scrollTarget == .needsAttention ? $0.section == .needsYou : $0.state == scrollTarget
+                }) {
+                    collapsedAgentSections.remove(target.section)
+                }
+            }
             activityPanelScrollRequestID = UUID()
         }
         guard open != activityPanelOpen else {
@@ -2178,6 +2195,7 @@ private struct SidebarActivityPanelTitleScope: View {
     let scrollTarget: AgentDisplayState?
     let scrollRequestID: UUID
     let tintedHighContrast: Bool
+    @Binding var collapsedSections: Set<AgentActivityRoster.Section>
     let onSelect: (AgentActivityRoster.Row) -> Void
 
     var body: some View {
@@ -2194,6 +2212,7 @@ private struct SidebarActivityPanelTitleScope: View {
             scrollRequestID: scrollRequestID,
             livePaneIDs: Set(sessions.flatMap { $0.layout.paneIDs }),
             selectedPaneID: selectedPaneID,
+            collapsedSections: $collapsedSections,
             tintedHighContrast: tintedHighContrast,
             tintAccentsByPaneID: Dictionary(
                 sessions.flatMap { session in
@@ -2237,10 +2256,9 @@ private struct SidebarActivityPanelTitleScope: View {
             row: row,
             title: title,
             locationText: location?.displayText ?? "",
-            workspaceText: [
-                groupName,
-                workspaceTitle == title || workspaceTitle == groupName ? nil : workspaceTitle,
-            ].compactMap { $0 }.joined(separator: " / ")
+            groupText: groupName ?? "",
+            workspaceText: workspaceTitle == title || workspaceTitle == groupName ? "" : workspaceTitle ?? "",
+            remoteHost: pane?.remotePresentationHost
         )
     }
 }
