@@ -70,6 +70,7 @@ fastlane/test_output
 !.agents/skills/
 .agents/skills/*
 !.agents/skills/read-awesomux-plan/
+!.agents/skills/merge-risk/
 .claude/*
 !.claude/skills/
 .codex/*
