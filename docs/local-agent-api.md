@@ -1,7 +1,7 @@
 # Shared local agent API
 
-For the local skill package and pending phone acceptance procedure, see
-[Read-only awesoMux access from Dot](dot-read-only.md).
+For an overview of connections, permissions, supported helper reads, and client
+boundaries, see [Read-only access for external clients](external-client-read-only.md).
 
 The app-owned status transport is opt-in. Installation grants nothing. A user
 adds each local client in **Settings → Agents → Outside app access**, reviews
@@ -12,8 +12,8 @@ changing another connection.
 
 Outside app access is unreleased. Production-profile builds hide the Settings
 section unless a connection already exists, so existing users can still revoke
-it, and omit the Dot skill. The engine still runs and denies every request
-until a connection and global access exist.
+it, and omit the optional integration skill bundle. The engine still runs and
+denies every request until a connection and global access exist.
 
 ## Components and ownership
 
@@ -210,7 +210,7 @@ A revoked connection or disabled global access still returns the normal denial,
 without a page. Authorization is rechecked before every socket write.
 
 This operation supplies history for a client to check. It does not schedule
-checks, deliver Dot messages, or implement monitoring.
+checks, deliver client notifications, or implement monitoring.
 
 ## Exact-session context
 
