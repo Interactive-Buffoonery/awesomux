@@ -132,7 +132,7 @@ struct SidebarStatusFooter: View {
         .padding(.vertical, 7)
         .frame(minHeight: AwSpacing.footerChrome)
         .onChange(of: focusRequestID) { _, _ in
-            focusedControl = focusSwitch ? .sidebar : .preview
+            focusedControl = !focusSwitch && previewAvailable ? .preview : .sidebar
             if voiceOverEnabled { accessibleControl = focusedControl }
         }
     }

@@ -436,6 +436,7 @@
       }
     },
     "%arg, %arg, %arg, pane %arg, %arg, %arg" : {
+      "comment" : "VoiceOver label: workspace, group, agent, pane number, title, state",
       "localizations" : {
         "en" : {
           "stringUnit" : {

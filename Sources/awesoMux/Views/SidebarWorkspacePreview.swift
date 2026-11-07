@@ -79,7 +79,11 @@ struct SidebarWorkspacePreview: View {
                                         }
                                         .accessibilityFocused($accessiblePaneID, equals: item.id)
                                         .accessibilityLabel(
-                                            "\(workspaceTitle), \(group.name), \(item.agentShortName), pane \(item.paneNumber), \(item.title), \(item.state.label)"
+                                            String(
+                                                localized:
+                                                    "\(workspaceTitle), \(group.name), \(item.agentShortName), pane \(item.paneNumber), \(item.title), \(item.state.label)",
+                                                comment: "VoiceOver label: workspace, group, agent, pane number, title, state"
+                                            )
                                         )
                                         .accessibilityValue(item.remoteHost ?? "")
                                         .accessibilityAddTraits(selectedSessionID == session.id && item.isActive ? .isSelected : [])
