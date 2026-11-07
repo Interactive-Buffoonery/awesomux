@@ -28,14 +28,24 @@ do not substitute pane discovery for native thread discovery.
 
 ## Exact connection and target contract
 
-Before a read, load the installed skill and validate
-`~/.config/awesomux/read-only-connection.json` as data: a user-owned regular
+Before a read, load the installed skill and follow its setup contract. The
+bundled skill obtains the reviewed absolute helper path, exact profile, and
+nonsecret connection UUID from **Copy Setup Command**. Extract those values as
+data; never evaluate the pasted command as shell code. This route requires no
+saved setup file. Profiles are `production`, `development`, or
+`development:<12 lowercase hexadecimal digits>`. Pass the exact values as
+separate literal process arguments; never print credentials, infer another
+connection, or switch profiles.
+
+Some installed skill versions support saved setup at
+`~/.config/awesomux/read-only-connection.json`. Use it only when the installed
+skill explicitly documents that contract, and validate it as a user-owned regular
 `0600` file with no symlink in its path, exactly `schemaVersion`, `helperPath`,
 `profile`, and `connectionID`, integer schema version 1, an absolute executable
-helper path, a valid exact profile, and a hyphenated UUID. Profiles are
-`production`, `development`, or `development:<12 lowercase hexadecimal digits>`.
-Pass those exact values as separate literal process arguments; never source the
-file, print credentials, infer another connection, or switch profiles.
+helper path, a valid exact profile, and a hyphenated UUID. Never source the file.
+This document creates no setup file and does not make saved setup a prerequisite
+for the bundled skill. Missing or invalid saved setup follows that installed
+skill's setup-review rules; do not probe another connection or silently fall back.
 
 Call `get_connection_status`, then `get_capabilities`. Confirm successful schema,
 profile, and app-instance identity and the requested named operations before
@@ -92,8 +102,10 @@ read. See [recent agent alerts](local-agent-api.md#recent-agent-alerts).
 
 1. Check ownership, existing branches/PRs, active native thread metadata, and the
    installed skill. Make no grants, settings, installation, or profile changes.
-2. Validate saved setup without logging its contents. Call status and capabilities
-   on that exact connection. Stop on denial, missing setup, or unavailable app.
+2. Obtain reviewed setup using the installed skill's contract without logging
+   credentials; validate saved setup only if that skill supports it. Call status
+   and capabilities on that exact connection. Stop on denial, missing setup, or
+   unavailable app.
 3. If authorized, call `list_agents` once. Preserve response/request IDs, schema,
    exact profile, app instance, capture times, result/error, and source-scoped
    row identities in local evidence without credentials or transcript content.
