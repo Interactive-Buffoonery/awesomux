@@ -146,6 +146,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
     static func make(
         pane: TerminalPane,
         session: TerminalSession,
+        lookupDirectory: String? = nil,
         fileManager: FileManager = .default,
         homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
     ) -> TerminalPathBarModel {
@@ -153,7 +154,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             return remoteModel
         }
         let pathInfo = PathInfo(
-            workingDirectory: pane.workingDirectory,
+            workingDirectory: lookupDirectory ?? pane.workingDirectory,
             fallbackProject: session.title,
             fileManager: fileManager,
             homeDirectory: homeDirectory

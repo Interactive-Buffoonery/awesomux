@@ -1329,6 +1329,9 @@
     "Choose Emoji…" : {
       "comment" : "Opens the macOS character panel to choose a workspace emoji."
     },
+    "Choose Worktree…" : {
+
+    },
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
 
     },
@@ -1361,6 +1364,9 @@
     },
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
+    },
+    "Choose the checkout to query. The terminal directory stays unchanged." : {
+
     },
     "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH." : {
       "comment" : "Help explaining independent SSH file-read configuration"
@@ -1788,6 +1794,9 @@
     },
     "Could not download the remote helper" : {
       "comment" : "Remote helper release download failure title"
+    },
+    "Could not find available worktrees for this shell's repository." : {
+
     },
     "Could not launch agent setup" : {
 
@@ -3564,6 +3573,17 @@
         }
       }
     },
+    "No open pull request for branch %arg in %arg." : {
+      "comment" : "Includes the exact pull request lookup context",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "No open pull request for branch %1$arg in %2$arg."
+          }
+        }
+      }
+    },
     "No presets were found under .awesomux/layouts for this project. Use “Save Layout as Preset…” to create one." : {
       "comment" : "Alert text when the project has no layout presets."
     },
@@ -3683,6 +3703,9 @@
     },
     "Open Pull Request" : {
       "comment" : "Command to open the connected pull request for the current branch\nMenu command to open a read-only snapshot of the local branch's connected GitHub pull request"
+    },
+    "Open Pull Request from Worktree" : {
+
     },
     "Open Recent Link" : {
       "comment" : "Command palette action for opening a link detected in a terminal pane"
@@ -5918,9 +5941,6 @@
     "This app no longer has access, but awesoMux couldn't finish removing it." : {
 
     },
-    "This branch has no open pull request in the connected GitHub repository." : {
-      "comment" : "Reason a connected pull request document could not open"
-    },
     "This branch matches %arg. There is nothing to show." : {
       "comment" : "Notice in a rendered branch diff when the branch and its base are identical"
     },
@@ -6436,6 +6456,9 @@
     },
     "Workspaces sidebar opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel collapses."
+    },
+    "Worktree" : {
+
     },
     "Worktree Manager" : {
       "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel title bar.\nWorktree Manager panel title."

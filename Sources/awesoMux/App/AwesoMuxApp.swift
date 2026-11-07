@@ -4483,7 +4483,7 @@ struct AwesoMuxApp: App {
         scheduleQuickRunToastDismissal(id: toastID)
     }
 
-    private func openPullRequestForActivePane() {
+    private func openPullRequestForActivePane(lookupDirectory: String? = nil) {
         healSheetWedgeBeforeGatedCommand()
         guard !isAnySheetPresented, let session = sessionStore.selectedSession,
             let pane = session.layout.pane(id: session.activePaneID)
@@ -4518,7 +4518,12 @@ struct AwesoMuxApp: App {
             let stillCurrent: @MainActor @Sendable () -> Bool = {
                 sourceUnchanged() && pane.executionPlan == .local && pane.remotePresentationHost == nil
             }
-            let result = await opener.open(session: session, pane: pane, ifStillCurrent: stillCurrent)
+            if lookupDirectory == nil, pane.executionPlan == .local, pane.remotePresentationHost == nil,
+                await choosePullRequestWorktree(session: session, pane: pane, stillCurrent: stillCurrent, onlyIfMultiple: true)
+            {
+                return
+            }
+            let result = await opener.open(session: session, pane: pane, lookupDirectory: lookupDirectory, ifStillCurrent: stillCurrent)
             defer {
                 if case .success(let opened) = result {
                     opener.cache.completeWrite(at: opened.fileURL, leaseID: opened.leaseID)
@@ -4549,12 +4554,63 @@ struct AwesoMuxApp: App {
                 let alert = NSAlert()
                 alert.messageText = String(
                     localized: "Can't Open Pull Request", comment: "Alert title when the connected pull request snapshot could not open")
-                alert.informativeText = failure.description
+                let context = await Task.detached {
+                    TerminalPathBarModel.make(pane: pane, session: session, lookupDirectory: lookupDirectory)
+                }.value
+                guard sourceUnchanged() else { return }
+                alert.informativeText =
+                    failure.description + "\n\n" + (context.validatedRepoRootPath ?? context.copyPath)
+                    + "\n" + (context.gitBranch ?? context.branch ?? "")
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: String(localized: "OK"))
-                alert.runModal()
+                if pane.executionPlan == .local, pane.remotePresentationHost == nil {
+                    alert.addButton(withTitle: String(localized: "Choose Worktree…"))
+                }
+                if alert.runModal() == .alertSecondButtonReturn, stillCurrent() {
+                    _ = await choosePullRequestWorktree(session: session, pane: pane, stillCurrent: stillCurrent)
+                }
             }
         }
+    }
+
+    private func choosePullRequestWorktree(
+        session: TerminalSession, pane: TerminalPane,
+        stillCurrent: @escaping @MainActor @Sendable () -> Bool,
+        onlyIfMultiple: Bool = false
+    ) async -> Bool {
+        let records: [GitWorktreeRecord]? = await Task.detached {
+            let model = TerminalPathBarModel.make(pane: pane, session: session)
+            guard let root = model.validatedRepoRootPath,
+                case .located(let context) = await LocalGitRepositoryLocator().locate(startingAt: URL(fileURLWithPath: root)),
+                case .success(let parsed) = await GitWorktreeService().list(in: context)
+            else { return nil }
+            return parsed.records.filter { !$0.isBare && !$0.isDetached && $0.prunableReason == nil }
+        }.value
+        guard stillCurrent(), sessionStore.selectedSessionID == session.id,
+            sessionStore.session(id: session.id)?.activePaneID == pane.id
+        else { return true }
+        if onlyIfMultiple, (records?.count ?? 0) <= 1 { return false }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Open Pull Request from Worktree")
+        guard let records, !records.isEmpty else {
+            alert.informativeText = String(localized: "Could not find available worktrees for this shell's repository.")
+            alert.runModal()
+            return true
+        }
+        alert.informativeText = String(localized: "Choose the checkout to query. The terminal directory stays unchanged.")
+        let chooser = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 560, height: 28), pullsDown: false)
+        chooser.addItems(withTitles: records.map { $0.displayBranch + " — " + $0.canonicalPath.path })
+        chooser.setAccessibilityLabel(String(localized: "Worktree"))
+        alert.accessoryView = chooser
+        alert.addButton(withTitle: String(localized: "Open Pull Request"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn, stillCurrent(),
+            sessionStore.selectedSessionID == session.id,
+            sessionStore.session(id: session.id)?.activePaneID == pane.id,
+            records.indices.contains(chooser.indexOfSelectedItem)
+        else { return true }
+        openPullRequestForActivePane(lookupDirectory: records[chooser.indexOfSelectedItem].canonicalPath.path)
+        return true
     }
 
     private func showBranchChangesFailureAlert(_ failure: BranchChangesFailure) {
@@ -5360,7 +5416,7 @@ struct AwesoMuxApp: App {
             browseProjectTranscripts: browseProjectTranscripts,
             openAgentTranscript: openAgentTranscriptForActivePane,
             showBranchChanges: showBranchChangesForActivePane,
-            openPullRequest: openPullRequestForActivePane,
+            openPullRequest: { openPullRequestForActivePane() },
             reconnectRemotePane: reconnectActiveRemotePane,
             setUpRemoteTerminal: setUpRemoteTerminalForActivePane,
             growActivePane: {

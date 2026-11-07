@@ -278,9 +278,39 @@ struct PullRequestDocumentFlowTests {
             var wrongFork = payload
             wrongFork[0]["headRepositoryOwner"] = ["login": "other"]
             try JSONSerialization.data(withJSONObject: wrongFork).write(to: listURL)
-            #expect(await opener.open(session: session, pane: pane) == .failure(.noPullRequest))
+            #expect(
+                await opener.open(session: session, pane: pane) == .failure(.noMatchingPullRequest(repository: "owner/repo", branch: "123"))
+            )
             try Data("[]".utf8).write(to: listURL)
-            #expect(await opener.open(session: session, pane: pane) == .failure(.noPullRequest))
+            #expect(
+                await opener.open(session: session, pane: pane) == .failure(.noMatchingPullRequest(repository: "owner/repo", branch: "123"))
+            )
+            // A zero-match response must not hide a branch switch during the lookup.
+            try Data().write(to: directory.appending(path: "switch-on-list"))
+            #expect(await opener.open(session: session, pane: pane) == .failure(.sourceChanged))
+            try FileManager.default.removeItem(at: directory.appending(path: "switch-on-list"))
+            #expect(
+                await git.runDetailed(arguments: ["symbolic-ref", "HEAD", "refs/heads/123"], inDirectory: directory.path).completeData
+                    != nil)
+            // An explicit checkout is independent from the shell's directory.
+            var shellPane = pane
+            shellPane.workingDirectory = directory.appending(path: "elsewhere").path
+            try FileManager.default.createDirectory(atPath: shellPane.workingDirectory, withIntermediateDirectories: true)
+            #expect(
+                await git.runDetailed(arguments: ["init", "--initial-branch=dev"], inDirectory: shellPane.workingDirectory).completeData
+                    != nil)
+            #expect(
+                await git.runDetailed(
+                    arguments: ["remote", "add", "origin", "git@github.com:owner/repo.git"], inDirectory: shellPane.workingDirectory
+                ).completeData != nil)
+            try FileManager.default.copyItem(at: listURL, to: URL(fileURLWithPath: shellPane.workingDirectory).appending(path: "list.json"))
+            #expect(
+                await opener.open(session: session, pane: shellPane)
+                    == .failure(.noMatchingPullRequest(repository: "owner/repo", branch: "dev")))
+            try JSONSerialization.data(withJSONObject: payload).write(to: listURL)
+            let selected = try await opener.open(session: session, pane: shellPane, lookupDirectory: directory.path).get()
+            cache.completeWrite(at: selected.fileURL, leaseID: selected.leaseID)
+            #expect(shellPane.workingDirectory == directory.appending(path: "elsewhere").path)
             var remotePane = pane
             remotePane.executionPlan = .ssh(SSHExecution(target: try #require(RemoteTarget(parsing: "host"))))
             #expect(await opener.open(session: session, pane: remotePane) == .failure(.remotePane))
@@ -326,6 +356,7 @@ struct PullRequestDocumentFlowTests {
               /usr/bin/touch repo-view-started
               \(ShellWait.untilExists(path: "release-repo-view")) || exit 1
             fi
+            if [ -f switch-on-list ] && [ "$1 $2" = "pr list" ]; then /usr/bin/git symbolic-ref HEAD refs/heads/456; fi
             case "$1 $2" in
               "repo view") echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
               "pr list") /bin/cat list.json ;;

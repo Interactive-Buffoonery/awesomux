@@ -10,8 +10,9 @@ struct OpenedPullRequestDocument: Equatable, Sendable {
 }
 
 enum PullRequestDocumentFailure: Error, Equatable, Sendable {
-    case remotePane, invalidRepository, detachedHead, noGitHubRepository, noPullRequest
+    case remotePane, invalidRepository, detachedHead, noGitHubRepository
     case commandFailed, tooLarge, cacheWriteFailed, ambiguousPullRequest, sourceChanged, unsupportedResponse
+    case noMatchingPullRequest(repository: String, branch: String)
     case lookupLimitReached
 
     var description: String {
@@ -33,10 +34,10 @@ enum PullRequestDocumentFailure: Error, Equatable, Sendable {
                 localized:
                     "Pull request documents require a GitHub.com origin remote. Check the origin remote and GitHub CLI authentication.",
                 comment: "Reason a connected pull request document could not open")
-        case .noPullRequest:
+        case .noMatchingPullRequest(let repository, let branch):
             String(
-                localized: "This branch has no open pull request in the connected GitHub repository.",
-                comment: "Reason a connected pull request document could not open")
+                localized: "No open pull request for branch \(branch) in \(repository).",
+                comment: "Includes the exact pull request lookup context")
         case .ambiguousPullRequest:
             String(
                 localized: "More than one open pull request matches this branch. Open the intended pull request on GitHub.",
@@ -137,11 +138,11 @@ struct PullRequestDocumentOpener: Sendable {
 
     // Subprocess decoding, rendering, and owner-only cache IO stay off the UI actor.
     func open(
-        session: TerminalSession, pane: TerminalPane,
+        session: TerminalSession, pane: TerminalPane, lookupDirectory: String? = nil,
         ifStillCurrent: @MainActor @Sendable () -> Bool = { true }
     ) async -> Result<OpenedPullRequestDocument, PullRequestDocumentFailure> {
         guard pane.executionPlan == .local, pane.remotePresentationHost == nil else { return .failure(.remotePane) }
-        let model = TerminalPathBarModel.make(pane: pane, session: session)
+        let model = TerminalPathBarModel.make(pane: pane, session: session, lookupDirectory: lookupDirectory)
         guard !Task.isCancelled else { return .failure(.commandFailed) }
         guard let root = model.validatedRepoRootPath else { return .failure(.invalidRepository) }
         guard let branch = model.gitBranch, !branch.isEmpty else { return .failure(.detachedHead) }
@@ -170,7 +171,17 @@ struct PullRequestDocumentOpener: Sendable {
                     && "\($0.headRepositoryOwner?.login ?? "")/\($0.headRepository?.name ?? "")".lowercased() == headRepository
             }
             guard matching.count <= 1 else { return .failure(.ambiguousPullRequest) }
-            guard let pr = matching.first else { return .failure(.noPullRequest) }
+            let checkedOrigin = await gitRunner.run(
+                arguments: ["config", "--get", "remote.origin.url"], inDirectory: URL(fileURLWithPath: root))
+            let checkedModel = TerminalPathBarModel.make(pane: pane, session: session, lookupDirectory: lookupDirectory)
+            guard checkedModel.validatedRepoRootPath == root, checkedModel.gitBranch == branch,
+                let checkedData = checkedOrigin.completeData,
+                let checkedText = String(data: checkedData, encoding: .utf8),
+                Self.gitHubRepository(checkedText.trimmingCharacters(in: .whitespacesAndNewlines)) == headRepository
+            else { return .failure(.sourceChanged) }
+            guard let pr = matching.first else {
+                return .failure(.noMatchingPullRequest(repository: repository.nameWithOwner, branch: branch))
+            }
             guard pr.number > 0,
                 pr.url.lowercased() == "https://github.com/\(repository.nameWithOwner.lowercased())/pull/\(pr.number)",
                 pr.state == "OPEN"
@@ -241,7 +252,7 @@ struct PullRequestDocumentOpener: Sendable {
                     return true
                 })
             else { return .failure(.sourceChanged) }
-            let liveModel = TerminalPathBarModel.make(pane: pane, session: session)
+            let liveModel = TerminalPathBarModel.make(pane: pane, session: session, lookupDirectory: lookupDirectory)
             guard liveModel.validatedRepoRootPath == root, liveModel.gitBranch == branch,
                 let liveOriginData = liveOrigin.completeData,
                 let liveOriginText = String(data: liveOriginData, encoding: .utf8),
