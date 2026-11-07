@@ -3,22 +3,8 @@
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const fullSections = [
-  "Why",
-  "What's Included",
-  "UI / UX",
-  "Validation",
-  "AI Assistance",
-  "Risk Notes",
-  "Follow-ups",
-];
-const docsSections = [
-  "Why",
-  "What's Included",
-  "Validation",
-  "AI Assistance",
-  "Follow-ups",
-];
+const fullSections = ["Why", "What's Included", "UI / UX", "Notes"];
+const docsSections = ["Why", "What's Included", "Notes"];
 const marker = "<!-- awesomux-pr-template-validation -->";
 const codesmithFooterPattern =
   /<!-- codesmith:footer -->[\s\S]*?<!-- \/codesmith:footer -->/g;
@@ -28,16 +14,6 @@ const templatePlaceholderHints = [
   "keep this skimmable",
   "required for visible ui",
   "image/video/link",
-  "for ui polish",
-  "list real commands/manual checks",
-  "ai tools are welcome",
-  "person opening the pr chooses",
-  "e.g. codex, claude code",
-  "commands, manual checks, or code paths",
-  "unclear areas, generated sections",
-  "call out config, security, build, ci",
-  "optional: reviewer focus areas",
-  "keep scope held",
 ];
 
 function normalizeHeading(value) {
@@ -85,19 +61,9 @@ function isDocsOnly(files) {
   });
 }
 
-function hasValidationEvidence(text) {
-  const withoutComments = text.replace(/<!--[\s\S]*?-->/g, "");
-  if (/[-*]\s*\[[xX]\]/.test(withoutComments)) return true;
-  if (/`[^`]+`/.test(withoutComments) && /\b(pass|passed|run|verified|checked|ok|success)/i.test(withoutComments)) return true;
-  if (/\b(manual(?:ly)?|proofread|link check|verified|tested)\b/i.test(withoutComments)) return true;
-  return /\bnot (?:run|applicable)\b[^\n]*(?:because|since|only|docs|unavailable|not needed)/i.test(
-    withoutComments,
-  );
-}
-
-function hasValidAssistanceLevel(text) {
-  // Emphasis is stripped first so `**substantial**` reads the same as `substantial`.
-  return /assistance level:\s*(none|light|moderate|substantial)\b/i.test(
+function hasModels(text) {
+  // Emphasis is stripped first so `**Models:**` reads the same as `Models:`.
+  return /^[ \t]*(?:[-*][ \t]*)?models:[ \t]*\S/im.test(
     text.replace(/<!--[\s\S]*?-->/g, "").replace(/[*_`]/g, ""),
   );
 }
@@ -130,14 +96,9 @@ export function validatePullRequest({ body = "", files = [] }) {
     errors.push("Remove all leftover placeholder comments from the PR description.");
   }
 
-  const validation = sections.get(normalizeHeading("Validation"));
-  if (validation && !hasValidationEvidence(validation.join("\n"))) {
-    errors.push("Add meaningful validation evidence, or say what was not run and why.");
-  }
-
-  const assistance = sections.get(normalizeHeading("AI Assistance"));
-  if (assistance && !hasValidAssistanceLevel(assistance.join("\n"))) {
-    errors.push("Set the AI assistance level to none, light, moderate, or substantial.");
+  const notes = sections.get(normalizeHeading("Notes"));
+  if (notes && !hasModels(notes.join("\n"))) {
+    errors.push("List the models used after `Models:` under `Notes`, or write None.");
   }
 
   return { valid: errors.length === 0, docsOnly, errors };
