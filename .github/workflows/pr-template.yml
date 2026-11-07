@@ -107,9 +107,8 @@ jobs:
             "Thanks for contributing. A maintainer will handle the trusted checks and final merge." \
             "" \
             "- [ ] A maintainer has reviewed the change." \
-            "- [ ] The PR description follows the template and explains validation." \
+            "- [ ] The PR description follows the template." \
             "- [ ] Visible changes include screenshots or a clear not-applicable explanation." \
-            "- [ ] The contributor ran \`./script/swift-test.sh\` and \`./script/preflight.sh\`, or explained why not." \
             "- [ ] A maintainer confirmed no untrusted fork code was run with repository secrets.")"
 
           if [[ -n "$comment_id" ]]; then
