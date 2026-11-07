@@ -4,68 +4,6 @@ import AwesoMuxCore
 import Observation
 import SwiftUI
 
-enum CommandPaletteLayout {
-    static let defaultSize = CGSize(width: 620, height: 430)
-    static let inset: CGFloat = 16
-
-    /// Clamp the desired panel size to the visible frame (minus insets) so the
-    /// palette stays fully on-screen on small displays, Split View, or Stage
-    /// Manager. Returns `defaultSize` unchanged when there's room.
-    static func resolvedSize(
-        desired: CGSize = defaultSize,
-        screenFrame: CGRect?
-    ) -> CGSize {
-        guard let screenFrame else { return desired }
-        let maxWidth = max(0, screenFrame.width - inset * 2)
-        let maxHeight = max(0, screenFrame.height - inset * 2)
-        return CGSize(
-            width: min(desired.width, maxWidth),
-            height: min(desired.height, maxHeight)
-        )
-    }
-
-    static func origin(
-        panelSize: CGSize,
-        referenceFrame: CGRect?,
-        screenFrame: CGRect?
-    ) -> CGPoint? {
-        guard let screenFrame else { return nil }
-        let reference = referenceFrame ?? screenFrame
-        let unclamped = CGPoint(
-            x: reference.midX - panelSize.width / 2,
-            y: reference.midY - panelSize.height / 2
-        )
-        let minX = screenFrame.minX + inset
-        let maxX = max(minX, screenFrame.maxX - panelSize.width - inset)
-        let minY = screenFrame.minY + inset
-        let maxY = max(minY, screenFrame.maxY - panelSize.height - inset)
-
-        return CGPoint(
-            x: min(max(unclamped.x, minX), maxX),
-            y: min(max(unclamped.y, minY), maxY)
-        )
-    }
-
-    /// Clamp an already-known origin (e.g. a remembered drag position) back into
-    /// the visible frame so a remembered spot on a now-disconnected display
-    /// doesn't open the palette offscreen.
-    static func clampOrigin(
-        _ origin: CGPoint,
-        panelSize: CGSize,
-        screenFrame: CGRect?
-    ) -> CGPoint {
-        guard let screenFrame else { return origin }
-        let minX = screenFrame.minX + inset
-        let maxX = max(minX, screenFrame.maxX - panelSize.width - inset)
-        let minY = screenFrame.minY + inset
-        let maxY = max(minY, screenFrame.maxY - panelSize.height - inset)
-        return CGPoint(
-            x: min(max(origin.x, minX), maxX),
-            y: min(max(origin.y, minY), maxY)
-        )
-    }
-}
-
 struct CommandPaletteClickToggleState {
     private var pendingMouseUp: NSEvent.EventType?
 
@@ -335,7 +273,7 @@ final class CommandPaletteController {
 
     private func makePanel(presenter: PalettePresenter) -> FloatingSwiftUIPanelWindow {
         let panel = FloatingSwiftUIPanelWindow(
-            contentRect: NSRect(origin: .zero, size: CommandPaletteLayout.defaultSize),
+            contentRect: NSRect(origin: .zero, size: FloatingPanelLayout.commandPalette.defaultSize),
             backing: .buffered,
             defer: false
         )
@@ -432,18 +370,18 @@ final class CommandPaletteController {
             ?? NSScreen.screens.first?.visibleFrame
         let referenceFrame = anchorWindow?.frame ?? screenFrame
 
-        let size = CommandPaletteLayout.resolvedSize(screenFrame: screenFrame)
+        let size = FloatingPanelLayout.commandPalette.resolvedSize(screenFrame: screenFrame)
         panel.setFixedContentSize(size)
 
         let target: CGPoint?
         if useRememberedOrigin, let remembered = positionStore.load() {
-            target = CommandPaletteLayout.clampOrigin(
+            target = FloatingPanelLayout.commandPalette.clampOrigin(
                 remembered,
                 panelSize: size,
                 screenFrame: screenFrame
             )
         } else {
-            target = CommandPaletteLayout.origin(
+            target = FloatingPanelLayout.commandPalette.origin(
                 panelSize: size,
                 referenceFrame: referenceFrame,
                 screenFrame: screenFrame
@@ -469,9 +407,9 @@ final class CommandPaletteController {
         let screenFrame = anchorWindow?.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSScreen.screens.first?.visibleFrame
-        let size = CommandPaletteLayout.resolvedSize(screenFrame: screenFrame)
+        let size = FloatingPanelLayout.commandPalette.resolvedSize(screenFrame: screenFrame)
         panel.setFixedContentSize(size)
-        let clamped = CommandPaletteLayout.clampOrigin(
+        let clamped = FloatingPanelLayout.commandPalette.clampOrigin(
             panel.frame.origin,
             panelSize: size,
             screenFrame: screenFrame
