@@ -32,6 +32,7 @@ struct SidebarWorkspacePreview: View {
                                 let workspaceTitle = titles.workspaceTitle(for: session)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(workspaceTitle)
+                                        .awFont(AwFont.UI.label)
                                         .fontWeight(.semibold)
                                         .foregroundStyle(Color.aw.text)
                                         .lineLimit(2)
@@ -52,6 +53,7 @@ struct SidebarWorkspacePreview: View {
                                                     .accessibilityHidden(true)
                                                 VStack(alignment: .leading, spacing: 2) {
                                                     Text(item.title)
+                                                        .awFont(AwFont.UI.label)
                                                         .foregroundStyle(Color.aw.text)
                                                         .lineLimit(2)
                                                     Text(item.agentShortName + " · " + item.state.label)
@@ -96,7 +98,7 @@ struct SidebarWorkspacePreview: View {
                         }
                     }
                 }
-                .awFont(AwFont.UI.meta)
+                .awFont(AwFont.Mono.meta)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
             }
