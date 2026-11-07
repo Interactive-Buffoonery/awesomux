@@ -638,7 +638,8 @@ struct SidebarView: View {
             activityPanelUnansweredTurnPaneIDs: activityPanelVisible ? sessionStore.unansweredTurnPaneIDs : nil,
             actionableAgentPaneIDs: sessionStore.actionableAgentPaneIDs,
             activityPanelScrollRequestID: activityPanelVisible ? activityPanelScrollRequestID : nil,
-            workspaceSearchActive: isFiltering
+            workspaceSearchActive: isFiltering,
+            tintedHighContrast: activityPanelVisible && appSettingsStore.appearance.value.tintedHighContrast
         )
         let activitySection = SidebarActivitySection(
             sessionStore: sessionStore,
@@ -1895,6 +1896,7 @@ struct SidebarActivityInvalidationKey: Equatable {
     let actionableAgentPaneIDs: [UUID]
     let activityPanelScrollRequestID: UUID?
     let workspaceSearchActive: Bool
+    let tintedHighContrast: Bool
 
     init(
         groups: [SessionGroup],
@@ -1908,7 +1910,8 @@ struct SidebarActivityInvalidationKey: Equatable {
         activityPanelUnansweredTurnPaneIDs: Set<UUID>? = nil,
         actionableAgentPaneIDs: [UUID] = [],
         activityPanelScrollRequestID: UUID? = nil,
-        workspaceSearchActive: Bool = false
+        workspaceSearchActive: Bool = false,
+        tintedHighContrast: Bool = false
     ) {
         self.groups = groups
         self.pinnedSessionIDs = pinnedSessionIDs
@@ -1922,11 +1925,15 @@ struct SidebarActivityInvalidationKey: Equatable {
         self.actionableAgentPaneIDs = actionableAgentPaneIDs
         self.activityPanelScrollRequestID = activityPanelScrollRequestID
         self.workspaceSearchActive = workspaceSearchActive
+        self.tintedHighContrast = tintedHighContrast
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         let comparePaneTitles = lhs.activityPanelDisplayedTitles != nil || rhs.activityPanelDisplayedTitles != nil
         guard (!comparePaneTitles || lhs.groups.map(\.name) == rhs.groups.map(\.name)),
+            (!comparePaneTitles
+                || lhs.groups.enumerated().map { $0.element.resolvedColor(at: $0.offset) }
+                    == rhs.groups.enumerated().map { $0.element.resolvedColor(at: $0.offset) }),
             lhs.pinnedSessionIDs == rhs.pinnedSessionIDs,
             lhs.selectedSessionID == rhs.selectedSessionID,
             lhs.displayMode == rhs.displayMode,
@@ -1938,6 +1945,7 @@ struct SidebarActivityInvalidationKey: Equatable {
             lhs.actionableAgentPaneIDs == rhs.actionableAgentPaneIDs,
             lhs.activityPanelScrollRequestID == rhs.activityPanelScrollRequestID,
             lhs.workspaceSearchActive == rhs.workspaceSearchActive,
+            lhs.tintedHighContrast == rhs.tintedHighContrast,
             lhs.groups.count == rhs.groups.count
         else { return false }
 
@@ -2042,11 +2050,16 @@ private struct SidebarActivitySection: View, Equatable {
                     groupNamesBySessionID: Dictionary(
                         invalidationKey.groups.flatMap { group in group.sessions.map { ($0.id, group.name) } },
                         uniquingKeysWith: { first, _ in first }),
+                    groupAccentsBySessionID: Dictionary(
+                        invalidationKey.groups.enumerated().flatMap { index, group in
+                            group.sessions.map { ($0.id, ProjectTint(group: group, index: index).accent) }
+                        }, uniquingKeysWith: { first, _ in first }),
                     orderedPaneIDs: invalidationKey.actionableAgentPaneIDs,
                     selectedPaneID: sessions.first(where: { $0.id == invalidationKey.selectedSessionID })?.activePaneID,
                     resolvedTitles: invalidationKey.activityPanelDisplayedTitles ?? [:],
                     scrollTarget: activityPanelScrollTarget,
                     scrollRequestID: activityPanelScrollRequestID,
+                    tintedHighContrast: invalidationKey.tintedHighContrast,
                     onSelect: selectActivityRow
                 )
             }
@@ -2158,11 +2171,13 @@ private struct SidebarActivityPanelTitleScope: View {
     let sessions: [TerminalSession]
     let roster: AgentActivityRoster
     let groupNamesBySessionID: [TerminalSession.ID: String]
+    let groupAccentsBySessionID: [TerminalSession.ID: AwTintAccent]
     let orderedPaneIDs: [UUID]
     let selectedPaneID: UUID?
     let resolvedTitles: [TerminalSession.ID: String]
     let scrollTarget: AgentDisplayState?
     let scrollRequestID: UUID
+    let tintedHighContrast: Bool
     let onSelect: (AgentActivityRoster.Row) -> Void
 
     var body: some View {
@@ -2179,6 +2194,11 @@ private struct SidebarActivityPanelTitleScope: View {
             scrollRequestID: scrollRequestID,
             livePaneIDs: Set(sessions.flatMap { $0.layout.paneIDs }),
             selectedPaneID: selectedPaneID,
+            tintedHighContrast: tintedHighContrast,
+            tintAccentsByPaneID: Dictionary(
+                sessions.flatMap { session in
+                    session.layout.paneIDs.map { ($0, groupAccentsBySessionID[session.id] ?? .mauve) }
+                }, uniquingKeysWith: { first, _ in first }),
             onSelect: onSelect,
             onMarkSeen: { sessionStore.markPaneSeen(sessionID: $0.sessionID, paneID: $0.paneID) },
             onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) }

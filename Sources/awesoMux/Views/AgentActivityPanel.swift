@@ -18,6 +18,8 @@ struct AgentActivityPanel: View {
     let scrollRequestID: UUID
     let livePaneIDs: Set<UUID>
     let selectedPaneID: UUID?
+    let tintedHighContrast: Bool
+    let tintAccentsByPaneID: [UUID: AwTintAccent]
     let onSelect: (AgentActivityRoster.Row) -> Void
     let onMarkSeen: (AgentActivityRoster.Row) -> Void
     let onDismissReminder: (AgentActivityRoster.Row) -> Void
@@ -230,8 +232,10 @@ struct AgentActivityPanel: View {
         let needsAttention = available && active && item.row.section == .needsYou
         let highContrast = contrast == .increased
         let borderColor: Color = {
+            if selected {
+                return highContrast && !tintedHighContrast ? .aw.dividerHoverHC : .aw.tintBorder(tintAccentsByPaneID[item.id] ?? .mauve)
+            }
             if needsAttention { return item.row.state.awState.color }
-            if selected { return highContrast ? .aw.dividerHoverHC : .aw.dividerHover }
             return highContrast ? .aw.dividerRestHC : .aw.border
         }()
         let finished = available && active && item.row.section == .settled && item.row.executionState == .done
@@ -346,8 +350,7 @@ struct AgentActivityPanel: View {
                 .strokeBorder(
                     borderColor,
                     style: StrokeStyle(
-                        lineWidth: selected ? (highContrast ? 2 : 1.5) : (highContrast ? 1 : 0.5),
-                        dash: needsAttention && !selected ? [3, 2] : []
+                        lineWidth: selected ? (highContrast ? 2 : 1.5) : (highContrast ? 1 : 0.5)
                     )
                 )
                 .allowsHitTesting(false)

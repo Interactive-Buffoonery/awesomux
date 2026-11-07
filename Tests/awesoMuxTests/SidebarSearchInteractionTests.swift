@@ -10,6 +10,8 @@ import Testing
 struct SidebarSearchInteractionTests {
     @Test(arguments: [
         "same", "title", "kind", "execution", "selection", "display", "pinned", "motion", "closed split", "open split", "search",
+        "closed color",
+        "open color", "tinted contrast",
     ])
     func activityInvalidation(scenario: String) throws {
         let first = TerminalPane(title: "Before", workingDirectory: "/tmp/first", agentKind: .claudeCode, executionPlan: .local)
@@ -29,6 +31,7 @@ struct SidebarSearchInteractionTests {
         }
         let original = groups
         switch scenario {
+        case "closed color", "open color": groups[0].color = .green
         case "title": groups[0].sessions[0].title = "Renamed agent"
         case "kind", "execution":
             var pane = try #require(groups[0].sessions[0].activePane)
@@ -40,8 +43,8 @@ struct SidebarSearchInteractionTests {
             groups[0].sessions[0].layout = .split(TerminalSplit(orientation: .vertical, first: .pane(changed), second: .pane(second)))
         default: break
         }
-        let generation: Int? = scenario == "open split" ? 1 : nil
-        let titles: [TerminalSession.ID: String]? = scenario == "open split" ? [session.id: "Workspace"] : nil
+        let generation: Int? = ["open split", "open color"].contains(scenario) ? 1 : nil
+        let titles: [TerminalSession.ID: String]? = generation != nil ? [session.id: "Workspace"] : nil
         let before = SidebarActivityInvalidationKey(
             groups: original, pinnedSessionIDs: [], selectedSessionID: session.id,
             displayMode: .expanded, reduceMotion: false, activityPanelGeneration: generation, activityPanelDisplayedTitles: titles)
@@ -50,8 +53,8 @@ struct SidebarSearchInteractionTests {
             selectedSessionID: scenario == "selection" ? nil : session.id,
             displayMode: scenario == "display" ? .collapsed : .expanded, reduceMotion: scenario == "motion",
             activityPanelGeneration: generation, activityPanelDisplayedTitles: titles,
-            workspaceSearchActive: scenario == "search")
-        #expect((before == after) == ["same", "title", "closed split"].contains(scenario))
+            workspaceSearchActive: scenario == "search", tintedHighContrast: scenario == "tinted contrast")
+        #expect((before == after) == ["same", "title", "closed split", "closed color"].contains(scenario))
     }
 
     @Test(arguments: ["transition", "wrapped", "modified", "AppKit", "nested"])
