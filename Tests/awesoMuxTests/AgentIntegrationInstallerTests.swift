@@ -294,6 +294,12 @@ struct AgentIntegrationInstallerTests {
             )
             let bundledTemplate = Self.packageResourcesURL.appending(path: templateRelativePath)
             try FileManager.default.copyItem(at: bundledTemplate, to: templateURL)
+            for partTemplateName in ["awesomux-opencode-tui.js.template", "awesomux-opencode-legacy.js.template"] {
+                try FileManager.default.copyItem(
+                    at: bundledTemplate.deletingLastPathComponent().appending(path: partTemplateName),
+                    to: templateURL.deletingLastPathComponent().appending(path: partTemplateName)
+                )
+            }
 
             let installer = AgentIntegrationInstaller(
                 resourcesDirectoryURL: resources,
@@ -399,7 +405,7 @@ struct AgentIntegrationInstallerTests {
             )
             let home = directory.appending(path: "home", directoryHint: .isDirectory)
             let configHome = home.appending(path: ".config/opencode", directoryHint: .isDirectory)
-            let installedURL = configHome.appending(path: "plugins/awesomux-opencode-status.js")
+            let installedURL = configHome.appending(path: "plugins/awesomux-opencode-status/index.js")
 
             #expect {
                 try installer.install(

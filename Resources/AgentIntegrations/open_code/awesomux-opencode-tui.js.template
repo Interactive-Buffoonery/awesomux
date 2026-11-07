@@ -1,0 +1,135 @@
+import { spawn } from "node:child_process"
+import { createEffect } from "solid-js"
+
+const AWESOMUX_PROTOCOL = "awesomux-agent-v1"
+const HOOK_TIMEOUT_MS = 1_000
+
+// This part runs in each terminal client. The shared server's environment
+// belongs to whichever client started it, and must never choose a pane sink.
+export default {
+    id: "awesomux.status",
+    setup(ctx) {
+        if (process.env.AWESOMUX_AGENT_EVENT_PROTOCOL !== AWESOMUX_PROTOCOL
+            || !process.env.AWESOMUX_AGENT_EVENT_FILE) {
+            return
+        }
+        const hook = process.env.AWESOMUX_AGENT_HOOK || "awesoMuxAgentHook"
+        const environment = { ...process.env }
+        let pending = Promise.resolve()
+        let disposed = false
+        let scheduled = false
+        let activeSessionID
+        let lastState
+        let terminalOutcome
+
+        const emit = (hookEventName, sessionID) => {
+            pending = pending.then(() => new Promise((resolve) => {
+                let child
+                let timeout
+                const finish = () => {
+                    clearTimeout(timeout)
+                    resolve()
+                }
+                try {
+                    child = spawn(hook, ["--provider", "opencode"], {
+                        env: environment,
+                        stdio: ["pipe", "ignore", "ignore"],
+                    })
+                    timeout = setTimeout(() => {
+                        child.kill("SIGKILL")
+                        finish()
+                    }, HOOK_TIMEOUT_MS)
+                    child.once("error", finish)
+                    child.once("close", finish)
+                    child.stdin.once("error", () => {})
+                    // Forward identity and state only, never prompts or tool data.
+                    child.stdin.end(JSON.stringify({ hook_event_name: hookEventName, session_id: sessionID }))
+                } catch {
+                    child?.kill("SIGKILL")
+                    finish()
+                }
+            })).catch(() => {})
+        }
+
+        const selectedRoot = () => {
+            const route = ctx.ui.router.current()
+            if (route.type !== "session") return
+            const info = ctx.data.session.get(route.sessionID)
+            if (!info) return
+            const rootID = ctx.data.session.root(info.id)
+            const root = ctx.data.session.get(rootID)
+            // Unknown ancestry must not promote a subagent into a pane owner.
+            return root && !root.parentID ? rootID : undefined
+        }
+
+        const snapshot = () => {
+            const sessionID = selectedRoot()
+            if (!sessionID) return {}
+            const family = new Set([sessionID, ...ctx.data.session.family(sessionID)])
+            let permission = false
+            let form = false
+            for (const id of family) {
+                permission ||= (ctx.data.session.permission.list(id)?.length || 0) > 0
+                form ||= (ctx.data.session.form.list(id)?.length || 0) > 0
+            }
+            return {
+                sessionID,
+                permission,
+                form,
+                running: ctx.data.session.status(sessionID) === "running",
+                outcome: ctx.data.session.get(sessionID)?.outcome,
+            }
+        }
+
+        const reconcile = () => {
+            scheduled = false
+            if (disposed) return
+            const state = snapshot()
+            if (state.sessionID !== activeSessionID) {
+                if (activeSessionID) emit("SessionEnd", activeSessionID)
+                activeSessionID = state.sessionID
+                lastState = undefined
+                terminalOutcome = undefined
+                if (activeSessionID) emit("SessionStart", activeSessionID)
+            }
+            if (!activeSessionID) return
+            const nextState = state.permission ? "PermissionRequest"
+                : state.form ? "Notification"
+                    : state.running ? "UserPromptSubmit"
+                        : (terminalOutcome || state.outcome) === "failed" ? "StopFailure" : "Stop"
+            if (nextState === lastState) return
+            if (lastState === "PermissionRequest" || lastState === "Notification") {
+                emit("PermissionReplied", activeSessionID)
+            }
+            emit(nextState, activeSessionID)
+            lastState = nextState
+        }
+        const schedule = () => {
+            if (scheduled || disposed) return
+            scheduled = true
+            // Coalesce a public event with its synchronous client-store updates.
+            queueMicrotask(reconcile)
+        }
+        createEffect(() => {
+            snapshot()
+            schedule()
+        })
+        const unlisten = ctx.data.listen(({ details: event }) => {
+            const sessionID = event.data?.sessionID
+            if (sessionID === activeSessionID) {
+                if (event.type === "session.execution.started") terminalOutcome = undefined
+                if (event.type === "session.execution.failed") terminalOutcome = "failed"
+                if (event.type === "session.execution.succeeded" || event.type === "session.execution.interrupted") {
+                    terminalOutcome = "succeeded"
+                }
+            }
+            schedule()
+        })
+        return async () => {
+            disposed = true
+            unlisten()
+            if (activeSessionID) emit("SessionEnd", activeSessionID)
+            await pending
+        }
+    },
+}

@@ -283,6 +283,54 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(toolStartDecision.update.clearsUnreadNotifications)
     }
 
+    @Test(arguments: [
+        (AgentExecutionState.waiting, false), (.error, false),
+        (.waiting, true), (.error, true),
+    ])
+    func openCodeFormResolutionClearsOnlyItsOwnPrompt(execution: AgentExecutionState, otherSession: Bool) throws {
+        var session = TerminalSession(title: "opencode", workingDirectory: "~", agentKind: .openCode)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+        let events = [
+            AgentRuntimeEvent(
+                source: .openCode, executionState: execution, phase: .sessionStart,
+                eventID: "root-start", providerSessionID: "root", timestamp: Date(timeIntervalSince1970: 1)),
+            AgentRuntimeEvent(
+                source: .openCode, attentionReason: .userInputRequired, phase: .notification,
+                eventID: "root-form", providerSessionID: "root", timestamp: Date(timeIntervalSince1970: 2)),
+            AgentRuntimeEvent(
+                source: .openCode, phase: .permissionReplied,
+                eventID: "form-resolved", providerSessionID: otherSession ? "other" : "root", timestamp: Date(timeIntervalSince1970: 3)),
+            AgentRuntimeEvent(
+                source: .openCode, executionState: execution, phase: .stop,
+                eventID: "root-status", providerSessionID: "root", timestamp: Date(timeIntervalSince1970: 4)),
+        ]
+        for (index, event) in events.enumerated() {
+            let result = reducer.decision(
+                for: event, currentSession: session, paneID: paneID,
+                terminalIsFocused: false, now: Date(timeIntervalSince1970: Double(index + 1))
+            )
+            let decision = try #require(result)
+            if event.phase == .permissionReplied {
+                #expect(decision.update.attentionClearIsAuthoritative == !otherSession)
+                #expect(decision.update.clearsUnreadNotifications == !otherSession)
+            }
+            _ = WorkspaceAttentionReducer.updatePane(
+                &session, paneID: paneID, update: decision.update, now: Date(timeIntervalSince1970: Double(index + 1))
+            )
+            if index == 1 {
+                #expect(session.attentionReason == .userInputRequired)
+                #expect(session.unreadNotificationCount == 1)
+            } else if index >= 2 {
+                #expect(session.attentionReason == (otherSession ? .userInputRequired : nil))
+                #expect(session.layout.pane(id: paneID)?.agentExecutionState == execution)
+                if index == 2 {
+                    #expect(session.unreadNotificationCount == (otherSession ? 1 : 0))
+                }
+            }
+        }
+    }
+
     @Test("late permission request is suppressed after a recent answer attempt")
     func latePermissionRequestIsSuppressedAfterRecentAnswerAttempt() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)

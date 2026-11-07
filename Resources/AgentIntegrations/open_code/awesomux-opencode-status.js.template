@@ -119,3 +119,11 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
         },
     }
 }
+
+// V2 status lives in tui.js: server processes are shared across terminal panes.
+// Keep the V1 implementation available for OpenCode 1.18.29 and newer.
+export default {
+    id: "awesomux.status",
+    setup() {},
+    server: AwesoMuxOpenCodeStatus,
+}

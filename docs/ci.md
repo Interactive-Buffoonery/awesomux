@@ -66,6 +66,7 @@ linked guides describe prerequisites and the limits of each proof.
 - Remote Markdown authorization: `python3 script/verify_remote_markdown_authorization.py`; [proof and limits](verification/remote-markdown-authorization.md).
 - Remote Markdown SSH transport and quoting: `python3 script/verify-remote-markdown-transport.py --host <SSH-alias> --report .build/verification/remote-markdown-transport.json`; [verification guide](verification/unmanaged-ssh-file-links.md).
 - Stale local hostname titles: `python3 script/verify-stale-hostname-title.py --output /tmp/issue-698.log`; [proof and native checklist](verification/stale-local-hostname-title.md).
+- OpenCode V2 shared-server status and managed installation: follow [the isolated checks](../script/opencode-integration-e2e/README.md); the real CLI harness retains `report.json` and per-client helper receipts.
 - Installed Codex plugin discovery: `./script/test_live_codex_plugin.sh` probes hooks through the production app-server client; requires an installed plugin.
 - Companion pairing and authenticated requests: `./script/run_companion_pairing_e2e.sh`; writes per-run logs and `result.json` under `/tmp/companion-pairing-e2e/`.
 - Deterministic native terminal lifecycle: `python3 script/terminal-lifecycle-e2e/run.py --output /tmp/terminal-lifecycle-run`; [prerequisites, contracts, freshness, and evidence](../script/terminal-lifecycle-e2e/README.md).
