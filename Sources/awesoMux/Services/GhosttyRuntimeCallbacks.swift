@@ -760,6 +760,7 @@ extension GhosttyRuntime {
         return lines.joined(separator: "\n")
     }
 
+    /// Preserves the full URL while replacing unsafe alert-body scalars with spaces.
     private static func fullURLString(for url: URL) -> String {
         let raw = url.absoluteString.unicodeScalars.map { scalar -> Character in
             UnicodeHygiene.isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)

@@ -207,6 +207,7 @@ final class RemoteBrowserCoordinator {
         return .opened
     }
 
+    /// Accepts bounded HTTP(S) URLs with a host, valid port, and no unsafe display scalars.
     static func webURL(_ raw: String) -> URL? {
         guard raw.utf8.count <= 4096,
             !raw.unicodeScalars.contains(where: UnicodeHygiene.isUnsafeAlertBodyScalar),

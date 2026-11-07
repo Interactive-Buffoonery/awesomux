@@ -188,6 +188,7 @@ final class KeyboardCheatsheetController {
         return true
     }
 
+    /// Fits the cheatsheet to the visible screen and centers it relative to its anchor.
     private func position(_ panel: FloatingSwiftUIPanelWindow, relativeTo anchor: NSWindow?) {
         let visibleFrame = anchor?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
         let size = UtilityPanelLayout.keyboardCheatsheet.resolvedSize(screenFrame: visibleFrame)
@@ -208,6 +209,7 @@ final class KeyboardCheatsheetController {
         return NSApp.mainWindow ?? NSApp.keyWindow
     }
 
+    /// Returns the cheatsheet preset size before screen bounds are applied.
     private static func defaultPanelSize() -> CGSize {
         UtilityPanelLayout.keyboardCheatsheet.defaultSize
     }

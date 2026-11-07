@@ -1030,9 +1030,7 @@ extension GhosttyRuntime {
         return wasTruncated ? oneLine + "…" : oneLine
     }
 
-    // Shares the OSC 8 alert-body unsafe-scalar predicate so the two dialogs
-    // can't drift apart on what they strip (control chars, bidi overrides,
-    // zero-width / invisible formatting). See `isUnsafeAlertBodyScalar`.
+    /// Replaces unsafe display scalars with a space using the shared alert-body policy.
     private static func sanitizedClipboardPreviewScalar(_ scalar: Unicode.Scalar) -> Character {
         UnicodeHygiene.isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
     }

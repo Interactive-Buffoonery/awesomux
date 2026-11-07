@@ -4,6 +4,7 @@ struct ProcessMemorySnapshot {
     let residentBytes: UInt64
     let physFootprintBytes: UInt64
 
+    /// Returns resident memory and physical footprint in bytes, or nil if the Mach query fails.
     static func capture() -> ProcessMemorySnapshot? {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(

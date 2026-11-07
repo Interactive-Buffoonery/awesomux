@@ -140,6 +140,7 @@ struct ProcessResourceSnapshot {
         return "\(machPortCount)"
     }
 
+    /// Samples process resources, using -1 for unavailable memory and sampling ports only on request.
     static func capture(
         surfaceCount: Int,
         sampleMachPorts: Bool = false,

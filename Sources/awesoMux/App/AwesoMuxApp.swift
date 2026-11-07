@@ -6095,6 +6095,7 @@ struct AwesoMuxApp: App {
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
+    /// Reloads terminal settings once at a time and reports sanitized diagnostics.
     private func reloadGhosttyConfiguration() {
         guard !isConfigurationReloadInProgress else { return }
         isConfigurationReloadInProgress = true

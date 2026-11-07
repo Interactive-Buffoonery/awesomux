@@ -2125,6 +2125,7 @@ final class GhosttyRuntime {
     }
 
     #if DEBUG
+        /// Logs cache activity and memory usage, marking unavailable memory samples explicitly.
         private func logSurfaceCacheEvent(
             _ event: String,
             sessionID: TerminalSession.ID? = nil,

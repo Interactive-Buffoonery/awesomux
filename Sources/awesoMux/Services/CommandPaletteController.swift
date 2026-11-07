@@ -271,6 +271,7 @@ final class CommandPaletteController {
         }
     }
 
+    /// Creates the palette panel with its hosted content and accessibility label.
     private func makePanel(presenter: PalettePresenter) -> FloatingSwiftUIPanelWindow {
         let panel = FloatingSwiftUIPanelWindow(
             contentRect: NSRect(origin: .zero, size: UtilityPanelLayout.commandPalette.defaultSize),
@@ -360,6 +361,7 @@ final class CommandPaletteController {
             ?? NSApp.keyWindow
     }
 
+    /// Fits the palette to the current screen, restoring a saved origin when requested.
     private func position(
         _ panel: FloatingSwiftUIPanelWindow,
         relativeTo anchorWindow: NSWindow?,

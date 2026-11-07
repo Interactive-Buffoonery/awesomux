@@ -21,6 +21,8 @@ struct UtilityPanelLayout {
         )
     }
 
+    /// Centers the panel on its reference frame and clamps it to the visible screen.
+    /// Returns nil when no screen frame is available.
     func origin(
         panelSize: CGSize,
         referenceFrame: CGRect?,
