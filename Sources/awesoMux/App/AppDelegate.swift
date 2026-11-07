@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var focusObservers: [NSObjectProtocol] = []
     private var didBindOnce = false
     private var isQuitRiskAlertPresented = false
+    private var quitWasCancelledWithNoWindowsOpen = false
     private var lastTerminateTrigger: String = "nil"
     private var didClampInitialWindowFrame = false
     private var didInstallPrimaryWindowFrameSaver = false
@@ -751,9 +752,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Each worktree build is its own Dock app, so windowless dev builds pile up.
-        if case .development = AppRuntimeProfile.current { return true }
-        return false
+        defer { quitWasCancelledWithNoWindowsOpen = false }
+        return QuitTerminationPolicy.terminatesAfterLastWindowClosed(
+            profile: AppRuntimeProfile.current,
+            quitWasCancelledWithNoWindowsOpen: quitWasCancelledWithNoWindowsOpen
+        )
+    }
+
+    // Dismissing a quit alert closes the app's last window, so AppKit asks
+    // applicationShouldTerminateAfterLastWindowClosed again. Without this record,
+    // Cancel would bring the same alert straight back on dev builds.
+    private func recordQuitCancellation(dismissing alert: NSAlert?) {
+        quitWasCancelledWithNoWindowsOpen = !NSApp.windows.contains {
+            $0.isVisible && $0 !== alert?.window
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -1181,6 +1193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             if outcome == .userCancelled {
+                recordQuitCancellation(dismissing: alert)
                 NSApp.reply(toApplicationShouldTerminate: false)
             } else {
                 replyToApprovedTermination()
@@ -1243,10 +1256,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             comment: "Keyboard hint line on the quit confirmation dialog."
         )
 
-        let reply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+        let reply: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
             self?.isQuitRiskAlertPresented = false
             // Cancel = first button, Quit Anyway = second button.
             guard response == .alertSecondButtonReturn else {
+                self?.recordQuitCancellation(dismissing: alert)
                 NSApp.reply(toApplicationShouldTerminate: false)
                 return
             }
