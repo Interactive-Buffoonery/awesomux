@@ -3,6 +3,7 @@ import AwesoMuxConfig
 import Darwin
 import DesignSystem
 import GhosttyKit
+import UnicodeHygiene
 import os
 
 extension GhosttyRuntime {
@@ -1033,7 +1034,7 @@ extension GhosttyRuntime {
     // can't drift apart on what they strip (control chars, bidi overrides,
     // zero-width / invisible formatting). See `isUnsafeAlertBodyScalar`.
     private static func sanitizedClipboardPreviewScalar(_ scalar: Unicode.Scalar) -> Character {
-        isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
+        UnicodeHygiene.isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
     }
 
     nonisolated static func textPlainContent(
