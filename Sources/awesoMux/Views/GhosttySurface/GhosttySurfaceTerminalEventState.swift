@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 
 @MainActor
@@ -13,6 +14,29 @@ final class GhosttySurfaceTerminalEventState {
     let visibleTextAgentStateReducer = VisibleTextAgentStateReducer()
     var lastAgentDetectionSample: TimeInterval = 0
     var lastDetectedVisibleText = ""
+    var lastDetectedAgentKind: AgentKind?
+    var lastDetectedForegroundIncarnation: AgentForegroundIncarnation?
+    var lastObservedAgentText: String?
+    var codexQuestion: (pane: PaneStoreWriteKey, incarnation: AgentForegroundIncarnation?)?
+
+    func hasUnevaluatedVisibleText(_ text: String, liveAgentKind: AgentKind, foregroundIncarnation: AgentForegroundIncarnation?) -> Bool {
+        text != lastDetectedVisibleText || liveAgentKind != lastDetectedAgentKind
+            || foregroundIncarnation != lastDetectedForegroundIncarnation
+    }
+
+    /// A suppressed frame has not been evaluated and must remain eligible after the hook window.
+    func consumeVisibleTextForDetection(
+        _ text: String, now: TimeInterval, liveAgentKind: AgentKind, foregroundIncarnation: AgentForegroundIncarnation? = nil
+    ) -> Bool {
+        guard hasUnevaluatedVisibleText(text, liveAgentKind: liveAgentKind, foregroundIncarnation: foregroundIncarnation),
+            VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
+                now: now, lastRuntimeEventAppliedAt: lastRuntimeEventAppliedAt, liveAgentKind: liveAgentKind)
+        else { return false }
+        lastDetectedVisibleText = text
+        lastDetectedAgentKind = liveAgentKind
+        lastDetectedForegroundIncarnation = foregroundIncarnation
+        return true
+    }
     var sshForegroundObservation: (pane: PaneStoreWriteKey, command: String, sampledAt: TimeInterval)?
     /// Visible text as of the last `.valueChanged` accessibility post, so the
     /// sampler only announces once per distinct change instead of once per

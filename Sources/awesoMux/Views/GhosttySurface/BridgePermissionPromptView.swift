@@ -12,7 +12,7 @@ enum BridgePermissionPromptFocusRegion: Hashable {
 }
 
 /// The in-pane permission banner (INT-698, binding contributor ruling): a
-/// `NeedsInputBar`-style strip on the remote pane showing the requested tool +
+/// attention-bar-style strip on the remote pane showing the requested tool +
 /// target, Allow/Deny buttons, and a queue badge when more prompts wait. Not a
 /// floating card, not activity-panel-only.
 ///

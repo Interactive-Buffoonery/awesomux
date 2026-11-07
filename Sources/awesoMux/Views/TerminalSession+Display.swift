@@ -69,8 +69,7 @@ extension TerminalSession {
     /// The attention state the pane focus accent (stripe + needs-halo) and the
     /// horizontal-split divider absorb should paint for ONE pane. Folds that
     /// pane's unacknowledged `attentionReason` into `.needs` so its rail stays
-    /// peach for exactly as long as the `NeedsInputBar` (gated on the
-    /// session-level `needsAcknowledgement`) is up — even after the execution
+    /// peach while that pane needs attention — even after the execution
     /// state leaves `.needs` (a dead pane keeping a low-priority
     /// `attentionReason` reads as its recovery hint, not `.needsAttention`, per
     /// INT-506).

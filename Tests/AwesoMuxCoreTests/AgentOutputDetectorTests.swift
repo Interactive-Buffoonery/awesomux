@@ -467,6 +467,70 @@ struct AgentOutputDetectorTests {
         #expect(detector.detectedOutput(in: prose, liveAgentKind: .codex)?.state != .needsAttention)
     }
 
+    @Test("live Codex question overlay is distinct from quoted questions and later UI")
+    func codexQuestionOverlay() {
+        // Captured from Codex 0.166.0 request_user_input; prose alone must not arm attention.
+        let question = """
+              Question 1/1 (1 unanswered)
+              Does this question highlight the correct awesoMux agent?
+
+              › 1. Yes                The correct awesoMux agent is highlighted.
+                2. No                 The correct awesoMux agent is not highlighted.
+                3. None of the above  Optionally, add details in notes (tab)
+
+              tab to add notes | enter to submit answer | esc to interrupt
+            """
+        let notes = question.replacingOccurrences(
+            of: "tab to add notes | enter to submit answer | esc to interrupt",
+            with: "› Add notes\n\ntab or esc to clear notes | enter to submit answer")
+        for liveQuestion in [
+            question, notes, question.replacingOccurrences(of: "› 1.", with: "  1.").replacingOccurrences(of: "  2.", with: "› 2."),
+        ] {
+            #expect(detector.detectedOutput(in: liveQuestion, liveAgentKind: .codex)?.state == .needsAttention)
+            #expect(detector.detectedOutput(in: liveQuestion, liveAgentKind: .codex)?.isLiveCodexQuestion == true)
+        }
+        for inactive in [
+            question + "\n› Ask Codex to do anything",
+            question + "\n• Working (3s • esc to interrupt)",
+            question.replacingOccurrences(of: "Question 1/1 (1 unanswered)", with: "Question 1/1 (0 unanswered)"),
+            question.replacingOccurrences(of: "Question 1/1 (1 unanswered)", with: "Question 2/1 (1 unanswered)"),
+            question.replacingOccurrences(of: "Question 1/1 (1 unanswered)", with: "A quoted question:"),
+            question.replacingOccurrences(of: "› 1.", with: "  1."),
+            question.replacingOccurrences(of: "tab to add notes | enter to submit answer | esc to interrupt", with: ""),
+            "Does this question highlight the correct awesoMux agent?\n1. Yes\n2. No",
+        ] {
+            #expect(detector.detectedOutput(in: inactive, liveAgentKind: .codex)?.state != .needsAttention)
+        }
+        #expect(detector.detectedOutput(in: question, liveAgentKind: .shell) == nil)
+
+        let composer = "› Ask Codex to do anything\nGPT-6.1-Sol medium · ~/Development\n← for agents · ? for shortcuts"
+        for prefix in ["", question + "\n", "Claude Code\nThinking\n"] {
+            let idle = detector.detectedOutput(in: prefix + composer, liveAgentKind: .codex)
+            #expect(idle?.state == .waiting)
+            #expect(idle?.codexUI == .composer)
+            #expect(idle?.agentKind == .codex)
+        }
+        #expect(detector.detectedOutput(in: "• Working (3s • esc to interrupt)\n" + composer, liveAgentKind: .codex)?.state == .thinking)
+        #expect(
+            detector.detectedOutput(
+                in: "• Working (4s • esc to interrupt)\n└ Tip: Use /skills to list available skills.\n" + composer,
+                liveAgentKind: .codex)?.state == .thinking)
+        #expect(
+            detector.detectedOutput(
+                in: "• Working (4s • esc to interrupt)\n└ Tip: Use a preset to\n  run a saved prompt.\n\n" + composer,
+                liveAgentKind: .codex)?.state == .thinking)
+        let warningComposer = composer + "    ⚠ 2 warnings · f2 to view"
+        #expect(detector.detectedOutput(in: warningComposer, liveAgentKind: .codex)?.codexUI == .composer)
+        #expect(detector.detectedOutput(in: composer + "\nWarning details", liveAgentKind: .codex)?.codexUI != .composer)
+        #expect(
+            detector.detectedOutput(
+                in: "• Working (4s • esc to interrupt)\n\n• Finished explaining that example.\n\n" + composer,
+                liveAgentKind: .codex)?.state == .waiting)
+        for unknown in ["› 1. Yes\n? for shortcuts", "Warning: MCP connection failed", "› Ask Codex to do anything"] {
+            #expect(detector.detectedOutput(in: unknown, liveAgentKind: .codex)?.codexUI != .composer)
+        }
+    }
+
     @Test("live codex pane reads its viewport after the launch banner scrolls away")
     func liveCodexPaneReadsViewportWithoutBanner() {
         // A Codex pane on a shared app-server gets no hooks, so its approval

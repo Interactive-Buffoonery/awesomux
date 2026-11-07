@@ -749,6 +749,17 @@ struct AppTitlebarView: View {
             width: width,
             alignment: layoutPolicy.titlebarLockupAlignment == .trailing ? .trailing : .leading
         )
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: sidebarPosition == .left ? .trailing : .leading) {
+            if case .persistent = hostPresentation.mode {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1)
+                    .offset(x: sidebarPosition == .left ? 1 : -1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     @ViewBuilder

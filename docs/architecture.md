@@ -312,13 +312,13 @@ workspace whether the group is expanded or collapsed, and the collapsed rail's
 
 ### Alternate Agents sidebar
 
-The Workspaces/Agents switch changes navigation without moving workspaces or panes. Agents mode fills the sidebar with pane-grain rows grouped into **Needs You**, **Working**, and **Settled**, retaining group/workspace provenance and resolved titles. The footer opens or retargets this same view; its Needs count includes the same actionable panes as the queue, including errors. Workspaces search and collapse state are retained separately.
+The Workspaces/Agents switch changes navigation without moving workspaces or panes. Agents mode fills the sidebar with pane-grain rows grouped into **Needs You**, **Working**, and **Settled**, retaining group/workspace provenance and resolved titles. The footer opens or retargets this same view; its Needs count includes the same actionable panes as the queue, including errors. Both modes retain the shared search and new-workspace header. A nonempty search temporarily shows matching workspaces, including workspaces without agents; clearing the query returns to the chosen mode. Focus Sidebar reaches this search field in either expanded mode. Footer state buttons clear the query before showing their agent section. Workspace collapse state is retained separately.
 
 `AgentActivityRoster` carries raw execution, attention reason and unread state. A generic `waiting` signal remains **Waiting**; only known completion is **Finished**, with unread shown separately. Generic provider input notifications use **Needs your attention** because they do not prove that a question exists. Permission prompts use **Permission requested**. A process-error reason can say **Failed**; a generic error may mean a denied operation and uses conservative wording.
 
 `SessionStore.actionableAgentPaneIDs` records runtime first-observed actionable episodes. Existing/restored requests start in stable traversal order with unknown historical chronology; new requests append and resolved/closed panes leave. Reason escalation and liveness heartbeats do not reorder an episode. Next Agent Needing Me cycles after the current eligible pane, otherwise starts at the oldest observed remaining request. With no requests, it leaves focus in place and announces that none remain.
 
-Navigation resolves the pane's current owning workspace at invocation, including moved splits. It sends no input and performs no explicit acknowledgment. Navigation focuses the terminal; Focus Permission Prompt remains the separate keyboard-accessible route to the existing approval controls. Mark as seen targets the exact pane without selecting it and retains unresolved explicit requests. Existing selection dwell still clears ordinary notifications after reading, but does not retract explicit prompts. The workspace banner is a quiet navigator to the affected pane; the strong attention cue stays near that pane. Provider updates never move terminal focus, and row placement is held during sidebar interaction. A reserved New activity action makes deferred arrivals explicit; choosing it or a footer state refreshes placement. Section counts are hidden while placement is held, and the footer continues reporting live counts.
+Navigation resolves the pane's current owning workspace at invocation, including moved splits. It sends no input and performs no explicit acknowledgment. Navigation focuses the terminal; Focus Permission Prompt remains the separate keyboard-accessible route to the existing approval controls. Mark as seen targets the exact pane without selecting it and retains unresolved explicit requests. Existing selection dwell still clears ordinary notifications after reading, but does not retract explicit prompts. The workspace banner is a quiet navigator to the affected pane; the strong attention cue stays near that pane. Provider updates never move terminal focus, and row ordering is held during sidebar interaction. The footer agent count switches between Workspaces and Agents. Compact rows show the title once, with distinct project/workspace provenance and accessible unread state. Agent outlines are solid: selected rows use their owning workspace group accent, following the workspace high-contrast preference; unselected rows retain their attention-state outline and selected requests retain their reason text. A Show updates action in the first section heading makes deferred placement changes explicit without reserving a blank strip; choosing it or a footer state refreshes placement. Section counts are hidden while placement is held, and the footer continues reporting live counts.
 
 ## Agent state contract
 
@@ -341,8 +341,10 @@ waiting for your next turn" semantic. If the turn completed while the terminal
 was not focused, the pane can still receive unread / notification treatment, but
 that event does not project to the peach `needsAttention` badge. Selection-based
 acknowledgement uses a **dwell** so keyboard cycling does not accidentally clear
-attention or unread state. Direct terminal input acknowledges the active pane
-immediately because it proves the user is interacting with that pane. See
+attention or unread state. Direct terminal input normally acknowledges the active
+pane immediately. Editing and navigation inside an observed native Codex question
+are exceptions: they can leave the question unanswered. Its user-input reason is
+resolved separately by same-local-process composer evidence, as described in
 [ADR 0003](adr/0003-acknowledge-on-selection-dwell.md).
 
 Transition diagram (target contract; not necessarily a single enforced state machine in code yet):

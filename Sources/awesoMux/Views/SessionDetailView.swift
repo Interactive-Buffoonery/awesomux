@@ -91,7 +91,7 @@ struct SessionDetailView: View {
                                 whileAwaySummary
                                 if let row = AgentActivityRoster.build(sessions: [session], includingShells: true)
                                     .orderedRows(orderedPaneIDs: sessionStore.actionableAgentPaneIDs)
-                                    .first(where: { $0.section == .needsYou })
+                                    .first(where: { $0.section == .needsYou && $0.paneID != session.activePaneID })
                                 {
                                     AgentAttentionBar(
                                         row: row,

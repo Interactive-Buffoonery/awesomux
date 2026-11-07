@@ -624,20 +624,22 @@ struct SidebarView: View {
             }
         )
 
+        let activityPanelVisible = activityPanelOpen && !isFiltering
         let activityKey = SidebarActivityInvalidationKey(
                     groups: sessionStore.groups,
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
                     selectedSessionID: sessionStore.selectedSessionID,
                     displayMode: displayMode,
                     reduceMotion: reduceMotion,
-                    activityPanelGeneration: activityPanelOpen
+            activityPanelGeneration: activityPanelVisible
                         ? sessionStore.liveTitleGeneration : nil,
-                    activityPanelDisplayedTitles: activityPanelOpen ? displayedTitles : nil,
-            activityPanelScrollTarget: activityPanelOpen ? activityPanelScrollTarget : nil,
-            activityPanelUnansweredTurnPaneIDs: activityPanelOpen ? sessionStore.unansweredTurnPaneIDs : nil,
+            activityPanelDisplayedTitles: activityPanelVisible ? displayedTitles : nil,
+            activityPanelScrollTarget: activityPanelVisible ? activityPanelScrollTarget : nil,
+            activityPanelUnansweredTurnPaneIDs: activityPanelVisible ? sessionStore.unansweredTurnPaneIDs : nil,
             actionableAgentPaneIDs: sessionStore.actionableAgentPaneIDs,
-            activityPanelScrollRequestID: activityPanelOpen ? activityPanelScrollRequestID : nil,
-            activityPanelFocusRequestID: activityPanelOpen ? focusRequestID : nil
+            activityPanelScrollRequestID: activityPanelVisible ? activityPanelScrollRequestID : nil,
+            workspaceSearchActive: isFiltering,
+            tintedHighContrast: activityPanelVisible && appSettingsStore.appearance.value.tintedHighContrast
         )
         let activitySection = SidebarActivitySection(
             sessionStore: sessionStore,
@@ -654,24 +656,13 @@ struct SidebarView: View {
 
         let sidebarContent = AnyView(
             VStack(spacing: 0) {
-                if displayMode != .collapsed {
-                    Picker(String(localized: "Sidebar view", comment: "Workspace or agent navigation mode"), selection: $activityPanelOpen)
-                    {
-                        Text(String(localized: "Workspaces", comment: "Workspace organization sidebar")).tag(false)
-                        Text(String(localized: "Agents", comment: "Global agent sidebar")).tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                }
-                if isWorkspacesMode {
-                    searchHeader(
+                searchHeader(
                         topMatchID: snapshot.topMatchID,
                         searchResultIDs: searchResultIDs,
                         displayedTitles: displayedTitles
                     )
 
+                if isWorkspacesMode {
                     workspaceContent
 
                 }
@@ -934,7 +925,7 @@ struct SidebarView: View {
     }
 
     private var isWorkspacesMode: Bool {
-        !activityPanelOpen || displayMode == .collapsed
+        !activityPanelOpen || displayMode == .collapsed || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Selection can land inside a collapsed group via more than notification
@@ -964,12 +955,6 @@ struct SidebarView: View {
 
     private func handleFocusRequest(_ requestID: UUID?, visibleRows: [SidebarVisibleRow]) {
             if requestID != nil {
-            guard isWorkspacesMode else {
-                if AgentActivityRoster.build(sessions: sessionStore.groups.flatMap(\.sessions)).rows.isEmpty {
-                    accessibilityAnnouncer.announce(String(localized: "No agents to show", comment: "Empty agent sidebar"))
-                }
-                return
-            }
                 ShortcutDiagnostics.log("stage=sidebarView receivedFocusRequest=true")
                 if displayMode == .collapsed {
                     ShortcutDiagnostics.log("stage=sidebarView action=focusRail")
@@ -1910,7 +1895,8 @@ struct SidebarActivityInvalidationKey: Equatable {
     let activityPanelUnansweredTurnPaneIDs: Set<UUID>?
     let actionableAgentPaneIDs: [UUID]
     let activityPanelScrollRequestID: UUID?
-    let activityPanelFocusRequestID: UUID?
+    let workspaceSearchActive: Bool
+    let tintedHighContrast: Bool
 
     init(
         groups: [SessionGroup],
@@ -1924,7 +1910,8 @@ struct SidebarActivityInvalidationKey: Equatable {
         activityPanelUnansweredTurnPaneIDs: Set<UUID>? = nil,
         actionableAgentPaneIDs: [UUID] = [],
         activityPanelScrollRequestID: UUID? = nil,
-        activityPanelFocusRequestID: UUID? = nil
+        workspaceSearchActive: Bool = false,
+        tintedHighContrast: Bool = false
     ) {
         self.groups = groups
         self.pinnedSessionIDs = pinnedSessionIDs
@@ -1937,12 +1924,16 @@ struct SidebarActivityInvalidationKey: Equatable {
         self.activityPanelUnansweredTurnPaneIDs = activityPanelUnansweredTurnPaneIDs
         self.actionableAgentPaneIDs = actionableAgentPaneIDs
         self.activityPanelScrollRequestID = activityPanelScrollRequestID
-        self.activityPanelFocusRequestID = activityPanelFocusRequestID
+        self.workspaceSearchActive = workspaceSearchActive
+        self.tintedHighContrast = tintedHighContrast
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         let comparePaneTitles = lhs.activityPanelDisplayedTitles != nil || rhs.activityPanelDisplayedTitles != nil
         guard (!comparePaneTitles || lhs.groups.map(\.name) == rhs.groups.map(\.name)),
+            (!comparePaneTitles
+                || lhs.groups.enumerated().map { $0.element.resolvedColor(at: $0.offset) }
+                    == rhs.groups.enumerated().map { $0.element.resolvedColor(at: $0.offset) }),
             lhs.pinnedSessionIDs == rhs.pinnedSessionIDs,
             lhs.selectedSessionID == rhs.selectedSessionID,
             lhs.displayMode == rhs.displayMode,
@@ -1953,7 +1944,8 @@ struct SidebarActivityInvalidationKey: Equatable {
             lhs.activityPanelUnansweredTurnPaneIDs == rhs.activityPanelUnansweredTurnPaneIDs,
             lhs.actionableAgentPaneIDs == rhs.actionableAgentPaneIDs,
             lhs.activityPanelScrollRequestID == rhs.activityPanelScrollRequestID,
-            lhs.activityPanelFocusRequestID == rhs.activityPanelFocusRequestID,
+            lhs.workspaceSearchActive == rhs.workspaceSearchActive,
+            lhs.tintedHighContrast == rhs.tintedHighContrast,
             lhs.groups.count == rhs.groups.count
         else { return false }
 
@@ -2050,8 +2042,7 @@ private struct SidebarActivitySection: View, Equatable {
             counts[state == .error ? .needs : state.awState, default: 0] += count
         }
         return VStack(spacing: 0) {
-            if activityPanelOpen, invalidationKey.displayMode != .collapsed {
-                Divider()
+            if activityPanelOpen, !invalidationKey.workspaceSearchActive, invalidationKey.displayMode != .collapsed {
                 SidebarActivityPanelTitleScope(
                     sessionStore: sessionStore,
                     sessions: sessions,
@@ -2059,14 +2050,17 @@ private struct SidebarActivitySection: View, Equatable {
                     groupNamesBySessionID: Dictionary(
                         invalidationKey.groups.flatMap { group in group.sessions.map { ($0.id, group.name) } },
                         uniquingKeysWith: { first, _ in first }),
+                    groupAccentsBySessionID: Dictionary(
+                        invalidationKey.groups.enumerated().flatMap { index, group in
+                            group.sessions.map { ($0.id, ProjectTint(group: group, index: index).accent) }
+                        }, uniquingKeysWith: { first, _ in first }),
                     orderedPaneIDs: invalidationKey.actionableAgentPaneIDs,
                     selectedPaneID: sessions.first(where: { $0.id == invalidationKey.selectedSessionID })?.activePaneID,
                     resolvedTitles: invalidationKey.activityPanelDisplayedTitles ?? [:],
                     scrollTarget: activityPanelScrollTarget,
                     scrollRequestID: activityPanelScrollRequestID,
-                    focusRequestID: invalidationKey.activityPanelFocusRequestID,
-                    onSelect: selectActivityRow,
-                    onClose: { setActivityPanel(open: false) }
+                    tintedHighContrast: invalidationKey.tintedHighContrast,
+                    onSelect: selectActivityRow
                 )
             }
 
@@ -2078,9 +2072,8 @@ private struct SidebarActivitySection: View, Equatable {
                 onShowWelcomeTour: onShowWelcomeTour,
                 onSelectNextMatchingState: { focusNextAgentPane(matching: $0, in: roster) },
                 onToggleActivityPanel: { state in
-                    // Chips only open/retarget; closing lives on the total
-                    // label and the panel's own close button. Keeps the chips'
-                    // "Show…" tooltips truthful.
+                    // Chips only open/retarget; the total label switches modes.
+                    // Keep the chips' "Show…" tooltips truthful.
                     if activityPanelOpen, state == nil {
                         setActivityPanel(open: false)
                     } else {
@@ -2144,7 +2137,10 @@ private struct SidebarActivitySection: View, Equatable {
     /// can't be missed by one path.
     private func setActivityPanel(open: Bool, scrollTarget: AgentDisplayState? = nil) {
         activityPanelScrollTarget = scrollTarget
-        if open { activityPanelScrollRequestID = UUID() }
+        if open {
+            searchText = ""
+            activityPanelScrollRequestID = UUID()
+        }
         guard open != activityPanelOpen else {
             return
         }
@@ -2175,14 +2171,14 @@ private struct SidebarActivityPanelTitleScope: View {
     let sessions: [TerminalSession]
     let roster: AgentActivityRoster
     let groupNamesBySessionID: [TerminalSession.ID: String]
+    let groupAccentsBySessionID: [TerminalSession.ID: AwTintAccent]
     let orderedPaneIDs: [UUID]
     let selectedPaneID: UUID?
     let resolvedTitles: [TerminalSession.ID: String]
     let scrollTarget: AgentDisplayState?
     let scrollRequestID: UUID
-    let focusRequestID: UUID?
+    let tintedHighContrast: Bool
     let onSelect: (AgentActivityRoster.Row) -> Void
-    let onClose: () -> Void
 
     var body: some View {
         let sessionsByID = Dictionary(
@@ -2196,13 +2192,16 @@ private struct SidebarActivityPanelTitleScope: View {
             },
             scrollTarget: scrollTarget,
             scrollRequestID: scrollRequestID,
-            focusRequestID: focusRequestID,
             livePaneIDs: Set(sessions.flatMap { $0.layout.paneIDs }),
             selectedPaneID: selectedPaneID,
+            tintedHighContrast: tintedHighContrast,
+            tintAccentsByPaneID: Dictionary(
+                sessions.flatMap { session in
+                    session.layout.paneIDs.map { ($0, groupAccentsBySessionID[session.id] ?? .mauve) }
+                }, uniquingKeysWith: { first, _ in first }),
             onSelect: onSelect,
             onMarkSeen: { sessionStore.markPaneSeen(sessionID: $0.sessionID, paneID: $0.paneID) },
-            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) },
-            onClose: onClose
+            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) }
         )
     }
 
@@ -2233,13 +2232,14 @@ private struct SidebarActivityPanelTitleScope: View {
         } else {
             title = resolvedTitles[row.sessionID] ?? session?.title ?? ""
         }
+        let workspaceTitle = resolvedTitles[row.sessionID] ?? session?.title
         return AgentActivityPanelItem(
             row: row,
             title: title,
             locationText: location?.displayText ?? "",
             workspaceText: [
                 groupName,
-                resolvedTitles[row.sessionID] ?? session?.title,
+                workspaceTitle == title || workspaceTitle == groupName ? nil : workspaceTitle,
             ].compactMap { $0 }.joined(separator: " / ")
         )
     }

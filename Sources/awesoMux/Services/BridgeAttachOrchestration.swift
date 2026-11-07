@@ -208,6 +208,33 @@ final class BridgeDecisionRouter {
 // MARK: - GhosttyRuntime bridge trio assembly (INT-698 D4, items B/C/D)
 
 extension GhosttyRuntime {
+    @MainActor
+    static func applyBridgeAgentStatus(
+        _ event: AgentRuntimeEvent, sessionStore: SessionStore,
+        sessionID: TerminalSession.ID, paneID: TerminalPane.ID, surfaceView: GhosttySurfaceNSView?
+    ) {
+        let previousReason = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.attentionReason
+        guard
+            sessionStore.applyAgentRuntimeEvent(
+                event, to: sessionID, paneID: paneID, terminalIsFocused: surfaceView?.terminalIsFocused ?? false)
+        else { return }
+        surfaceView?.invalidateObservedCodexQuestion(
+            in: sessionStore, at: PaneStoreWriteKey(sessionID: sessionID, paneID: paneID),
+            previousAttentionReason: previousReason, sessionEnded: event.phase == .sessionEnd)
+    }
+
+    @MainActor
+    static func updateBridgePermissionPromptAttention(
+        sessionStore: SessionStore, sessionID: TerminalSession.ID, paneID: TerminalPane.ID,
+        countDelta: Int, hasPending: Bool, surfaceView: GhosttySurfaceNSView?
+    ) {
+        let previousReason = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.attentionReason
+        sessionStore.updatePermissionPromptAttention(
+            sessionID: sessionID, paneID: paneID, countDelta: countDelta, hasPending: hasPending)
+        surfaceView?.invalidateObservedCodexQuestion(
+            in: sessionStore, at: PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), previousAttentionReason: previousReason)
+    }
+
     /// The `makeListener` seam the placeholder in `BridgeAttachPreflight` left
     /// unwired: binds a real `BridgeConnectionActor`, stands up the
     /// supervisor + permission coordinator + read-model adapter, fans the
@@ -292,13 +319,12 @@ extension GhosttyRuntime {
                 // read live so a mid-session toggle-off stops permission prompts.
                 self?.agentIntegrations.anyProviderEnabled ?? false
             },
-            pendingCountChanged: { [weak sessionStore] oldCount, newCount in
-                sessionStore?.updatePermissionPromptAttention(
-                    sessionID: workspaceSessionID,
-                    paneID: paneID,
-                    countDelta: newCount - oldCount,
-                    hasPending: newCount > 0
-                )
+            pendingCountChanged: { [weak self, weak sessionStore] oldCount, newCount in
+                guard let sessionStore else { return }
+                Self.updateBridgePermissionPromptAttention(
+                    sessionStore: sessionStore, sessionID: workspaceSessionID, paneID: paneID,
+                    countDelta: newCount - oldCount, hasPending: newCount > 0,
+                    surfaceView: self?.cachedSurfaceView(for: paneID))
             }
         )
 
@@ -315,13 +341,9 @@ extension GhosttyRuntime {
                 // Live focus read: the frame's `session` already matched the
                 // pane at handshake, so we apply straight to the bound pane
                 // rather than re-resolving the terminal session id.
-                let focused = self?.cachedSurfaceView(for: paneID)?.terminalIsFocused ?? false
-                _ = sessionStore.applyAgentRuntimeEvent(
-                    event,
-                    to: workspaceSessionID,
-                    paneID: paneID,
-                    terminalIsFocused: focused
-                )
+                Self.applyBridgeAgentStatus(
+                    event, sessionStore: sessionStore, sessionID: workspaceSessionID, paneID: paneID,
+                    surfaceView: self?.cachedSurfaceView(for: paneID))
             },
             surfaceHandoff: { _, _ in
                 // INT-699 owns the scp + inbox-path derivation + the

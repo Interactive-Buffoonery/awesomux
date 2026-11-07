@@ -350,6 +350,10 @@ final class GhosttySurfaceNSView: NSView {
         // silently suppressing both the `.valueChanged` post and agent-state
         // re-detection for that first post-respawn tick.
         terminalEventState.lastDetectedVisibleText = ""
+        terminalEventState.lastDetectedAgentKind = nil
+        terminalEventState.lastDetectedForegroundIncarnation = nil
+        terminalEventState.lastObservedAgentText = nil
+        terminalEventState.codexQuestion = nil
         terminalEventState.sshForegroundObservation = nil
         terminalEventState.lastAccessibilityReportedVisibleText = nil
 
@@ -393,6 +397,11 @@ final class GhosttySurfaceNSView: NSView {
             || bridgeExecutionPlanChanged
         if bridgePreflightIdentityChanged || self.sessionStore !== sessionStore {
             resetPendingSurfaceKeyEvents()
+            terminalEventState.codexQuestion = nil
+            terminalEventState.lastDetectedVisibleText = ""
+            terminalEventState.lastDetectedAgentKind = nil
+            terminalEventState.lastDetectedForegroundIncarnation = nil
+            terminalEventState.lastObservedAgentText = nil
         }
         if bridgePreflightIdentityChanged {
             clearNativeRemotePwd()

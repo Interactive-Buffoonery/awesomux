@@ -279,6 +279,7 @@ extension SessionStore {
         paneID: TerminalPane.ID? = nil,
         detectedState: AgentState?,
         agentKind: AgentKind? = nil,
+        isLiveCodexQuestion: Bool = false,
         clearsAttention: Bool,
         clearsUnreadNotifications: Bool = false,
         unreadNotificationDelta: Int = 0
@@ -306,12 +307,26 @@ extension SessionStore {
                 // must stay reclaimable by the pane's own runtime stream.
                 agentKindIsRuntimeEstablished: agentKind != nil ? false : nil,
                 agentState: detectedState,
+                attentionReason: isLiveCodexQuestion && detectedState == .needsAttention
+                    && session(id: id)?.layout.pane(id: targetPaneID)?.agentKind == .codex ? .userInputRequired : nil,
                 clearsAttention: clearsAttention,
                 attentionClearIsAuthoritative: resolvesPendingPermissionPrompt,
                 clearsUnreadNotifications: clearsUnreadNotifications,
                 unreadNotificationDelta: normalizedPublicUnreadDelta(unreadNotificationDelta)
             )
         )
+    }
+
+    /// Resolves a previously observed native question without fabricating an input/permission-answer attempt.
+    @discardableResult
+    public func resolveObservedCodexQuestion(id: TerminalSession.ID, paneID: TerminalPane.ID) -> Bool {
+        guard let pane = session(id: id)?.layout.pane(id: paneID),
+            pane.agentKind == .codex, pane.attentionReason == .userInputRequired,
+            !runtimeEventReducer.suppressesHeuristicState(for: paneID)
+        else { return false }
+        return applyPaneUpdate(
+            sessionID: id, paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(clearsAttention: true, attentionClearIsAuthoritative: true))
     }
 
     /// Marks an answered prompt as thinking again, on the given pane.

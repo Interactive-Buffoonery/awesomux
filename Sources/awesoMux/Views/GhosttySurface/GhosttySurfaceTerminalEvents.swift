@@ -890,90 +890,128 @@ extension GhosttySurfaceNSView {
     func sampleAgentStateFromVisibleText() {
         guard surface != nil, windowIsVisible else { return }
         let now = CACurrentMediaTime()
-        guard now - terminalEventState.lastAgentDetectionSample >= Self.visibleTextChangeThrottle,
-            let visibleText = visibleTerminalText()
-        else {
+        guard now - terminalEventState.lastAgentDetectionSample >= Self.visibleTextChangeThrottle else {
             return
         }
 
         terminalEventState.lastAgentDetectionSample = now
+        let visibleText = visibleTerminalText()
         sampleUnmanagedSSHAgentIdentity(now: now)
-        guard visibleText != terminalEventState.lastDetectedVisibleText else {
-            return
-        }
+        let liveKindForGate = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.agentKind ?? .shell
+        // Current Codex controls must never come from user-scrollable history.
+        let agentText = liveKindForGate == .codex ? terminalText(relativeTo: GHOSTTY_POINT_ACTIVE) : visibleText
+        guard visibleText != nil || agentText != nil else { return }
+        // Pending questions need identity retries even without a text repaint.
+        let foregroundIncarnation =
+            agentText != nil
+                && (agentText != terminalEventState.lastDetectedVisibleText || liveKindForGate != terminalEventState.lastDetectedAgentKind
+                    || terminalEventState.codexQuestion != nil)
+            ? codexQuestionForegroundIncarnation() : terminalEventState.lastDetectedForegroundIncarnation
+        let evaluationPending =
+            agentText.map {
+                terminalEventState.hasUnevaluatedVisibleText(
+                    $0, liveAgentKind: liveKindForGate, foregroundIncarnation: foregroundIncarnation)
+            } ?? false
+        guard
+            (visibleText != nil && visibleText != terminalEventState.lastAccessibilityReportedVisibleText)
+                || (agentText != nil && agentText != terminalEventState.lastObservedAgentText)
+                || evaluationPending
+        else { return }
+        let foregroundCommand =
+            agentText != nil && liveKindForGate == .codex
+            ? sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.freshRemoteForegroundComm()
+                ?? documentNudgeForegroundComm() : nil
+        applyVisibleAgentSample(
+            visibleText, agentText: agentText, now: now, liveAgentKind: liveKindForGate,
+            foregroundCommand: foregroundCommand, foregroundIncarnation: foregroundIncarnation)
+    }
 
-        terminalEventState.lastDetectedVisibleText = visibleText
-
-        // Visible content changed since the last sample and since the last
-        // VoiceOver post: let assistive technology know there's something
-        // new to read. This piggybacks on the sampler's existing text diff
-        // rather than adding a second poll loop — see
-        // `scheduleAccessibilityValueChangeAnnouncement()`. Scoped to the
-        // FOCUSED pane only — mirrors `markNeedsAttention`'s
-        // isKeyWindow/isSelectedWorkspace gating a few lines up. Without
-        // this, a background pane streaming output (a build log, an agent
-        // response) would interrupt VoiceOver reading a different, focused
-        // pane every time its own content changed.
-        if visibleText != terminalEventState.lastAccessibilityReportedVisibleText {
+    func applyVisibleAgentSample(
+        _ visibleText: String?, agentText: String?, now: TimeInterval, liveAgentKind: AgentKind,
+        foregroundCommand: String?, foregroundIncarnation: AgentForegroundIncarnation?
+    ) {
+        guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil else { return }
+        let visibleTextChanged = visibleText != nil && visibleText != terminalEventState.lastAccessibilityReportedVisibleText
+        let agentTextChanged = agentText != nil && agentText != terminalEventState.lastObservedAgentText
+        // Accessibility follows the viewport the user is reading, independently of active Codex controls.
+        if visibleTextChanged, let visibleText {
             terminalEventState.lastAccessibilityReportedVisibleText = visibleText
             if terminalIsFocused {
                 scheduleAccessibilityValueChangeAnnouncement()
             }
         }
-
-        terminalEventState.hasObservedAgentActivity =
-            terminalEventState.hasObservedAgentActivity
-            || terminalEventState.agentOutputDetector.observesAgentContext(in: visibleText)
-
-        // Visible-text changed: the underlying process is producing output.
-        // Mark this as agent activity even if no state transition follows,
-        // so a long-running `.thinking` task keeps its quit-risk freshness.
-        // Conversely, when the process exits and text stops changing, no
-        // marks happen and the staleness threshold catches the dead state.
-        if terminalEventState.hasObservedAgentActivity {
-            sessionStore.markAgentActivityObserved(id: sessionID, paneID: paneID)
+        guard let agentText else { return }
+        if let question = terminalEventState.codexQuestion,
+            let current = foregroundIncarnation, let previous = question.incarnation,
+            current != previous
+        {
+            terminalEventState.codexQuestion = nil
+            terminalEventState.lastDetectedVisibleText = ""
         }
-
-        let liveKindForGate =
-            sessionStore.session(id: sessionID)?
-            .layout.pane(id: paneID)?.agentKind ?? .shell
         guard
-            VisibleTextAgentStateReducer.shouldRunVisibleTextDetector(
-                now: now,
-                lastRuntimeEventAppliedAt: terminalEventState.lastRuntimeEventAppliedAt,
-                liveAgentKind: liveKindForGate
-            )
+            visibleTextChanged || agentTextChanged
+                || terminalEventState.hasUnevaluatedVisibleText(
+                    agentText, liveAgentKind: liveAgentKind, foregroundIncarnation: foregroundIncarnation)
         else {
             return
         }
 
+        if agentTextChanged {
+            terminalEventState.lastObservedAgentText = agentText
+        }
+
+        terminalEventState.hasObservedAgentActivity =
+            terminalEventState.hasObservedAgentActivity
+            || terminalEventState.agentOutputDetector.observesAgentContext(in: agentText)
+
+        // Agent text changed: the underlying process is producing output.
+        // Mark this as agent activity even if no state transition follows,
+        // so a long-running `.thinking` task keeps its quit-risk freshness.
+        // Conversely, when the process exits and text stops changing, no
+        // marks happen and the staleness threshold catches the dead state.
+        if agentTextChanged, terminalEventState.hasObservedAgentActivity {
+            sessionStore.markAgentActivityObserved(id: sessionID, paneID: paneID)
+        }
+
         // The stored kind and observed-context latch can outlive Codex. Only
         // its current foreground process may lend context to bannerless output.
-        if liveKindForGate == .codex {
-            let command =
-                sessionStore.session(id: sessionID)?
-                .layout.pane(id: paneID)?.freshRemoteForegroundComm()
-                ?? documentNudgeForegroundComm()
-            guard AgentProcessRecognition.agentKind(forCommand: command) == .codex
+        if liveAgentKind == .codex {
+            guard AgentProcessRecognition.agentKind(forCommand: foregroundCommand) == .codex
             else { return }
         }
 
+        guard
+            terminalEventState.consumeVisibleTextForDetection(
+                agentText, now: now, liveAgentKind: liveAgentKind, foregroundIncarnation: foregroundIncarnation)
+        else { return }
+
         let detection = terminalEventState.agentOutputDetector.detectedOutput(
-            in: visibleText,
+            in: agentText,
             assumingAgentContext: terminalEventState.hasObservedAgentActivity,
-            liveAgentKind: liveKindForGate)
+            liveAgentKind: liveAgentKind
+        )
+        if detection?.isLiveCodexQuestion != true {
+            updateCodexQuestion(detection, foregroundIncarnation: foregroundIncarnation)
+        }
+        // Register the episode after applying it so later samples can suppress duplicate unread.
+        defer {
+            if detection?.isLiveCodexQuestion == true {
+                updateCodexQuestion(detection, foregroundIncarnation: foregroundIncarnation)
+            }
+        }
         let cue =
-            detection?.state == .needsAttention || terminalEventState.lastAcceptedAttentionCue != nil
-            ? terminalEventState.agentOutputDetector.attentionCue(in: visibleText, liveAgentKind: liveKindForGate) : nil
+            detection?.isLiveCodexQuestion != true
+                && (detection?.state == .needsAttention || terminalEventState.lastAcceptedAttentionCue != nil)
+            ? terminalEventState.agentOutputDetector.attentionCue(in: agentText, liveAgentKind: liveAgentKind) : nil
         applyVisibleTextAgentOutput(detection, attentionCue: cue, now: now)
     }
 
     func applyVisibleTextAgentOutput(_ detection: AgentOutputDetection?, attentionCue: String?, now: TimeInterval) {
+        let attentionCue = detection?.isLiveCodexQuestion == true ? nil : attentionCue
         if attentionCue == nil {
             terminalEventState.lastAcceptedAttentionCue = nil
         }
         guard let detection else { return }
-
         terminalEventState.hasObservedAgentActivity = true
         if shouldSuppressVisibleTextState(detection.state, now: now) {
             return
@@ -1018,19 +1056,23 @@ extension GhosttySurfaceNSView {
     }
 
     func visibleTerminalText() -> String? {
+        terminalText(relativeTo: GHOSTTY_POINT_VIEWPORT)
+    }
+
+    private func terminalText(relativeTo tag: ghostty_point_tag_e) -> String? {
         guard let surface else {
             return nil
         }
 
         let selection = ghostty_selection_s(
             top_left: ghostty_point_s(
-                tag: GHOSTTY_POINT_VIEWPORT,
+                tag: tag,
                 coord: GHOSTTY_POINT_COORD_TOP_LEFT,
                 x: 0,
                 y: 0
             ),
             bottom_right: ghostty_point_s(
-                tag: GHOSTTY_POINT_VIEWPORT,
+                tag: tag,
                 coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
                 x: 0,
                 y: 0
@@ -1117,7 +1159,7 @@ extension GhosttySurfaceNSView {
         // closed/removed from the store. Without this guard, the announcement
         // posts even though the store mutation would no-op below — speaking a
         // transition that didn't actually happen.
-        guard let liveSession = sessionStore.session(id: sessionID) else {
+        guard let liveSession = sessionStore.session(id: sessionID), liveSession.layout.pane(id: paneID) != nil else {
             return
         }
         // Grok's Settings opt-in gates both installed hooks and text identity;
@@ -1141,10 +1183,12 @@ extension GhosttySurfaceNSView {
             detectedState: detection.state,
             detectedAgentKind: detection.agentKind,
             detectedKindIsAuthoritative: detection.agentKindIsAuthoritative,
+            isLiveCodexQuestion: detection.isLiveCodexQuestion,
             liveAgentKind: liveAgentKind,
             liveAgentHooksDelivered: hooksDelivered,
             liveExecutionState: liveExecutionState,
             liveDisplayState: liveDisplayState,
+            liveAttentionReason: livePane?.attentionReason,
             terminalIsActiveForAttention: sessionIsSelectedInKeyWindow || terminalIsFocused
         )
         if detection.state == .needsAttention, liveDisplayState == .needsAttention,
@@ -1183,14 +1227,18 @@ extension GhosttySurfaceNSView {
             clearStaleErrorState()
         }
 
+        let repeatsObservedQuestion =
+            detection.isLiveCodexQuestion
+            && terminalEventState.codexQuestion?.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
         let applied = sessionStore.applyDetectedAgentState(
             id: sessionID,
             paneID: paneID,
             detectedState: applyState,
             agentKind: decision.agentKind,
+            isLiveCodexQuestion: applyState == .needsAttention && detection.isLiveCodexQuestion,
             clearsAttention: applyState != nil ? decision.clearsAttention : false,
             clearsUnreadNotifications: applyState != nil ? decision.clearsUnreadNotifications : false,
-            unreadNotificationDelta: applyState != nil ? decision.unreadNotificationDelta : 0
+            unreadNotificationDelta: applyState != nil && !repeatsObservedQuestion ? decision.unreadNotificationDelta : 0
         )
         guard applied else { return }
         if applyState == .needsAttention, let attentionCue {
@@ -1264,8 +1312,8 @@ extension GhosttySurfaceNSView {
         // sibling pane holding a louder state would otherwise mask this pane's
         // error transition and the announcement (and `clearStaleErrorState`)
         // would never fire (INT-504 — matches the per-pane detector path).
-        let priorState = sessionStore.session(id: sessionID)?
-            .layout.pane(id: paneID)?.agentState
+        let priorPane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
+        let priorState = priorPane?.agentState
         let applied = sessionStore.applyAgentRuntimeEvent(
             event,
             to: sessionID,
@@ -1273,6 +1321,10 @@ extension GhosttySurfaceNSView {
             terminalIsFocused: terminalIsFocused
         )
         guard applied else { return }
+        let updatedPane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
+        invalidateObservedCodexQuestion(
+            in: sessionStore, at: PaneStoreWriteKey(sessionID: sessionID, paneID: paneID),
+            previousAttentionReason: priorPane?.attentionReason, sessionEnded: event.phase == .sessionEnd)
 
         // Session end returns the pane to plain shell, so drop the agent-
         // context latch too: with it armed, an ordinary shell command's
@@ -1285,6 +1337,7 @@ extension GhosttySurfaceNSView {
         if event.phase == .sessionEnd {
             terminalEventState.hasObservedAgentActivity = false
             terminalEventState.codexHooksDelivered = nil
+            terminalEventState.codexQuestion = nil
         } else if event.source == .codex, event.phase != .rename,
             let incarnation = documentNudgeForegroundGeneration()
         {
@@ -1315,8 +1368,7 @@ extension GhosttySurfaceNSView {
         // transitions so VoiceOver users hear the same signal regardless
         // of which channel produced the state change. The needsAttention
         // path owns its own announcement (see applyDetectedAgentState).
-        let newState = sessionStore.session(id: sessionID)?
-            .layout.pane(id: paneID)?.agentState
+        let newState = updatedPane?.agentState
         // Trusted-generation stamp for the document-nudge prompt gate
         // (INT-569 follow-up): this is the ONLY path that may set
         // `terminalEventState.verifiedWaitingForegroundIncarnation`, and only for an event that
@@ -1350,9 +1402,71 @@ extension GhosttySurfaceNSView {
         announce(announcementIntent)
     }
 
+    func invalidateObservedCodexQuestion(
+        in store: SessionStore, at key: PaneStoreWriteKey, previousAttentionReason: AttentionReason?, sessionEnded: Bool = false
+    ) {
+        guard sessionStore === store,
+            key == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID),
+            terminalEventState.codexQuestion?.pane == key,
+            let livePane = store.session(id: key.sessionID)?.layout.pane(id: key.paneID),
+            sessionEnded || previousAttentionReason != livePane.attentionReason
+        else { return }
+        if sessionEnded { terminalEventState.codexQuestion = nil }
+        terminalEventState.lastDetectedAgentKind = nil
+    }
+
+    private func codexQuestionForegroundIncarnation() -> AgentForegroundIncarnation? {
+        guard let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+            pane.agentKind == .codex, pane.executionPlan == .local, pane.freshRemoteForegroundComm() == nil,
+            AgentProcessRecognition.agentKind(forCommand: documentNudgeForegroundComm()) == .codex
+        else { return nil }
+        return documentNudgeForegroundGeneration()
+    }
+
+    func updateCodexQuestion(_ detection: AgentOutputDetection?, foregroundIncarnation: AgentForegroundIncarnation?) {
+        let key = PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.agentKind == .codex else {
+            terminalEventState.codexQuestion = nil
+            return
+        }
+        if let question = terminalEventState.codexQuestion,
+            question.pane != key
+                || (foregroundIncarnation != nil && question.incarnation != nil
+                    && question.incarnation != foregroundIncarnation)
+        {
+            terminalEventState.codexQuestion = nil
+        }
+        if detection?.isLiveCodexQuestion == true {
+            if terminalEventState.codexQuestion == nil || foregroundIncarnation != nil {
+                terminalEventState.codexQuestion = (key, foregroundIncarnation)
+            }
+        } else if detection?.codexUI == .composer, let foregroundIncarnation,
+            terminalEventState.codexQuestion?.incarnation == foregroundIncarnation
+        {
+            _ = sessionStore.resolveObservedCodexQuestion(id: sessionID, paneID: paneID)
+            terminalEventState.codexQuestion = nil
+        }
+    }
+
     func markNeedsAttentionPromptAnswered() {
         runtime.cancelCommandRetry(toPane: paneID)
         runtime.clearSessionRestartNotice(for: paneID, afterLayout: true)
+        guard let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID) else {
+            terminalEventState.codexQuestion = nil
+            return
+        }
+        if pane.agentKind == .codex,
+            let question = terminalEventState.codexQuestion,
+            question.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        {
+            // Editing/navigation is not an answer; only the same process's positive normal UI resolves this question.
+            if let previous = question.incarnation, let current = codexQuestionForegroundIncarnation(), current != previous {
+                terminalEventState.codexQuestion = nil
+            } else {
+                return
+            }
+        }
+        terminalEventState.codexQuestion = nil
         sessionStore.markNeedsAttentionPromptAnswered(id: sessionID, paneID: paneID)
     }
 }

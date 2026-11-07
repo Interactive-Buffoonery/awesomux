@@ -72,9 +72,10 @@ public struct VisibleTextAgentStateReducer: Sendable {
     /// Whether `sampleAgentStateFromVisibleText` should run the (expensive)
     /// `AgentOutputDetector` scan at all. When a reliable-hook agent has a
     /// fresh runtime event, `shouldSuppressVisibleTextState` would discard any
-    /// non-attention result AND `blockedByReliableHook` discards
-    /// `.needsAttention` too — so the ~59-substring scan is provably wasted
-    /// work. The raw visible-text READ and diff still run for every pane:
+    /// non-attention result, and generic scraped attention cannot override
+    /// reliable hooks. Keep this short fresh-event window for Codex questions
+    /// too; their native-UI fallback becomes eligible after it expires.
+    /// The raw visible-text READ and diff still run for every pane:
     /// VoiceOver's value-changed announcement and quit-risk activity marking
     /// ride that diff.
     ///
@@ -141,10 +142,12 @@ public struct VisibleTextAgentStateReducer: Sendable {
         detectedState: AgentState,
         detectedAgentKind: AgentKind?,
         detectedKindIsAuthoritative: Bool = false,
+        isLiveCodexQuestion: Bool = false,
         liveAgentKind: AgentKind,
         liveAgentHooksDelivered: Bool = true,
         liveExecutionState: AgentExecutionState,
         liveDisplayState: AgentState,
+        liveAttentionReason: AttentionReason? = nil,
         terminalIsActiveForAttention: Bool
     ) -> Decision {
         let agentKind = agentKindCorrection(
@@ -158,8 +161,10 @@ public struct VisibleTextAgentStateReducer: Sendable {
             // Process recognition proves identity, not an idle composer, so it
             // must not clear thinking in a pane without delivered hooks.
             liveAgentHooksDelivered: liveAgentHooksDelivered || detectedKindIsAuthoritative,
+            isLiveCodexQuestion: isLiveCodexQuestion,
             liveExecutionState: liveExecutionState,
-            liveDisplayState: liveDisplayState
+            liveDisplayState: liveDisplayState,
+            liveAttentionReason: liveAttentionReason
         )
         guard shouldApplyState || agentKind != nil else {
             return Decision(shouldApply: false)
@@ -193,7 +198,7 @@ public struct VisibleTextAgentStateReducer: Sendable {
             agentKind: agentKind,
             clearsAttention: clearsAttention,
             clearsUnreadNotifications: clearsUnreadNotifications,
-            unreadNotificationDelta: detectedNeedsAttention && !terminalIsActiveForAttention
+            unreadNotificationDelta: detectedNeedsAttention && liveDisplayState != .needsAttention && !terminalIsActiveForAttention
                 ? 1
                 : 0,
             announcementIntent: announcementIntent,
@@ -248,8 +253,10 @@ public struct VisibleTextAgentStateReducer: Sendable {
         detectedState: AgentState,
         liveAgentKind: AgentKind,
         liveAgentHooksDelivered: Bool = true,
+        isLiveCodexQuestion: Bool = false,
         liveExecutionState: AgentExecutionState,
-        liveDisplayState: AgentState
+        liveDisplayState: AgentState,
+        liveAttentionReason: AttentionReason? = nil
     ) -> Bool {
         let hooksAreAuthoritative =
             liveAgentHooksDelivered || !liveAgentKind.requiresDeliveredHooksForAuthority
@@ -267,7 +274,10 @@ public struct VisibleTextAgentStateReducer: Sendable {
             }
             return false
         }
-        guard liveDisplayState != detectedState else {
+        let upgradesQuestionReason =
+            liveAgentKind == .codex && isLiveCodexQuestion && detectedState == .needsAttention
+            && liveAttentionReason?.awaitsExplicitAnswer != true
+        guard liveDisplayState != detectedState || upgradesQuestionReason else {
             return false
         }
         // A hook-driven agent owns its own lifecycle: never let a `.done` or a
@@ -294,6 +304,8 @@ public struct VisibleTextAgentStateReducer: Sendable {
         // received hooks keeps this fallback (requiresDeliveredHooksForAuthority).
         let blockedByReliableHook =
             hooksAreAuthoritative
+            // Codex lifecycle hooks do not report its native question dialog.
+            && !(liveAgentKind == .codex && detectedState == .needsAttention && isLiveCodexQuestion)
             && (detectedState == .done
                 ? liveAgentKind.usesReliableHooks
                 : detectedState == .needsAttention

@@ -70,3 +70,18 @@ Agents sidebar and pane-peek navigation no longer explicitly acknowledge the des
 The workspace shortcut (⇧⌘K), workspace context action, and pane-level **Mark as seen** controls now use notification-only marking: clear unread, nonblocking notification reasons, and finished-turn review reminders, retaining explicit permission/input reasons until resolved or deliberately dismissed. Pane marking resolves the pane's live owner without selecting a sibling. A finished-turn reminder is distinct from a human-blocking prompt.
 
 **Clear All Notifications** remains the deliberate dismissal escape hatch for stale attention, including restored requests, and stays enabled for reminders even after their unread count reaches zero. The row-level Dismiss attention reminder action is restricted to nonblocking reminders. Its clearing behavior is separate from Mark as seen. No navigation, marking, or dismissal action grants or denies permission; existing permission coordinators remain the sole approval surface.
+
+## Amendment: native Codex question editing (2026-11-06)
+
+Input inside an observed native Codex question does not acknowledge or answer it:
+notes editing, choice navigation, and Escape can leave the question open. The
+question marker clears when the same local Codex process returns to its positively
+recognized normal composer, including after an answer or cancellation. Unknown UI,
+missing process identity, and remote-process wrappers do not prove resolution.
+This clears only the observed user-input reason, preserves unread notifications,
+and neither resolves permission requests nor establishes trusted prompt readiness.
+
+Accepted local and bridge session-end events retire the observed question and
+invalidate its frame even after explicit dismissal, so a replacement session
+gets a new attention episode. Bridge attention changes notify only the matching
+Store and pane; they do not establish local hook or prompt-readiness authority.

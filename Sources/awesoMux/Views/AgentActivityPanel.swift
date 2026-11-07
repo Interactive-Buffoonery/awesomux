@@ -16,14 +16,15 @@ struct AgentActivityPanel: View {
     let items: [AgentActivityPanelItem]
     let scrollTarget: AgentDisplayState?
     let scrollRequestID: UUID
-    let focusRequestID: UUID?
     let livePaneIDs: Set<UUID>
     let selectedPaneID: UUID?
+    let tintedHighContrast: Bool
+    let tintAccentsByPaneID: [UUID: AwTintAccent]
     let onSelect: (AgentActivityRoster.Row) -> Void
     let onMarkSeen: (AgentActivityRoster.Row) -> Void
     let onDismissReminder: (AgentActivityRoster.Row) -> Void
-    let onClose: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var heldIDs: [UUID] = []
     @State private var heldItems: [AgentActivityPanelItem] = []
@@ -63,28 +64,6 @@ struct AgentActivityPanel: View {
         let liveIDs = Set(items.map(\.id))
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
-                // Reserve this space so offering new arrivals never moves a pointer target.
-                Button(String(localized: "New activity — show updates", comment: "Apply deferred agent-list placement changes")) {
-                    applyPlacementUpdates()
-                }
-                .buttonStyle(.plain)
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.status.needs)
-                .frame(maxWidth: .infinity, minHeight: 28)
-                .opacity(hasPlacementUpdates ? 1 : 0)
-                .disabled(!hasPlacementUpdates)
-                .accessibilityHidden(!hasPlacementUpdates)
-                .accessibilityLabel(
-                    String(localized: "New activity — show updates", comment: "Apply deferred agent-list placement changes")
-                )
-                .focusable()
-                .focused($updatesFocused)
-                .accessibilityFocused($updatesAccessibilityFocused)
-                .onKeyPress(keys: [.space, .return], phases: .down) { press in
-                    guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
-                    applyPlacementUpdates()
-                    return .handled
-                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         if placed.isEmpty && !hasPlacementUpdates {
@@ -93,6 +72,9 @@ struct AgentActivityPanel: View {
                                 .foregroundStyle(Color.aw.railText)
                                 .padding(.vertical, 16)
                         }
+                        if placed.isEmpty && hasPlacementUpdates {
+                            placementUpdatesButton
+                        }
                         // A single identity scope keeps the same button alive across section moves.
                         ForEach(placed) { item in
                             let section = heldSections[item.id] ?? item.row.section
@@ -100,17 +82,22 @@ struct AgentActivityPanel: View {
                                 HStack {
                                     Text(section.label)
                                         .awFont(AwFont.UI.label)
+                                        .accessibilityAddTraits(.isHeader)
+                                        .accessibilityValue(hasPlacementUpdates ? "" : (sections[section]?.count ?? 0).formatted())
                                     Spacer()
-                                    Text((sections[section]?.count ?? 0).formatted())
-                                        .awFont(AwFont.Mono.meta)
-                                        .opacity(hasPlacementUpdates ? 0 : 1)
-                                        .accessibilityHidden(hasPlacementUpdates)
+                                    if hasPlacementUpdates, placed.first?.id == item.id {
+                                        placementUpdatesButton
+                                    } else {
+                                        Text((sections[section]?.count ?? 0).formatted())
+                                            .awFont(AwFont.Mono.meta)
+                                            .opacity(hasPlacementUpdates ? 0 : 1)
+                                            .accessibilityHidden(true)
+                                    }
                                 }
                                 .foregroundStyle(Color.aw.railText)
-                                .padding(.top, 14)
+                                .padding(.top, placed.first?.id == item.id ? 8 : 14)
                                 .padding(.bottom, 4)
-                                .accessibilityAddTraits(.isHeader)
-                                .accessibilityElement(children: .combine)
+                                .accessibilityElement(children: .contain)
                             }
                             row(item, available: livePaneIDs.contains(item.id), active: liveIDs.contains(item.id))
                                 .id(item.id)
@@ -131,16 +118,6 @@ struct AgentActivityPanel: View {
                     reconcilePlacement()
                     scroll(to: scrollTarget, proxy: proxy)
                 }
-                .onChange(of: focusRequestID) { _, request in
-                    guard request != nil else { return }
-                    reconcilePlacement()
-                    guard let target = items.first(where: { $0.row.section == .needsYou }) ?? items.first else { return }
-                    clearPanelFocus()
-                    DispatchQueue.main.async {
-                        focusRow(target.id)
-                        proxy.scrollTo(target.id)
-                    }
-                }
 
             }
             .onHover { pointerInside = $0 }
@@ -148,7 +125,11 @@ struct AgentActivityPanel: View {
                 guard direction == .up || direction == .down else { return }
                 let navigable = placed.filter { livePaneIDs.contains($0.id) }
                 guard !navigable.isEmpty else {
-                    if hasPlacementUpdates { updatesFocused = true }
+                    if hasPlacementUpdates {
+                        updatesFocused = true
+                        if voiceOverEnabled { updatesAccessibilityFocused = true }
+                        proxy.scrollTo("agent-placement-updates", anchor: .top)
+                    }
                     return
                 }
                 if updatesFocused || updatesAccessibilityFocused {
@@ -162,24 +143,41 @@ struct AgentActivityPanel: View {
                 let currentID = focusedPaneID ?? seenFocusID ?? selectedPaneID
                 let index = navigable.firstIndex { $0.id == currentID } ?? (direction == .down ? -1 : navigable.count)
                 if hasPlacementUpdates && ((direction == .up && index == 0) || (direction == .down && index == navigable.count - 1)) {
-                    focusedPaneID = nil
-                    seenFocusID = nil
-                    accessibilityPaneID = nil
-                    seenAccessibilityID = nil
                     updatesFocused = true
                     if voiceOverEnabled { updatesAccessibilityFocused = true }
+                    proxy.scrollTo("agent-placement-updates", anchor: .top)
                     return
                 }
                 let next = max(0, min(navigable.count - 1, index + (direction == .down ? 1 : -1)))
-                seenFocusID = nil
-                seenAccessibilityID = nil
                 focusRow(navigable[next].id)
                 proxy.scrollTo(navigable[next].id)
             }
             .accessibilityElement(children: .contain)
         }
         .frame(maxHeight: .infinity)
+        .focusSection()
         .accessibilityLabel(String(localized: "Agents", comment: "Global agent sidebar"))
+    }
+
+    private var placementUpdatesButton: some View {
+        Button(String(localized: "Show updates", comment: "Apply deferred agent-list placement changes")) {
+            applyPlacementUpdates()
+        }
+        .buttonStyle(.plain)
+        .awFont(AwFont.UI.meta)
+        .foregroundStyle(Color.aw.status.needs)
+        .accessibilityLabel(
+            String(localized: "New activity — show updates", comment: "Apply deferred agent-list placement changes")
+        )
+        .focusable()
+        .id("agent-placement-updates")
+        .focused($updatesFocused)
+        .accessibilityFocused($updatesAccessibilityFocused)
+        .onKeyPress(keys: [.space, .return], phases: .down) { press in
+            guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+            applyPlacementUpdates()
+            return .handled
+        }
     }
 
     private func clearPanelFocus() {
@@ -230,8 +228,20 @@ struct AgentActivityPanel: View {
             : !active
                 ? String(localized: "Agent no longer active", comment: "A held row whose terminal is no longer running an agent")
                 : item.row.detail
-        let unread = available && active && item.row.unread > 0 && item.row.executionState != .done
-        let unreadLabel = unread ? String(localized: "Unread", comment: "Agent has unread output; not proof of completion") : ""
+        let selected = selectedPaneID == item.id
+        let needsAttention = available && active && item.row.section == .needsYou
+        let highContrast = contrast == .increased
+        let borderColor: Color = {
+            if selected {
+                return highContrast && !tintedHighContrast ? .aw.dividerHoverHC : .aw.tintBorder(tintAccentsByPaneID[item.id] ?? .mauve)
+            }
+            if needsAttention { return item.row.state.awState.color }
+            return highContrast ? .aw.dividerRestHC : .aw.border
+        }()
+        let finished = available && active && item.row.section == .settled && item.row.executionState == .done
+        let unread = available && active && item.row.unread > 0
+        let unreadLabel =
+            unread && !finished ? String(localized: "Unread", comment: "Agent has unread output; not proof of completion") : ""
         let a11yLabel = [item.title, item.workspaceText, item.row.agentKind.spokenName, detail, unreadLabel, item.locationText].filter {
             !$0.isEmpty
         }.joined(separator: ", ")
@@ -243,30 +253,20 @@ struct AgentActivityPanel: View {
                 navigate(to: item.row)
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        StatusDot(item.row.state.awState)
-                            .accessibilityHidden(true)
-                        Text(verbatim: item.title)
-                            .awFont(AwFont.UI.label)
-                            .lineLimit(2, reservesSpace: true)
+                    Text(verbatim: item.title)
+                        .awFont(AwFont.UI.label)
+                        .lineLimit(2)
+                    if !item.workspaceText.isEmpty {
+                        Text(verbatim: item.workspaceText)
+                            .awFont(AwFont.UI.meta)
+                            .foregroundStyle(Color.aw.railText)
+                            .lineLimit(2)
                     }
-                    Text(verbatim: item.workspaceText)
-                        .awFont(AwFont.UI.meta)
-                        .foregroundStyle(Color.aw.railText)
-                        .lineLimit(2, reservesSpace: true)
                     Text(verbatim: "\(item.row.agentKind.shortName) · \(item.locationText)")
                         .awFont(AwFont.Mono.meta)
                         .foregroundStyle(Color.aw.railText)
                         .lineLimit(1)
-                    HStack {
-                        Text(detail)
-                        if unread {
-                            Text(unreadLabel)
-                        }
-                    }
-                    .lineLimit(1)
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(item.row.section == .needsYou ? Color.aw.status.needs : Color.aw.railText)
+
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -285,16 +285,30 @@ struct AgentActivityPanel: View {
                 String(
                     localized: "Goes to this agent's pane without answering or approving its request", comment: "Agent row navigation hint")
             )
-            .accessibilityAddTraits(selectedPaneID == item.id ? .isSelected : [])
-            ZStack(alignment: .leading) {
-                Color.clear.frame(height: 20).allowsHitTesting(false).accessibilityHidden(true)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    if available && active && item.row.state.awState == .thinking {
+                        StatusDot(.thinking)
+                            .frame(width: 10, height: 10)
+                    }
+                    Text(
+                        finished
+                            ? String(localized: "Finished", comment: "Agent execution completed; not a review verdict") : detail
+                    )
+                    .lineLimit(1)
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(needsAttention ? Color.aw.status.needs : Color.aw.railText)
+                }
+                .accessibilityHidden(true)
+                Spacer(minLength: 0)
                 if canMarkSeen || seenFocusID == item.id || seenAccessibilityID == item.id {
                     Button(String(localized: "Mark as seen", comment: "Clear notification without approving a request")) {
                         onMarkSeen(item.row)
                     }
                     .buttonStyle(.plain)
                     .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.railText)
+                    .foregroundStyle(unread ? Color.aw.status.needs : Color.aw.railText)
                     .accessibilityHint(
                         String(
                             localized: "Clears the notification; permission approval remains separate", comment: "Mark seen boundary hint")
@@ -310,7 +324,7 @@ struct AgentActivityPanel: View {
                     }
                 }
             }
-            .frame(minHeight: 20)
+
         }
         .disabled(!available)
         .contextMenu {
@@ -329,6 +343,18 @@ struct AgentActivityPanel: View {
         }
         .padding(8)
         .background(
-            selectedPaneID == item.id ? Color.aw.text.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: AwRadius.pill))
+            selected ? Color.aw.text.opacity(0.04) : Color.clear, in: RoundedRectangle(cornerRadius: AwRadius.panel)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: AwRadius.panel)
+                .strokeBorder(
+                    borderColor,
+                    style: StrokeStyle(
+                        lineWidth: selected ? (highContrast ? 2 : 1.5) : (highContrast ? 1 : 0.5)
+                    )
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
