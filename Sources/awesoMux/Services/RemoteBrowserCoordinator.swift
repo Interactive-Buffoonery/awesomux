@@ -4,7 +4,6 @@ import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 import SwiftUI
-import UnicodeHygiene
 
 @MainActor
 final class RemoteBrowserCoordinator {
@@ -209,7 +208,7 @@ final class RemoteBrowserCoordinator {
 
     static func webURL(_ raw: String) -> URL? {
         guard raw.utf8.count <= 4096,
-            !raw.unicodeScalars.contains(where: UnicodeHygiene.isUnsafeAlertBodyScalar),
+            !raw.unicodeScalars.contains(where: GhosttyRuntime.isUnsafeAlertBodyScalar),
             let url = URL(string: raw),
             let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme),
             let host = url.host, !host.isEmpty,

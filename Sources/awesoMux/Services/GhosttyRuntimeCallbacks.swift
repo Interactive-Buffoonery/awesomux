@@ -9,7 +9,6 @@ import Foundation
 import GhosttyKit
 import Observation
 import SwiftUI
-import UnicodeHygiene
 import os
 
 extension GhosttyRuntime {
@@ -471,7 +470,7 @@ extension GhosttyRuntime {
     /// hides the real resolved host.
     private static func sanitizedForAlertBody(_ value: String) -> String {
         let scrubbed = value.unicodeScalars.map { scalar -> Character in
-            if UnicodeHygiene.isUnsafeAlertBodyScalar(scalar) {
+            if isUnsafeAlertBodyScalar(scalar) {
                 return " "
             }
             return Character(scalar)
@@ -762,7 +761,7 @@ extension GhosttyRuntime {
 
     private static func fullURLString(for url: URL) -> String {
         let raw = url.absoluteString.unicodeScalars.map { scalar -> Character in
-            UnicodeHygiene.isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
+            isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
         }
         return String(raw)
     }
