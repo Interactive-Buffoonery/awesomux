@@ -320,51 +320,6 @@ extension GhosttyRuntime {
         }
     }
 
-    /// Codepoints that have no business appearing in user-facing
-    /// alert body text — ASCII C0 controls (newline, CR, NUL, tab),
-    /// DEL, C1 controls (`0x80…0x9F`), Unicode line/paragraph
-    /// separators, bidi formatting and isolate controls, zero-width
-    /// joiners / BOM / word joiner, implicit-direction marks, and the
-    /// invisible-but-non-breaking formatting codepoints (ZWNJ/ZWJ,
-    /// invisible math operators, variation selectors, Hangul fillers)
-    /// that can hide or homoglyph-spoof text in a confirmation preview.
-    /// Each either renders as a literal line break in
-    /// `NSAlert.informativeText`, reorders surrounding text in a way
-    /// that defeats the bidi-isolate wrap, or vanishes entirely so the
-    /// rendered string differs from what will actually be acted on.
-    ///
-    /// Shared by the OSC 8 hyperlink confirmation and the OSC 52
-    /// clipboard-write preview (`sanitizedClipboardPreviewScalar`) — keep
-    /// it the single source of truth so a future hardening can't patch
-    /// one dialog and miss the other. Lives in a non-`fileprivate`
-    /// extension so the bridge extension (a separate file) can reach it.
-    static func isUnsafeAlertBodyScalar(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.value {
-        case 0x0000...0x001F, 0x007F, 0x0080...0x009F:
-            return true  // C0, DEL, C1 controls
-        case 0x2028, 0x2029:
-            return true  // LINE SEPARATOR / PARAGRAPH SEPARATOR
-        case 0x202A...0x202E:
-            return true  // Bidi formatting controls (LRE/RLE/PDF/LRO/RLO)
-        case 0x2066...0x2069:
-            return true  // Bidi isolates (LRI/RLI/FSI/PDI)
-        case 0x200E, 0x200F, 0x061C:
-            return true  // LRM / RLM / Arabic letter mark
-        case 0x200B, 0x200C, 0x200D, 0xFEFF, 0x2060:
-            return true  // Zero-width space / ZWNJ / ZWJ / BOM / word joiner
-        case 0x2061...0x2064:
-            return true  // Invisible math operators (function application, etc.)
-        case 0x180E:
-            return true  // Mongolian vowel separator (zero-width in modern Unicode)
-        case 0xFE00...0xFE0F:
-            return true  // Variation selectors (homoglyph / emoji-style spoofing)
-        case 0x115F, 0x1160, 0x3164, 0xFFA0:
-            return true  // Hangul / halfwidth fillers (render blank)
-        default:
-            return false
-        }
-    }
-
     @MainActor
     static func openURLAction(
         _ action: OpenURLAction, from view: GhosttySurfaceNSView,
