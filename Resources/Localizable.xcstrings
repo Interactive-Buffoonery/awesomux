@@ -1510,7 +1510,7 @@
 
     },
     "Collapsed" : {
-      "comment" : "Disclosure state.\nVoiceOver state for hidden remote connection details"
+      "comment" : "Collapsed sidebar section\nDisclosure state.\nVoiceOver state for hidden remote connection details"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -2496,7 +2496,7 @@
       "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
     "Expanded" : {
-      "comment" : "Disclosure state.\nVoiceOver state for visible remote connection details"
+      "comment" : "Disclosure state.\nExpanded sidebar section\nVoiceOver state for visible remote connection details"
     },
     "Expires in %@" : {
       "comment" : "Companion pairing countdown."
@@ -6351,6 +6351,9 @@
     },
     "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running." : {
       "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
+    },
+    "Workgroups" : {
+      "comment" : "Return from Agents to workspace organization"
     },
     "Working" : {
       "comment" : "Active agents section"

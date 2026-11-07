@@ -24,6 +24,12 @@ struct SidebarStatusFooter: View {
     /// were removed; per-group attention rides on the collapsed-only header dot).
     private let visibleStates: [AwState] = [.thinking, .output, .needs]
 
+    static func modeSwitchLabel(total: Int, activityPanelOpen: Bool) -> String {
+        activityPanelOpen
+            ? String(localized: "Workgroups", comment: "Return from Agents to workspace organization")
+            : LocalizedPluralStrings.footerAgentsTotal(count: total)
+    }
+
     /// Public feedback is filed through the repository's issue templates so
     /// users have a stable intake path without depending on a maintainer's
     /// personal mailbox. Internal (not private) so the Help menu command
@@ -61,16 +67,20 @@ struct SidebarStatusFooter: View {
                 // Degrade "19 agents" to "19" rather than wrapping to two lines.
                 // The full plural stays on the Button's accessibilityLabel below,
                 // so VoiceOver output is identical at every width.
-                ViewThatFits(in: .horizontal) {
-                    totalLabel(LocalizedPluralStrings.footerAgentsTotal(count: total))
+                if activityPanelOpen {
+                    totalLabel(Self.modeSwitchLabel(total: total, activityPanelOpen: true))
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        totalLabel(Self.modeSwitchLabel(total: total, activityPanelOpen: false))
                     // Bare interpolation emits ASCII digits; `.formatted()`
                     // renders through the user's locale like the wide
                     // candidate's stringsdict plural does.
                     totalLabel(total.formatted())
+                    }
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(LocalizedPluralStrings.footerAgentsTotal(count: total))
+            .accessibilityLabel(Self.modeSwitchLabel(total: total, activityPanelOpen: activityPanelOpen))
             // State rides accessibilityValue, not just the hint — hints are
             // user-suppressible in VoiceOver verbosity settings.
             .accessibilityValue(activityPanelOpen

@@ -11,7 +11,7 @@ struct SidebarSearchInteractionTests {
     @Test(arguments: [
         "same", "title", "kind", "execution", "selection", "display", "pinned", "motion", "closed split", "open split", "search",
         "closed color",
-        "open color", "tinted contrast",
+        "open color", "tinted contrast", "collapsed agents",
     ])
     func activityInvalidation(scenario: String) throws {
         let first = TerminalPane(title: "Before", workingDirectory: "/tmp/first", agentKind: .claudeCode, executionPlan: .local)
@@ -53,7 +53,8 @@ struct SidebarSearchInteractionTests {
             selectedSessionID: scenario == "selection" ? nil : session.id,
             displayMode: scenario == "display" ? .collapsed : .expanded, reduceMotion: scenario == "motion",
             activityPanelGeneration: generation, activityPanelDisplayedTitles: titles,
-            workspaceSearchActive: scenario == "search", tintedHighContrast: scenario == "tinted contrast")
+            workspaceSearchActive: scenario == "search", tintedHighContrast: scenario == "tinted contrast",
+            collapsedAgentSections: scenario == "collapsed agents" ? [.settled] : [])
         #expect((before == after) == ["same", "title", "closed split", "closed color"].contains(scenario))
     }
 
