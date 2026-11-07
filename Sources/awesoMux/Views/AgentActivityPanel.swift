@@ -16,7 +16,6 @@ struct AgentActivityPanel: View {
     let items: [AgentActivityPanelItem]
     let scrollTarget: AgentDisplayState?
     let scrollRequestID: UUID
-    let focusRequestID: UUID?
     let livePaneIDs: Set<UUID>
     let selectedPaneID: UUID?
     let onSelect: (AgentActivityRoster.Row) -> Void
@@ -117,16 +116,6 @@ struct AgentActivityPanel: View {
                     reconcilePlacement()
                     scroll(to: scrollTarget, proxy: proxy)
                 }
-                .onChange(of: focusRequestID) { _, request in
-                    guard request != nil else { return }
-                    reconcilePlacement()
-                    guard let target = items.first(where: { $0.row.section == .needsYou }) ?? items.first else { return }
-                    clearPanelFocus()
-                    DispatchQueue.main.async {
-                        focusRow(target.id)
-                        proxy.scrollTo(target.id)
-                    }
-                }
 
             }
             .onHover { pointerInside = $0 }
@@ -143,6 +132,8 @@ struct AgentActivityPanel: View {
                 }
                 if updatesFocused || updatesAccessibilityFocused {
                     let target = navigable[direction == .down ? 0 : navigable.count - 1]
+                    updatesFocused = false
+                    updatesAccessibilityFocused = false
                     focusRow(target.id)
                     proxy.scrollTo(target.id)
                     return

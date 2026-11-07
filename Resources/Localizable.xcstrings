@@ -3236,7 +3236,7 @@
     "Move Workspace Up" : {
 
     },
-    "Move keyboard focus to workspace search or the agent list" : {
+    "Move keyboard focus to sidebar search" : {
       "comment" : "Keyboard shortcut description"
     },
     "Move to Group…" : {
@@ -3477,7 +3477,7 @@
       "comment" : "No next actionable agent; focus remains unchanged"
     },
     "No agents to show" : {
-      "comment" : "Empty agent sidebar\nEmpty global agent roster"
+      "comment" : "Empty global agent roster"
     },
     "No apps added yet." : {
       "comment" : "Empty outside app list."

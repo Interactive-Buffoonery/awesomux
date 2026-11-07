@@ -79,7 +79,7 @@ The sidebar trio, the compact terminal surfaces, the command palette, and Sessio
 
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |
-| ⌃⌘S | Focus Sidebar | Focuses search in Workspaces mode, or the first actionable agent in Agents mode |
+| ⌃⌘S | Focus Sidebar | Focuses the shared search field in Workspaces or Agents mode |
 | ⌘\\ | Collapse/Expand Sidebar | Collapses to the rail or restores the last non-collapsed width |
 | ⇧⌘\\ | Hide/Show Sidebar | Hides the sidebar or restores it persistently |
 | ⌘' | **Show Floating Panel** / **Hide Floating Panel** | Per-workspace temporary shell; disabled while a sheet is open. Appends " (running)" when the target workspace's floating slot has work backgrounded |

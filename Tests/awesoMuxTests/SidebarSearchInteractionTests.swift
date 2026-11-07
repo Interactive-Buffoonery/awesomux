@@ -8,7 +8,9 @@ import Testing
 @Suite("Sidebar search interaction", .serialized)
 @MainActor
 struct SidebarSearchInteractionTests {
-    @Test(arguments: ["same", "title", "kind", "execution", "selection", "display", "pinned", "motion", "closed split", "open split"])
+    @Test(arguments: [
+        "same", "title", "kind", "execution", "selection", "display", "pinned", "motion", "closed split", "open split", "search",
+    ])
     func activityInvalidation(scenario: String) throws {
         let first = TerminalPane(title: "Before", workingDirectory: "/tmp/first", agentKind: .claudeCode, executionPlan: .local)
         let second = TerminalPane(title: "Second", workingDirectory: "/tmp/second", agentKind: .codex, executionPlan: .local)
@@ -47,7 +49,8 @@ struct SidebarSearchInteractionTests {
             groups: groups, pinnedSessionIDs: scenario == "pinned" ? [session.id] : [],
             selectedSessionID: scenario == "selection" ? nil : session.id,
             displayMode: scenario == "display" ? .collapsed : .expanded, reduceMotion: scenario == "motion",
-            activityPanelGeneration: generation, activityPanelDisplayedTitles: titles)
+            activityPanelGeneration: generation, activityPanelDisplayedTitles: titles,
+            workspaceSearchActive: scenario == "search")
         #expect((before == after) == ["same", "title", "closed split"].contains(scenario))
     }
 

@@ -679,7 +679,7 @@ enum KeyboardShortcutCatalog {
                     KeyboardShortcutEntry(
                         focusSidebar,
                         detail: String(
-                            localized: "Move keyboard focus to workspace search or the agent list", comment: "Keyboard shortcut description"
+                            localized: "Move keyboard focus to sidebar search", comment: "Keyboard shortcut description"
                         )),
                     KeyboardShortcutEntry(toggleSidebarWidth, detail: "Collapse or expand the sidebar"),
                     KeyboardShortcutEntry(toggleSidebarVisibility, detail: "Hide or show the sidebar"),
