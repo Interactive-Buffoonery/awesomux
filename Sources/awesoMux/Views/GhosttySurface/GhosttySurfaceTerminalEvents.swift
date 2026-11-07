@@ -148,7 +148,7 @@ extension GhosttySurfaceNSView {
         let comm = ProcessLivenessProbe.foregroundComm(pid: pid)
         let hasChildren: Bool?
         if let comm, ShellRecognition.isRecognizedShell(comm) {
-            hasChildren = ProcessLivenessProbe.hasChildren(pid: pid)
+            hasChildren = ProcessLivenessProbe.hasChildrenInOwnSession(pid: pid)
         } else {
             hasChildren = nil
         }

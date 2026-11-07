@@ -60,6 +60,11 @@ struct ProcessLivenessProbeTests {
             idleSnapshot + [
                 ProcEntry(pid: 200, ppid: 100, command: "sleep")
             ]
+        let promptWorker: pid_t = 400
+        let promptWorkerSnapshot =
+            idleSnapshot + [
+                ProcEntry(pid: promptWorker, ppid: 100, command: "-zsh")
+            ]
         let busySiblingSnapshot =
             idleSnapshot + [
                 ProcEntry(pid: 300, ppid: 50, command: "helper")
@@ -69,11 +74,13 @@ struct ProcessLivenessProbeTests {
             ProcessLivenessProbe.bridgedLiveness(
                 daemonPID: 50,
                 childPIDs: { parent in snapshot.filter { $0.ppid == parent }.map(\.pid) },
-                comm: { pid in snapshot.first { $0.pid == pid }?.command }
+                comm: { pid in snapshot.first { $0.pid == pid }?.command },
+                anyChildInOwnSession: { _, children in children.contains { $0 != promptWorker } }
             )
         }
 
         #expect(liveness(in: idleSnapshot) == .bridged)
+        #expect(liveness(in: promptWorkerSnapshot) == .bridged)
         #expect(liveness(in: busySnapshot) == .bridgedBusy)
         #expect(liveness(in: busySiblingSnapshot) == .bridgedBusy)
     }

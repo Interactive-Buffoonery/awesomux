@@ -78,6 +78,11 @@ struct SidebarView: View {
     @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
     @State private var activityPanelOpen = false
     @State private var collapsedAgentSections = Set<AgentActivityRoster.Section>()
+    @State private var collapsedPreviewAgentSections = Set<AgentActivityRoster.Section>()
+    @Environment(\.awAccent) private var footerAccent
+    @Environment(\.colorSchemeContrast) private var footerContrast
+    @State private var agentPreviewOpen = false
+    @State private var workspacePreviewOpen = false
     @State private var sessionPendingRevealInWorkspaces: TerminalSession.ID?
     @State private var activityPanelScrollRequestID = UUID()
     @State private var activityPanelScrollTarget: AgentDisplayState?
@@ -625,7 +630,7 @@ struct SidebarView: View {
             }
         )
 
-        let activityPanelVisible = activityPanelOpen && !isFiltering
+        let activityPanelVisible = (activityPanelOpen || agentPreviewOpen) && !isFiltering && displayMode != .collapsed
         let activityKey = SidebarActivityInvalidationKey(
                     groups: sessionStore.groups,
                     pinnedSessionIDs: sessionStore.pinnedSessionIDs,
@@ -641,7 +646,13 @@ struct SidebarView: View {
             activityPanelScrollRequestID: activityPanelVisible ? activityPanelScrollRequestID : nil,
             workspaceSearchActive: isFiltering,
             tintedHighContrast: activityPanelVisible && appSettingsStore.appearance.value.tintedHighContrast,
-            collapsedAgentSections: collapsedAgentSections
+            collapsedAgentSections: collapsedAgentSections,
+            agentPreviewOpen: agentPreviewOpen,
+            workspacePreviewOpen: workspacePreviewOpen,
+            activityPanelOpen: activityPanelOpen,
+            collapsedPreviewAgentSections: collapsedPreviewAgentSections,
+            footerAccent: footerAccent.accent,
+            footerIncreasedContrast: footerContrast == .increased
         )
         let activitySection = SidebarActivitySection(
             sessionStore: sessionStore,
@@ -651,6 +662,9 @@ struct SidebarView: View {
             activityPanelScrollTarget: $activityPanelScrollTarget,
             activityPanelScrollRequestID: $activityPanelScrollRequestID,
             collapsedAgentSections: $collapsedAgentSections,
+            collapsedPreviewAgentSections: $collapsedPreviewAgentSections,
+            agentPreviewOpen: $agentPreviewOpen,
+            workspacePreviewOpen: $workspacePreviewOpen,
             onOpenQuickSettings: onOpenQuickSettings,
             onShowWelcomeTour: onShowWelcomeTour,
             onFocusPane: onFocusPane
@@ -699,7 +713,7 @@ struct SidebarView: View {
             }
         }
         .onMoveCommand { direction in
-                guard isWorkspacesMode else { return }
+                guard isWorkspacesMode, focusedRowTarget != nil else { return }
             switch direction {
             case .up:
                 moveKeyboardFocus(offset: -1, visibleRows: visibleRows)
@@ -710,12 +724,12 @@ struct SidebarView: View {
             }
         }
         .onKeyPress(.home) {
-                guard isWorkspacesMode else { return .ignored }
+                guard isWorkspacesMode, focusedRowTarget != nil else { return .ignored }
             focusKeyboardTarget(SidebarVisibleRows.firstTarget(in: visibleRows), viaKeyboardNavigation: true)
             return .handled
         }
         .onKeyPress(.end) {
-                guard isWorkspacesMode else { return .ignored }
+                guard isWorkspacesMode, focusedRowTarget != nil else { return .ignored }
             focusKeyboardTarget(SidebarVisibleRows.lastTarget(in: visibleRows), viaKeyboardNavigation: true)
             return .handled
         }
@@ -1901,6 +1915,12 @@ struct SidebarActivityInvalidationKey: Equatable {
     let workspaceSearchActive: Bool
     let tintedHighContrast: Bool
     let collapsedAgentSections: Set<AgentActivityRoster.Section>
+    let activityPanelOpen: Bool
+    let agentPreviewOpen: Bool
+    let workspacePreviewOpen: Bool
+    let collapsedPreviewAgentSections: Set<AgentActivityRoster.Section>
+    let footerAccent: AwAccent
+    let footerIncreasedContrast: Bool
 
     init(
         groups: [SessionGroup],
@@ -1916,7 +1936,13 @@ struct SidebarActivityInvalidationKey: Equatable {
         activityPanelScrollRequestID: UUID? = nil,
         workspaceSearchActive: Bool = false,
         tintedHighContrast: Bool = false,
-        collapsedAgentSections: Set<AgentActivityRoster.Section> = []
+        collapsedAgentSections: Set<AgentActivityRoster.Section> = [],
+        agentPreviewOpen: Bool = false,
+        workspacePreviewOpen: Bool = false,
+        activityPanelOpen: Bool = false,
+        collapsedPreviewAgentSections: Set<AgentActivityRoster.Section> = [],
+        footerAccent: AwAccent = .peach,
+        footerIncreasedContrast: Bool = false
     ) {
         self.groups = groups
         self.pinnedSessionIDs = pinnedSessionIDs
@@ -1932,6 +1958,12 @@ struct SidebarActivityInvalidationKey: Equatable {
         self.workspaceSearchActive = workspaceSearchActive
         self.tintedHighContrast = tintedHighContrast
         self.collapsedAgentSections = collapsedAgentSections
+        self.activityPanelOpen = activityPanelOpen
+        self.agentPreviewOpen = agentPreviewOpen
+        self.workspacePreviewOpen = workspacePreviewOpen
+        self.collapsedPreviewAgentSections = collapsedPreviewAgentSections
+        self.footerAccent = footerAccent
+        self.footerIncreasedContrast = footerIncreasedContrast
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -1953,6 +1985,12 @@ struct SidebarActivityInvalidationKey: Equatable {
             lhs.workspaceSearchActive == rhs.workspaceSearchActive,
             lhs.tintedHighContrast == rhs.tintedHighContrast,
             lhs.collapsedAgentSections == rhs.collapsedAgentSections,
+            lhs.activityPanelOpen == rhs.activityPanelOpen,
+            lhs.agentPreviewOpen == rhs.agentPreviewOpen,
+            lhs.workspacePreviewOpen == rhs.workspacePreviewOpen,
+            lhs.collapsedPreviewAgentSections == rhs.collapsedPreviewAgentSections,
+            lhs.footerAccent == rhs.footerAccent,
+            lhs.footerIncreasedContrast == rhs.footerIncreasedContrast,
             lhs.groups.count == rhs.groups.count
         else { return false }
 
@@ -2025,6 +2063,11 @@ private struct SidebarActivitySection: View, Equatable {
     @Binding var activityPanelScrollTarget: AgentDisplayState?
     @Binding var activityPanelScrollRequestID: UUID
     @Binding var collapsedAgentSections: Set<AgentActivityRoster.Section>
+    @Binding var collapsedPreviewAgentSections: Set<AgentActivityRoster.Section>
+    @Binding var agentPreviewOpen: Bool
+    @Binding var workspacePreviewOpen: Bool
+    @State private var footerFocusRequestID = UUID()
+    @State private var footerFocusSwitch = false
     let onOpenQuickSettings: () -> Void
     let onShowWelcomeTour: () -> Void
     let onFocusPane: (TerminalSession.ID, UUID) -> Void
@@ -2051,26 +2094,60 @@ private struct SidebarActivitySection: View, Equatable {
         }
         return VStack(spacing: 0) {
             if activityPanelOpen, !invalidationKey.workspaceSearchActive, invalidationKey.displayMode != .collapsed {
-                SidebarActivityPanelTitleScope(
-                    sessionStore: sessionStore,
-                    sessions: sessions,
-                    roster: roster,
-                    groupNamesBySessionID: Dictionary(
-                        invalidationKey.groups.flatMap { group in group.sessions.map { ($0.id, group.name) } },
-                        uniquingKeysWith: { first, _ in first }),
-                    groupAccentsBySessionID: Dictionary(
-                        invalidationKey.groups.enumerated().flatMap { index, group in
-                            group.sessions.map { ($0.id, ProjectTint(group: group, index: index).accent) }
-                        }, uniquingKeysWith: { first, _ in first }),
-                    orderedPaneIDs: invalidationKey.actionableAgentPaneIDs,
-                    selectedPaneID: sessions.first(where: { $0.id == invalidationKey.selectedSessionID })?.activePaneID,
-                    resolvedTitles: invalidationKey.activityPanelDisplayedTitles ?? [:],
-                    scrollTarget: activityPanelScrollTarget,
-                    scrollRequestID: activityPanelScrollRequestID,
-                    tintedHighContrast: invalidationKey.tintedHighContrast,
-                    collapsedSections: $collapsedAgentSections,
-                    onSelect: selectActivityRow
-                )
+                agentPanel(sessions: sessions, roster: roster, collapsedSections: $collapsedAgentSections)
+            }
+
+            if !invalidationKey.workspaceSearchActive, invalidationKey.displayMode != .collapsed,
+                activityPanelOpen ? workspacePreviewOpen : agentPreviewOpen
+            {
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Text(
+                            activityPanelOpen
+                                ? String(localized: "Workspace preview", comment: "Reciprocal sidebar preview")
+                                : String(localized: "Agent preview", comment: "Reciprocal sidebar preview")
+                        )
+                        .fontWeight(.semibold)
+                        Spacer(minLength: 0)
+                        Button(String(localized: "Expand", comment: "Open the preview collection as the full sidebar")) {
+                            expandPreview()
+                        }
+                        .focusable()
+                        .onKeyPress(keys: [.space, .return], phases: .down) { press in
+                            guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                            expandPreview()
+                            return .handled
+                        }
+                        .accessibilityLabel(
+                            activityPanelOpen
+                                ? String(localized: "Expand workspace preview", comment: "Open the workspace preview as the full sidebar")
+                                : String(localized: "Expand agent preview", comment: "Open the agent preview as the full sidebar"))
+                        Button(String(localized: "Hide", comment: "Hide the sidebar preview")) {
+                            hidePreview()
+                        }
+                        .focusable()
+                        .onKeyPress(keys: [.space, .return], phases: .down) { press in
+                            guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                            hidePreview()
+                            return .handled
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(Color.aw.railText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    if activityPanelOpen {
+                        SidebarWorkspacePreview(
+                            groups: invalidationKey.groups,
+                            selectedSessionID: invalidationKey.selectedSessionID,
+                            onSelectPane: onFocusPane)
+                    } else {
+                        agentPanel(sessions: sessions, roster: roster, collapsedSections: $collapsedPreviewAgentSections)
+                    }
+                }
+                .frame(height: 240)
+                .overlay(alignment: .top) { Divider() }
             }
 
             SidebarStatusFooter(
@@ -2081,7 +2158,7 @@ private struct SidebarActivitySection: View, Equatable {
                 onShowWelcomeTour: onShowWelcomeTour,
                 onSelectNextMatchingState: { focusNextAgentPane(matching: $0, in: roster) },
                 onToggleActivityPanel: { state in
-                    // Chips only open/retarget; the total label switches modes.
+                    // Chips open/retarget; the separate swap control switches modes.
                     // Keep the chips' "Show…" tooltips truthful.
                     if activityPanelOpen, state == nil {
                         setActivityPanel(open: false)
@@ -2089,7 +2166,14 @@ private struct SidebarActivitySection: View, Equatable {
                         setActivityPanel(open: true, scrollTarget: state)
                     }
                 },
-                activityPanelOpen: activityPanelOpen
+                activityPanelOpen: activityPanelOpen,
+                previewOpen: activityPanelOpen ? workspacePreviewOpen : agentPreviewOpen,
+                previewAvailable: !invalidationKey.workspaceSearchActive,
+                onTogglePreview: togglePreview,
+                focusRequestID: footerFocusRequestID,
+                focusSwitch: footerFocusSwitch,
+                accent: invalidationKey.footerAccent,
+                increasedContrast: invalidationKey.footerIncreasedContrast
             )
         }
         .onChange(of: invalidationKey.displayMode) { _, mode in
@@ -2112,6 +2196,55 @@ private struct SidebarActivitySection: View, Equatable {
                 displayMode: invalidationKey.displayMode
             )
         }
+    }
+
+    private func expandPreview() {
+        setActivityPanel(open: !activityPanelOpen)
+        focusFooter(sidebar: true)
+    }
+
+    private func hidePreview() {
+        togglePreview()
+        focusFooter(sidebar: false)
+    }
+
+    private func togglePreview() {
+        if activityPanelOpen { workspacePreviewOpen.toggle() } else { agentPreviewOpen.toggle() }
+    }
+
+    private func focusFooter(sidebar: Bool) {
+        // The removed preview must relinquish its responder before the footer takes it.
+        DispatchQueue.main.async {
+            footerFocusSwitch = sidebar
+            footerFocusRequestID = UUID()
+        }
+    }
+
+    private func agentPanel(
+        sessions: [TerminalSession], roster: AgentActivityRoster,
+        collapsedSections: Binding<Set<AgentActivityRoster.Section>>
+    ) -> some View {
+        SidebarActivityPanelTitleScope(
+            sessionStore: sessionStore,
+            sessions: sessions,
+            roster: roster,
+            groupNamesBySessionID: Dictionary(
+                invalidationKey.groups.flatMap { group in group.sessions.map { ($0.id, group.name) } },
+                uniquingKeysWith: { first, _ in first }),
+            groupAccentsBySessionID: Dictionary(
+                invalidationKey.groups.enumerated().flatMap { index, group in
+                    group.sessions.map { ($0.id, ProjectTint(group: group, index: index).accent) }
+                }, uniquingKeysWith: { first, _ in first }),
+            orderedPaneIDs: invalidationKey.actionableAgentPaneIDs,
+            selectedPaneID: sessions.first(where: { $0.id == invalidationKey.selectedSessionID })?.activePaneID,
+            resolvedTitles: invalidationKey.activityPanelDisplayedTitles ?? [:],
+            scrollTarget: activityPanelScrollTarget,
+            scrollRequestID: activityPanelScrollRequestID,
+            tintedHighContrast: invalidationKey.tintedHighContrast,
+            collapsedSections: collapsedSections,
+            compact: !activityPanelOpen,
+            onSelect: selectActivityRow
+        )
     }
 
     private func selectActivityRow(_ row: AgentActivityRoster.Row) {
@@ -2196,6 +2329,7 @@ private struct SidebarActivityPanelTitleScope: View {
     let scrollRequestID: UUID
     let tintedHighContrast: Bool
     @Binding var collapsedSections: Set<AgentActivityRoster.Section>
+    let compact: Bool
     let onSelect: (AgentActivityRoster.Row) -> Void
 
     var body: some View {
@@ -2220,7 +2354,8 @@ private struct SidebarActivityPanelTitleScope: View {
                 }, uniquingKeysWith: { first, _ in first }),
             onSelect: onSelect,
             onMarkSeen: { sessionStore.markPaneSeen(sessionID: $0.sessionID, paneID: $0.paneID) },
-            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) }
+            onDismissReminder: { sessionStore.dismissAgentAttentionReminder(paneID: $0.paneID) },
+            compact: compact
         )
     }
 
