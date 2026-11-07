@@ -672,7 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 object: nil
             )
         }
-        // Closing the primary window does NOT quit the app (no
+        // Closing the primary window does NOT quit the installed app (see
         // applicationShouldTerminateAfterLastWindowClosed; reopen via Dock). A
         // resize within the debounce window followed by a close would otherwise
         // leave the pending save to fire with no window left and drop the last
@@ -744,10 +744,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         [
             primaryWindowForFrameSave,
             NSApp.keyWindow,
-            NSApp.mainWindow
+            NSApp.mainWindow,
         ]
         .compactMap(\.self)
         .first { $0.isAwesoMuxPrimaryContentWindow }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Each worktree build is its own Dock app, so windowless dev builds pile up.
+        if case .development = AppRuntimeProfile.current { return true }
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
