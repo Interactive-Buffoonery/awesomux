@@ -9,10 +9,7 @@ import SwiftUI
 /// the trailing Files toggle. Replaces `DocumentPaneTitleBarView` — the strip
 /// shows even with a single tab so the title and close affordance never
 /// disappear. Its height equals a terminal pane's focus-accent band plus
-/// title bar (see `Self.height`) so the chrome stacks align when the terminal
-/// sibling shows a title bar — a lone terminal next to a document suppresses
-/// its title bar (`isMultiPane`) and renders only the 4pt band, a
-/// pre-existing mismatch this strip doesn't resolve.
+/// title bar (see `Self.height`) so the chrome stacks align in mixed splits.
 ///
 /// Tab *selection* is a plain SwiftUI button: it mutates only `selectedTabID`,
 /// hands keyboard and accessibility focus to the selected document.

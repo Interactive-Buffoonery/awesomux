@@ -142,8 +142,9 @@ struct TerminalPaneLayoutView: View {
     // state must cross that gate as an explicit value and participate in `==`.
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    private var isMultiPane: Bool {
-        session.layout.hasMultiplePanes
+    private var showsPaneTitleBar: Bool {
+        if case .split = session.layout { return true }
+        return false
     }
 
     var body: some View {
@@ -196,7 +197,7 @@ struct TerminalPaneLayoutView: View {
                     }
                     .frame(height: PaneFocusAccent.reservedHeight)
 
-                    if isMultiPane {
+                    if showsPaneTitleBar {
                         // The scope, not this body, is what a display-only
                         // title write invalidates — reading the box here would
                         // re-run the surface representable's `updateNSView`
