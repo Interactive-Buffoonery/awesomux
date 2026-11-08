@@ -12,12 +12,17 @@ baselines, or visual AI pass decisions.
 
 Display titles can become the current directory during reattachment, including
 between readiness and dispatch. A shared HOME directory must never identify a
-pane. Each backend therefore starts in `output/fixtures/panes/ZMX_SESSION`,
-outside HOME, and emits that same canonical path as OSC 7 CWD and OSC 2 title.
+pane. Each backend therefore starts in `output/fixtures/home/panes/ZMX_SESSION`,
+inside the synthetic HOME, and emits that same canonical path as OSC 7 CWD and
+OSC 2 title.
 Registration, challenge, and job receipts must retain the exact backend, shell,
 profile, namespace, and CWD binding. AX admission compares that unique path,
 resolving filesystem aliases such as `/tmp` and `/private/tmp`; a sibling path
-or shared HOME still fails. The native helper rechecks admission immediately
+or shared HOME still fails. A unique child path is required rather than HOME
+itself. Keeping it inside the synthetic home also respects
+`WorkingDirectoryValidator.sanitizedRestoredDirectory`: an outside-home fixture
+would trigger a recovery warning on relaunch by design. The native helper
+rechecks admission immediately
 before its single keyboard dispatch, without resetting titles or retrying input.
 
 Use one standalone Python driver, a small native AX/CG helper, and synthetic zsh
@@ -39,7 +44,25 @@ the helper, reports, fixtures, and evidence remain.
 | TL02 | Focus Pane 1/2 executes each challenge only in its intended pane; any sibling execution fails | Pane > Focus Pane 1/2; `Services/KeyboardShortcutCatalog.swift`, `Views/GhosttySurface/GhosttySurfaceInputBridge.swift`, `Views/GhosttySurface/GhosttySurfaceNSView.swift` |
 | TL03 | Exiting one shell removes that pane while sibling shell/job survives | native typed `exit`; `Views/GhosttySurface/GhosttySurfaceProcessExitHandler.swift`, `AwesoMuxCore/Stores/SessionStore.swift`, `Services/AmxBackend.swift` |
 | TL04 | Cancel busy-close preserves the same running controlled job | Pane > Close Workspace (last pane), Cancel; `App/AwesoMuxApp.swift`, `Services/DestructivePaneActionConfirmationPolicy.swift` |
+| TL06 | Ordinary app-menu quit/relaunch preserves daemon, shell, busy job, history and native AX terminal marker before input | App menu > Quit; daemon-backed work needs no confirmation; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
+| TL07 | App-only SIGKILL/relaunch preserves those same identities and contents | Exact copied app PID only; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
 | TL05 | Soft-close/reopen restores a usable same persistent terminal, retaining its authoritative grid until interactive input/takeover | Workspace > Close Workspace / Reopen Closed Workspace; `App/AwesoMuxApp.swift`, `AwesoMuxCore/Models/SessionSnapshot.swift`, `Services/AmxBackend.swift` |
+
+TL06 and TL07 run after TL04 while the same controlled foreground job is busy,
+then TL05 releases it normally. Verbose isolated `amx list` binds the daemon PID
+and shell PID to the exact session. Each boundary compares process start and
+executable as well as PID, requires an advancing job heartbeat while the app is
+absent and after relaunch, and retains challenge/job marker lines in history.
+The relaunched terminal's AX value must contain the job marker before any new
+terminal input. AX value exposes full scrollback, so this rejects missing native
+terminal text but cannot distinguish a blank viewport with retained scrollback.
+Window PNGs remain human evidence. This does not prove viewport rendering,
+every scrollback byte, styled cells or cursor position.
+The quit wait permits the product's roughly 30-second ordered bridge drain.
+An unexpected quit-risk warning is not accepted: daemon-backed work survives
+app quit. Each LaunchServices incarnation has a separate request and receipt. SIGKILL is
+app-only abrupt termination, not daemon death or a host reboot. No live profile
+or installed app is targeted.
 
 TL05's current driver proves backend identity and usable input after reopening.
 It does not observe the retained grid before that first input, or prove follower
@@ -167,7 +190,8 @@ but returned `attributeUnsupported` for AXRaise. Admission verifies the actual
 focus outcome instead of requiring that unsupported action.
 
 App stdout/stderr are not redirected: `NSWorkspace.OpenConfiguration` has no
-stdout/stderr handles. `launch-request.json`, `launch-receipt.json`, `steps.jsonl`,
+stdout/stderr handles. `initial-launch-request.json`,
+`initial-launch-receipt.json` and per-relaunch equivalents, `steps.jsonl`,
 fixture receipts, and captured backend histories provide inspectable evidence.
 There is no `app.log` claim. On failure, before AX diagnostics and cleanup,
 `startup-sample.txt` retains a two-second `/usr/bin/sample` of the exact owned
@@ -217,8 +241,10 @@ uses the existing config setting to prevent unrelated notification onboarding;
 no notification permission is requested or granted. System zsh startup remains
 platform-owned; fixture registration verifies shell/backend environment before
 input. English menus are required. No agent integrations are installed or
-invoked. A failed cleanup keeps the isolated paths and bundle for inspection and
-changes the result to fail.
+invoked. Cleanup releases the controlled fixture job even if app ownership recovery
+fails. A console block before relaunch is reported as blocked if process cleanup
+succeeds. If process cleanup fails, including after a console-blocked relaunch,
+the run is failed and isolated paths and the bundle stay for inspection.
 
 Screenshots: two panes ready, busy-close modal, reopened usable terminal, and
 last failure when an owned window is available. They are captured by exact owner
@@ -250,7 +276,7 @@ scale using Georgia.
 This scenario preserves the synthetic PR #775 journey formerly kept under
 `.build/pr775/harness`: project/child filtering, refresh, cancel/reopen, opening
 a transcript, and document focus. It shares the lifecycle driver's permission,
-identity, isolation and cleanup rules. It does not claim a TL01–TL05 pass or
+identity, isolation and cleanup rules. It does not claim a TL01–TL07 pass or
 VoiceOver speech verification.
 
 `./script/native-ui.sh --check-prerequisites` only compiles/probes the

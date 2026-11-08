@@ -28,12 +28,25 @@ PRODUCTION = [
     "Sources/awesoMux/Services/AgentTranscriptPaneInputs.swift",
     "Sources/awesoMux/Services/AgentTranscriptOpener.swift",
     "Sources/awesoMux/App/AwesoMuxApp.swift",
+    "Sources/awesoMux/App/AppDelegate.swift",
+    "Sources/AwesoMuxCore/Services/QuitRiskPolicy.swift",
+    "Sources/awesoMux/Services/QuitTerminationPolicy.swift",
+    "Sources/AwesoMuxCore/QuitAlertPresentationPolicy.swift",
+    "Sources/awesoMux/Services/ProcessLivenessProbe.swift",
+    "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceTerminalEvents.swift",
+    "Sources/AwesoMuxCore/Models/TerminalPane.swift",
+    "Sources/awesoMux/Services/BridgeGenerationRegistry.swift",
+    "Sources/awesoMux/Services/SessionPersistence.swift",
+    "Sources/AwesoMuxCore/Models/WorkingDirectoryValidator.swift",
+    "Sources/AwesoMuxCore/Stores/SessionRestoreReducer.swift",
     "Sources/awesoMux/Services/AppRuntimeProfile.swift",
     "Sources/awesoMux/Services/AmxBackend.swift",
     "Sources/awesoMux/Services/KeyboardShortcutCatalog.swift",
     "Sources/awesoMux/Services/DestructivePaneActionConfirmationPolicy.swift",
     "Sources/awesoMux/Views/TerminalSplitLayoutView.swift",
     "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceNSView.swift",
+    "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceAccessibility.swift",
+    "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceAccessibilityScreenContentsCache.swift",
     "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceProcessExitHandler.swift",
     "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceInputBridge.swift",
     "Sources/AwesoMuxCore/Stores/SessionStore.swift",
@@ -299,8 +312,13 @@ def main():
             save()
             try:
                 os.kill(app_pid, signum)
+                event["outcome"] = "sent"
+                save()
+                return True
             except ProcessLookupError:
                 event["outcome"] = "already-exited"
+                save()
+        return False
 
     def check_console():
         state = json.loads(run([helper, "session"]))
@@ -418,7 +436,7 @@ def main():
         return json.loads(path.read_text()) if path.exists() else None
 
     def title(session):
-        return str(fixtures / "panes" / session)
+        return str(fixture_home / "panes" / session)
 
     def terminal_matches(description, session):
         prefix = "Terminal output, "
@@ -482,6 +500,34 @@ def main():
         (output / (scenario + "-history.txt")).write_text(amx("history", session))
         log(scenario, "pass", nonce=nonce, response=response, receipt=data)
 
+    def launch_app(label):
+        nonlocal app_pid, launched, launch_attempted, launch_receipt, window_id
+        app_pid = None
+        window_id = None
+        launch_attempted = False
+        launch_receipt = output / (label + "-launch-receipt.json")
+        request_path = output / (label + "-launch-request.json")
+        request_path.write_text(json.dumps({"bundle": str(bundle), "bundleID": profile["bundle"],
+                                           "environment": env,
+                                           "arguments": ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]}, indent=2))
+        report["launch"] = {"method": "NSWorkspace.OpenConfiguration", "request": str(request_path),
+                            "receipt": str(launch_receipt), "stdoutStderr": "not redirected by LaunchServices",
+                            "requestedAtUTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+0000")}
+        check_console()
+        launch_attempted = True
+        save()
+        launch = helper_result(["launch", request_path, launch_receipt], env=env, timeout=20)
+        app_pid = launch["pid"]
+        launched = True
+        report["appPID"] = app_pid
+        report["appProcessStart"] = launch["processStart"]
+        report["launch"]["identity"] = launch
+        if not owned_running():
+            raise RuntimeError("LaunchServices app exited before identity verification")
+        save()
+        report.setdefault("launches", []).append(dict(report["launch"]))
+        save()
+
     def interrupted(signum, _frame):
         raise RuntimeError("Cancelled by signal " + str(signum))
 
@@ -528,7 +574,7 @@ def main():
         save()
         fixture_home = fixtures / "home"
         fixture_home.mkdir(mode=0o700)
-        (fixtures / "panes").mkdir(mode=0o700)
+        (fixture_home / "panes").mkdir(mode=0o700)
         # These overrides belong only to isolated child processes, never this runner.
         env = {key: os.environ[key] for key in ("PATH", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING") if key in os.environ}
         env.update(HOME=str(fixture_home), CFFIXED_USER_HOME=str(fixture_home),
@@ -601,7 +647,7 @@ def main():
                                 "sha256": digest(binary), "amxSHA256": digest(bundle / "Contents/MacOS/amx")}
             startup = f'''PS1='TL_PROMPT_{report["runID"]} '
 [[ "$ZMX_SESSION" =~ '^[0-9a-f-]{{36}}$' ]] || exit 91
-mkdir -m 700 -- "$TL_FIXTURES/panes/$ZMX_SESSION" && cd -P -- "$TL_FIXTURES/panes/$ZMX_SESSION" || exit 91
+mkdir -m 700 -- "$HOME/panes/$ZMX_SESSION" && cd -P -- "$HOME/panes/$ZMX_SESSION" || exit 91
 {shlex.quote(sys.executable)} {shlex.quote(str(fixture_helper))} register $$
 printf '\\033]7;file://%s%s\\007\\033]2;%s\\007' "$HOST" "$PWD" "$PWD"
 '''
@@ -616,25 +662,7 @@ export GHOSTTY_SHELL_FEATURES=""
 ''')
             (fixtures / ".zshrc").write_text(startup)
             env.update(ZMX_DIR=str(socket), ZMX_DIR_MODE="700")
-            request_path = output / "launch-request.json"
-            request_path.write_text(json.dumps({"bundle": str(bundle), "bundleID": profile["bundle"],
-                                               "environment": env,
-                                               "arguments": ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]}, indent=2))
-            report["launch"] = {"method": "NSWorkspace.OpenConfiguration", "request": str(request_path),
-                                "receipt": str(launch_receipt), "stdoutStderr": "not redirected by LaunchServices",
-                                "requestedAtUTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+0000")}
-            check_console()
-            launch_attempted = True
-            save()
-            launch = helper_result(["launch", request_path, launch_receipt], env=env, timeout=20)
-            app_pid = launch["pid"]
-            launched = True
-            report["appPID"] = app_pid
-            report["appProcessStart"] = launch["processStart"]
-            report["launch"]["identity"] = launch
-            if not owned_running():
-                raise RuntimeError("LaunchServices app exited before identity verification")
-            save()
+            launch_app("initial")
             def initial_window():
                 """Wait for one unambiguous owned content window and retain failed observations."""
                 if not owned_running():
@@ -817,6 +845,79 @@ export GHOSTTY_SHELL_FEATURES=""
                 if sessions() != {second} or not alive(job["jobPID"]) or not alive(identities[second]["shellPID"]):
                     raise RuntimeError("Cancel changed shell/job/backend identity")
                 log("TL04", "pass", jobPID=job["jobPID"])
+                # Preserve the busy fixture across both app boundaries before releasing it for TL05.
+                def backend_identity():
+                    rows = [dict(field.strip().split("=", 1) for field in row.split("\t"))
+                            for row in amx("list").splitlines()]
+                    matches = [row for row in rows if row.get("name") == second]
+                    if len(matches) != 1 or int(matches[0]["pid"]) != identities[second]["shellPID"]:
+                        raise RuntimeError("Backend inventory shell identity mismatch")
+                    if int(matches[0]["daemon_pid"]) <= 0:
+                        raise RuntimeError("Backend inventory lacks daemon identity")
+                    return matches[0]
+
+                baseline = backend_identity()
+                daemon_pid = int(baseline["daemon_pid"])
+                processes = {"daemon": daemon_pid, "shell": identities[second]["shellPID"], "job": job["jobPID"]}
+                births = {name: observe_process(pid) for name, pid in processes.items()}
+                if not all(item["running"] for item in births.values()):
+                    raise RuntimeError("Lifecycle baseline process missing")
+
+                def continuity(scenario, phase):
+                    observed = {name: observe_process(pid) for name, pid in processes.items()}
+                    current_backend = backend_identity()
+                    if current_backend["daemon_pid"] != baseline["daemon_pid"] or sessions() != {second} or any(
+                            not item["running"] or item.get("processStart") != births[name]["processStart"]
+                            or item.get("executableCanonical") != births[name]["executableCanonical"]
+                            for name, item in observed.items()):
+                        raise RuntimeError("Lifecycle replaced daemon/shell/job: " + json.dumps(observed))
+                    heartbeat = receipt(fixtures / "job.json")
+                    if not same_identity(heartbeat, second) or heartbeat["jobPID"] != job["jobPID"]:
+                        raise RuntimeError("Lifecycle job receipt identity changed")
+                    before = heartbeat["heartbeat"]
+                    poll("lifecycle job heartbeat", lambda: receipt(fixtures / "job.json")["heartbeat"] > before)
+                    history = amx("history", second).replace("\r", "")
+                    markers = [job["marker"]] + [item["response"] for item in report["steps"]
+                               if item.get("receipt", {}).get("session") == second and "response" in item]
+                    if not all(marker in history.splitlines() for marker in markers):
+                        raise RuntimeError("Lifecycle lost terminal marker")
+                    (output / (scenario + "-" + phase + "-history.txt")).write_text(history)
+                    log(scenario + "-" + phase, "pass", processes=observed, pids=processes, marker=job["marker"])
+
+                def reopened():
+                    terminals = snapshot()["terminals"]
+                    return len(terminals) == 1 and terminal_matches(terminals[0], second)
+
+                for scenario, crash in (("TL06", False), ("TL07", True)):
+                    report["activeScenario"] = scenario
+                    continuity(scenario, "before")
+                    old_pid = app_pid
+                    if crash:
+                        if not signal_owned(signal.SIGKILL):
+                            raise RuntimeError("App exited before deliberate app-only crash dispatch")
+                    else:
+                        menu(profile["display"], "Quit " + profile["display"])
+                    # Daemon-backed work is safe on quit; do not accept a risk warning.
+                    # Ordered bridge cleanup may defer app termination for roughly 30 seconds.
+                    poll("app exited without backend cleanup", lambda: not owned_running(), seconds=35)
+                    continuity(scenario, "app-absent")
+                    launch_app(scenario)
+                    state = poll("relaunched owned content window", initial_window)
+                    window_id = state["windowID"]
+                    report["windowID"] = window_id
+                    native("activate", window_id)
+                    poll("relaunched owned app focused", activated_window)
+                    poll("same terminal restored", reopened)
+                    # No keyboard input after relaunch until retained native AX text is observed.
+                    def retained_text():
+                        state = snapshot()
+                        return state if state["focusedTerminal"] and terminal_matches(
+                            state["focusedDescription"], second) and job["marker"] in state["focusedValue"].splitlines() else None
+                    text = poll("retained native AX terminal marker before input", retained_text)
+                    (output / (scenario + "-retained-text.json")).write_text(json.dumps(text, indent=2))
+                    continuity(scenario, "relaunched")
+                    capture(scenario + "-retained-terminal")
+                    log(scenario, "pass", previousAppPID=old_pid, appPID=app_pid)
                 report["activeScenario"] = "TL05"
                 (fixtures / "release").touch()
                 poll("job completed normally", lambda: receipt(fixtures / "job-finished.json") and not alive(job["jobPID"]))
@@ -826,10 +927,6 @@ export GHOSTTY_SHELL_FEATURES=""
                 if sessions() != {second} or not alive(identities[second]["shellPID"]):
                     raise RuntimeError("Soft close destroyed persistent shell")
                 menu("Workspace", "Reopen Closed Workspace")
-                def reopened():
-                    """Check that reopening restores the same single terminal."""
-                    terminals = snapshot()["terminals"]
-                    return len(terminals) == 1 and terminal_matches(terminals[0], second)
                 poll("reopened same terminal", reopened)
                 menu("Pane", "Focus Pane 1")
                 challenge(second, "TL05-reopened")
@@ -856,6 +953,15 @@ export GHOSTTY_SHELL_FEATURES=""
         # Cancellation must not interrupt scoped cleanup a second time.
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        if "job" in report:
+            try:
+                (fixtures / "release").touch()
+                poll("controlled fixture job released", lambda: not alive(report["job"]["jobPID"]))
+                report["fixtureJobRelease"] = "pass"
+            except BaseException as error:
+                report["fixtureJobRelease"] = "fail: " + str(error)
+                report["status"] = "fail"
+                code = 1
         if owned_paths:
             report["cleanup"] = {"status": "pending", "paths": [str(p) for p in owned_paths]}
             save()
@@ -951,7 +1057,7 @@ export GHOSTTY_SHELL_FEATURES=""
             fixture_cleanup = {"status": "pending", "path": str(fixtures)}
             report["cleanup"]["fixtures"] = fixture_cleanup
             try:
-                if launch_attempted and report["cleanup"]["status"] != "pass":
+                if (launch_attempted or launched) and report["cleanup"]["status"] != "pass":
                     raise RuntimeError("Fixture cleanup retained paths: process cleanup incomplete")
                 if fixture_root is not None:
                     _, descriptor = open_fixture_root(fixture_override, socket_base)
