@@ -241,57 +241,47 @@ struct SSHWorkspaceConnectSheet: View {
     }
 
     private func rememberMenu(execution: SSHExecution?) -> some View {
-        Menu("Remember…") {
-            Button(alwaysManageThisTitle) {
+        AppDropdown(
+            String(localized: "Remember…"),
+            items: [
+                AppDropdownItem(
+                    title: alwaysManageThisTitle, isEnabled: execution != nil,
+                    accessibilityHint: execution == nil
+                        ? fieldValidationMessage
+                            ?? String(
+                                localized: "Enter a valid destination and session name to remember this destination",
+                                comment: "Accessibility hint on the disabled always-manage-this-destination menu item")
+                        : nil
+                ) {
                 alwaysManageThisDestination(execution: execution)
-            }
-            .disabled(execution == nil)
-            .accessibilityHint(
-                fieldValidationMessage
-                    ?? String(
-                        localized: "Enter a valid destination and session name to remember this destination",
-                        comment: "Accessibility hint on the disabled always-manage-this-destination menu item"
-                    ),
-                isEnabled: execution == nil
-            )
-            Button("Always Manage Any Destination") {
+                },
+                AppDropdownItem(
+                    title: String(localized: "Always Manage Any Destination"), isEnabled: execution != nil,
+                    accessibilityHint: execution == nil
+                        ? fieldValidationMessage
+                            ?? String(
+                                localized: "Enter a valid destination and session name to always manage SSH",
+                                comment: "Accessibility hint on the disabled always-manage-any-destination menu item")
+                        : nil
+                ) {
                 alwaysManageAnyDestination(execution: execution)
-            }
-            .disabled(execution == nil)
-            .accessibilityHint(
-                fieldValidationMessage
-                    ?? String(
-                        localized: "Enter a valid destination and session name to always manage SSH",
-                        comment: "Accessibility hint on the disabled always-manage-any-destination menu item"
-                    ),
-                isEnabled: execution == nil
-            )
-            Divider()
-            // Gated on the destination alone, not on `execution`: an invalid
-            // *session name* is no reason to refuse a suppression, and without
-            // any gate an empty field reported "Couldn't save the managed SSH
-            // setting" when nothing had failed to save.
-            Button(neverAskThisTitle) {
+                },
+                .separator,
+                AppDropdownItem(
+                    title: neverAskThisTitle, isEnabled: rememberedDestination != nil,
+                    accessibilityHint: rememberedDestination == nil
+                        ? SSHWorkspaceDestinationValidation.message(for: destination)
+                            ?? String(
+                                localized: "Enter a valid destination to stop asking about it",
+                                comment: "Accessibility hint on the disabled never-ask-for-this-destination menu item")
+                        : nil
+                ) {
                 neverAskForThisDestination()
-            }
-            .disabled(rememberedDestination == nil)
-            .accessibilityHint(
-                // Deliberately not `validationMessage`: this item is gated on
-                // the destination alone, so a session-name complaint would
-                // point at the wrong field.
-                SSHWorkspaceDestinationValidation.message(for: destination)
-                    ?? String(
-                        localized: "Enter a valid destination to stop asking about it",
-                        comment: "Accessibility hint on the disabled never-ask-for-this-destination menu item"
-                    ),
-                isEnabled: rememberedDestination == nil
-            )
-            Button("Never Ask for Any Destination") {
-                neverAskForAnyDestination()
-            }
-            Divider()
-            Button("Keep Asking") {}
-        }
+                },
+                AppDropdownItem(title: String(localized: "Never Ask for Any Destination"), action: neverAskForAnyDestination),
+                .separator,
+                AppDropdownItem(title: String(localized: "Keep Asking"), action: {}),
+            ])
     }
 
     private func alwaysManageThisDestination(execution: SSHExecution?) {

@@ -604,13 +604,17 @@ private struct TerminalBackgroundSettings: View {
             .padding(.bottom, 4)
 
             if mode == .catppuccinTheme {
-                Picker("Terminal theme", selection: namedThemeSelection) {
-                    Text("Catppuccin").tag(TerminalThemeCatalog.catppuccinID)
-                    Text("Selenized").tag(TerminalThemeCatalog.selenizedID)
+                LabeledContent("Terminal theme") {
+                    AppDropdownPicker(
+                        title: String(localized: "Terminal theme"), selection: namedThemeSelection,
+                        options: [
+                            (TerminalThemeCatalog.catppuccinID, String(localized: "Catppuccin")),
+                            (TerminalThemeCatalog.selenizedID, String(localized: "Selenized")),
+                        ]
+                    )
+                    .frame(maxWidth: 280, alignment: .leading)
+                    .accessibilityLabel("Terminal theme")
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 280, alignment: .leading)
-                .accessibilityLabel("Terminal theme")
             }
 
             if mode == .custom {

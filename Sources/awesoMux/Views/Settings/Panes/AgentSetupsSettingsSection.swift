@@ -110,10 +110,10 @@ private struct AgentSetupEditor: View {
                         TextField(String(localized: "Name"), text: $setup.name)
                             .accessibilityLabel(String(localized: "Name"))
                     }
-                    Picker(String(localized: "Provider"), selection: $setup.provider) {
-                        ForEach(AgentSetup.providers, id: \.self) { provider in
-                            Text(verbatim: provider.rawValue).tag(provider)
-                        }
+                    LabeledContent(String(localized: "Provider")) {
+                        AppDropdownPicker(
+                            title: String(localized: "Provider"), selection: $setup.provider,
+                            options: AgentSetup.providers.map { ($0, $0.rawValue) })
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         Text(String(localized: "Executable path"))

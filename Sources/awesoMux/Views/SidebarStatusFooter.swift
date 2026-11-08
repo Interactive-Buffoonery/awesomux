@@ -284,30 +284,20 @@ struct SidebarStatusFooter: View {
     }
 
     private var feedbackMenu: some View {
-        Menu {
-            Button("Show Welcome Tour") {
-                onShowWelcomeTour()
-            }
-            Divider()
-            Button("Report a bug…") {
-                openFeedbackForm()
-            }
-            Button("Suggest a feature…") {
-                openFeedbackForm()
-            }
-        } label: {
+        AppDropdown(
+            items: [
+                AppDropdownItem(title: String(localized: "Show Welcome Tour"), action: onShowWelcomeTour),
+                .separator,
+                AppDropdownItem(title: String(localized: "Report a bug…"), action: openFeedbackForm),
+                AppDropdownItem(title: String(localized: "Suggest a feature…"), action: openFeedbackForm),
+            ], menuTitle: String(localized: "Help and feedback")
+        ) {
             Image(systemName: "questionmark.circle")
                 .font(.system(size: 13, weight: .regular))
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .fixedSize()
-        // .borderlessButton menu labels render their glyph in the control's accent
-        // tint and ignore the outer foregroundStyle — .tint is what actually reaches
-        // the label's Image, matching the gear's Color.aw.railText.
-        .tint(Color.aw.railText)
         .foregroundStyle(Color.aw.railText)
         .accessibilityLabel("Help and feedback")
         .accessibilityHint("Opens menu")

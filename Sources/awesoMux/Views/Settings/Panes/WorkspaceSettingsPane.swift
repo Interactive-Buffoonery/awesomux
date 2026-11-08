@@ -323,8 +323,8 @@ struct WorkspaceSettingsPane: View {
                 ),
                 forwardsAccessibilityToControl: true
             ) {
-                Picker(
-                    "",
+                AppDropdownPicker(
+                    title: String(localized: "Remote helper", comment: "Remote helper installation preference label"),
                     selection: Binding(
                         get: { appSettingsStore.workspaces.value.remoteHelperInstallPolicy },
                         set: { policy in
@@ -332,13 +332,12 @@ struct WorkspaceSettingsPane: View {
                                 $0.rememberHelperInstallPolicy(policy)
                             }
                         }
-                    )
-                ) {
-                    Text("Ask Before Installing").tag(WorkspaceConfig.RemoteHelperInstallPolicy.ask)
-                    Text("Always Install").tag(WorkspaceConfig.RemoteHelperInstallPolicy.alwaysInstall)
-                    Text("Never Ask").tag(WorkspaceConfig.RemoteHelperInstallPolicy.neverAsk)
-                }
-                .labelsHidden()
+                    ),
+                    options: [
+                        (WorkspaceConfig.RemoteHelperInstallPolicy.ask, String(localized: "Ask Before Installing")),
+                        (.alwaysInstall, String(localized: "Always Install")),
+                        (.neverAsk, String(localized: "Never Ask")),
+                    ])
             }
 
             if !appSettingsStore.workspaces.value.remoteHelperHostPolicies.isEmpty {

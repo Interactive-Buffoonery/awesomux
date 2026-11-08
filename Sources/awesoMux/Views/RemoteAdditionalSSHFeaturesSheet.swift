@@ -34,11 +34,10 @@ struct RemoteAdditionalSSHFeaturesSheet: View {
             HStack {
                 Toggle("Remember this choice", isOn: $rememberChoice)
                     .toggleStyle(.checkbox)
-                Picker("Remember choice for", selection: $rememberAllHosts) {
-                    Text("This Host").tag(false)
-                    Text("All Hosts").tag(true)
-                }
-                .labelsHidden()
+                AppDropdownPicker(
+                    title: String(localized: "Remember choice for"), selection: $rememberAllHosts,
+                    options: [(false, String(localized: "This Host")), (true, String(localized: "All Hosts"))]
+                )
                 .fixedSize()
                 .disabled(!rememberChoice)
             }

@@ -3862,6 +3862,9 @@
     "Optional. Names a session the remote host keeps running with its own amx or zmx" : {
       "comment" : "Accessibility hint for the remote session name field in the Connect via SSH sheet"
     },
+    "Options" : {
+      "comment" : "Fallback accessible title for a button-opened options menu"
+    },
     "Output" : {
       "comment" : "Agent state label",
       "localizations" : {
