@@ -24,6 +24,19 @@ struct AgentTranscriptImporterTests {
     }
 
     @Test
+    func opensAntigravityTranscriptUnderSystemGeneratedLogs() throws {
+        let fixture = try Fixture(provider: .antigravity)
+        defer { fixture.remove() }
+        let expected = try fixture.write(
+            "antigravity-cli/brain/\(Self.sessionA)/.system_generated/logs/transcript.jsonl",
+            #"{"type":"USER_INPUT","content":"<USER_REQUEST>\nhello\n</USER_REQUEST>"}"#
+        )
+        let transcript = try fixture.open(sessionID: Self.sessionA).get()
+        #expect(transcript.sessionID == Self.sessionA)
+        #expect(transcript.resolvedURL == expected)
+    }
+
+    @Test
     func piSuffixMatchDoesNotTreatALongerIdAsAShorterOne() throws {
         let fixture = try Fixture(provider: .pi)
         defer { fixture.remove() }
@@ -232,6 +245,7 @@ struct AgentTranscriptImporterTests {
                 case .claudeCode: .claudeCode
                 case .codex: .codex
                 case .pi: .pi
+                case .antigravity: .antigravity
                 }
             return AgentTranscriptImporter.open(
                 agentKind: agentKind,

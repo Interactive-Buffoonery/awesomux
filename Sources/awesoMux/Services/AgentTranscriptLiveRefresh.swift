@@ -90,9 +90,9 @@ final class AgentTranscriptLiveRefresh {
     /// adapter rather than being routed through this file-based loop.
     static func supports(agentKind: AgentKind) -> Bool {
         switch agentKind {
-        case .claudeCode, .codex, .pi:
+        case .claudeCode, .codex, .pi, .antigravity:
             return true
-        case .openCode, .grok, .antigravity, .hermes, .shell, .generic:
+        case .openCode, .grok, .hermes, .shell, .generic:
             return false
         }
     }
@@ -261,11 +261,13 @@ final class AgentTranscriptLiveRefresh {
                 let watcher = AgentTranscriptDirectoryWatcher(
                     rootURL: url,
                     matchesPath: { path in
-                        AgentTranscriptImporter.matchesTranscriptFileName(
-                            agentKind: identity.agentKind,
-                            sessionID: identity.sessionID,
-                            fileName: URL(fileURLWithPath: path).lastPathComponent
-                        )
+                        (identity.agentKind != .antigravity
+                            || path.contains("/\(identity.sessionID)/"))
+                            && AgentTranscriptImporter.matchesTranscriptFileName(
+                                agentKind: identity.agentKind,
+                                sessionID: identity.sessionID,
+                                fileName: URL(fileURLWithPath: path).lastPathComponent
+                            )
                     },
                     onChange: onChange
                 )

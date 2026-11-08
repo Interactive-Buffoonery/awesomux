@@ -453,4 +453,20 @@ import Testing
             AgentTranscriptRenderer.render(transcript, chrome: .unlocalizedFallback(agentKind: .grok))
                 == .failure(.unsupportedAgent(.grok)))
     }
+
+    @Test("Antigravity USER_INPUT, PLANNER_RESPONSE, and GENERIC records render in order")
+    func antigravityRecordsRender() {
+        let lines = [
+            #"{"type":"USER_INPUT","content":"<USER_REQUEST>\nFix the tests\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nmeta\n</ADDITIONAL_METADATA>"}"#,
+            #"{"type":"PLANNER_RESPONSE","thinking":"Checking test suite","content":"Running tests now.","tool_calls":[{"name":"run_command","args":{"CommandLine":"swift test"}}]}"#,
+            #"{"type":"GENERIC","content":"Test Suite Passed"}"#,
+        ]
+        let text = render(lines, provider: .antigravity)
+        #expect(text.contains("## user\n\n```text\nFix the tests\n```"))
+        #expect(!text.contains("ADDITIONAL_METADATA"))
+        #expect(text.contains("## assistant · thinking\n\n```text\nChecking test suite\n```"))
+        #expect(text.contains("## assistant\n\n```text\nRunning tests now.\n```"))
+        #expect(text.contains("## assistant · tool run_command\n\n```text\n{\"CommandLine\":\"swift test\"}\n```"))
+        #expect(text.contains("## tool result\n\n```text\nTest Suite Passed\n```"))
+    }
 }

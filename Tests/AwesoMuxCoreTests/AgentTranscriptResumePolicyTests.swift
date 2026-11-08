@@ -13,7 +13,7 @@ private func localTerminal() -> TerminalPane {
 // MARK: - Command composition
 
 @Suite struct AgentTranscriptResumeCommandTests {
-    @Test(arguments: [AgentKind.claudeCode, .codex, .pi])
+    @Test(arguments: [AgentKind.claudeCode, .codex, .pi, .antigravity])
     func stagedCommandUsesValidatedIdentity(kind: AgentKind) throws {
         for hostile in [
             "'; echo injected #", "$(echo injected)", "`echo injected`", "../../other/session.jsonl", "/tmp/session with spaces.jsonl",
@@ -25,6 +25,7 @@ private func localTerminal() -> TerminalPane {
             switch kind {
             case .claudeCode: "claude --resume"
             case .codex: "codex resume"
+            case .antigravity: "agy -r"
             default: "pi --session"
             }
         let command = try #require(AgentTranscriptResumePolicy.command(for: stored))
