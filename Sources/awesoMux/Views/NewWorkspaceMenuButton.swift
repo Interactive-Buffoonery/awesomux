@@ -86,17 +86,31 @@ struct NewWorkspaceMenuButton: View, Equatable {
             .tint(Color.aw.text3)
             .foregroundStyle(Color.aw.text3)
             .accessibilityLabel(
-                forAgents ? String(localized: "New Agent menu") : String(localized: "New Workspace menu")
+                forAgents
+                    ? String(
+                        localized: "New Agent menu", comment: "Accessibility label for the sidebar menu that creates an agent")
+                    : Self.workspaceMenuLabel
             )
             .accessibilityHint(
                 forAgents
-                    ? String(localized: "Choose a group for the new agent")
-                    : String(localized: "Opens workspace creation options")
+                    ? String(
+                        localized: "Choose a group for the new agent",
+                        comment: "Accessibility hint for the sidebar menu that creates an agent")
+                    : String(
+                        localized: "Opens workspace creation options",
+                        comment: "Accessibility hint for the sidebar menu that creates a workspace")
             )
-            .help(forAgents ? String(localized: "New Agent") : String(localized: "New Workspace menu"))
+            .help(
+                forAgents
+                    ? String(localized: "New Agent", comment: "Tooltip for the sidebar menu that creates an agent")
+                    : Self.workspaceMenuLabel)
         }
         .frame(width: size, height: size)
     }
+
+    private static let workspaceMenuLabel = String(
+        localized: "New Workspace menu",
+        comment: "Accessibility label and tooltip for the sidebar menu that creates a workspace")
 
     @ViewBuilder private var workspaceMenuItems: some View {
         Button("New Workspace") {
@@ -120,7 +134,11 @@ struct NewWorkspaceMenuButton: View, Equatable {
 
     @ViewBuilder private var agentMenuItems: some View {
         if !otherGroups.isEmpty {
-            Section("New Agent in") {
+            Section(
+                String(
+                    localized: "New Agent in",
+                    comment: "Sidebar menu section header above the list of groups that can hold a new agent")
+            ) {
                 ForEach(otherGroups, id: \.id) { entry in
                     Button(entry.name) {
                         onNewWorkspaceInGroup(entry.id)
@@ -129,7 +147,11 @@ struct NewWorkspaceMenuButton: View, Equatable {
             }
         }
 
-        Button("New Agent in New Group…") {
+        Button(
+            String(
+                localized: "New Agent in New Group…",
+                comment: "Sidebar menu item that creates a group and starts a new agent in it")
+        ) {
             onNewWorkspaceGroup()
         }
     }
