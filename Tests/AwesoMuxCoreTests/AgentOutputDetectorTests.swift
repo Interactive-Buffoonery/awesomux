@@ -327,6 +327,19 @@ struct AgentOutputDetectorTests {
         ("❯ codex", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .codex)),
         ("❯ opencode", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .openCode)),
         ("$ opencode", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .openCode)),
+        ("❯ agy", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .antigravity)),
+        (
+            "$ agy -r 2e914558-9675-43f3-9bac-238d469a8583", AgentKind.shell, false,
+            AgentOutputDetection(state: .waiting, agentKind: .antigravity)
+        ),
+        (
+            "Google Antigravity\nPress esc to interrupt generation.", AgentKind.shell, false,
+            AgentOutputDetection(state: .thinking, agentKind: .antigravity)
+        ),
+        (
+            "Google Antigravity\nrun_command\nApprove/reject  Your answer:", AgentKind.shell, false,
+            AgentOutputDetection(state: .needsAttention, agentKind: .antigravity)
+        ),
         ("Muse Code v1.2.3", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .generic)),
         ("❯ muse", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .generic)),
         ("✨ ❯ cursor-agent --resume", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .generic)),

@@ -287,6 +287,7 @@ public struct AgentOutputDetector: Sendable {
         containsConfidentClaudeIdentity(lines, allowsPromptLaunch: true)
             || containsConfidentOpenCodeIdentity(lines)
             || containsConfidentCodexIdentity(lines)
+            || containsConfidentAntigravityIdentity(lines)
             || containsConfidentGenericIdentity(lines, allowsPromptLaunch: true)
     }
 
@@ -327,6 +328,9 @@ public struct AgentOutputDetector: Sendable {
         }
         if containsConfidentOpenCodeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .openCode
+        }
+        if containsConfidentAntigravityIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
+            return .antigravity
         }
         return nil
     }
@@ -520,6 +524,20 @@ public struct AgentOutputDetector: Sendable {
         }
     }
 
+    private func containsConfidentAntigravityIdentity(
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool = true
+    ) -> Bool {
+        if lineHasAnchoredPrefix(lines, ["google antigravity", "antigravity cli"]) {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return lineHasPromptLaunch(lines, command: "agy")
+            || lineHasPromptLaunch(lines, command: "antigravity")
+    }
+
     private func containsConfidentGenericIdentity(
         _ lines: [Substring],
         allowsPromptLaunch: Bool
@@ -676,6 +694,7 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("[y/n/a]")
             || text.contains("[y/n/s]")
             || text.contains("[y/n/e]")
+            || text.contains("approve/reject")
         {
             return true
         }
