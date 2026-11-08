@@ -10,7 +10,7 @@ public enum AgentProcessRecognition {
         "muse", "cursor-agent", "cursor", "windsurf", "aider", "droid", "amp",
         "qwen", "kimi", "kilo", "roo", "cline", "copilot", "gemini", "goose",
         "continue", "zed", "warp", "crush", "kiro", "codebuddy", "qoder",
-        "agy", "shai", "tabnine", "openclaw", "trae", "augment", "codebuff",
+        "shai", "tabnine", "openclaw", "trae", "augment", "codebuff",
     ]
 
     public static func agentKind(forCommand command: String?) -> AgentKind? {
@@ -32,6 +32,9 @@ public enum AgentProcessRecognition {
         }
         if name == "grok" || name.hasPrefix("grok-") {
             return .grok
+        }
+        if name == "agy" || name.hasPrefix("agy-") || name == "antigravity" || name.hasPrefix("antigravity-") {
+            return .antigravity
         }
         if name == "hermes" || name.hasPrefix("hermes-") {
             return .hermes

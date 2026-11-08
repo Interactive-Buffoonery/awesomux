@@ -6,6 +6,7 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
     case openCode = "opencode"
     case pi
     case grok
+    case antigravity
     case unknown
 
     public init(from decoder: Decoder) throws {
@@ -29,6 +30,8 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
             .pi
         case .grok:
             .grok
+        case .antigravity:
+            .antigravity
         case .unknown:
             nil
         }
@@ -38,7 +41,7 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
         switch self {
         case .claudeCode, .pi:
             true
-        case .codex, .openCode, .grok, .unknown:
+        case .codex, .openCode, .grok, .antigravity, .unknown:
             false
         }
     }
@@ -69,7 +72,7 @@ public enum AgentRuntimeSource: String, Codable, Sendable {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         switch self {
-        case .claudeCode, .codex:
+        case .claudeCode, .codex, .antigravity:
             guard UUID(uuidString: trimmed) != nil else { return nil }
             return trimmed.lowercased()
         case .openCode:

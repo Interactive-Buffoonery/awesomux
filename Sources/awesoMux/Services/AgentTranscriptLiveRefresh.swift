@@ -92,7 +92,7 @@ final class AgentTranscriptLiveRefresh {
         switch agentKind {
         case .claudeCode, .codex, .pi:
             return true
-        case .openCode, .grok, .hermes, .shell, .generic:
+        case .openCode, .grok, .antigravity, .hermes, .shell, .generic:
             return false
         }
     }

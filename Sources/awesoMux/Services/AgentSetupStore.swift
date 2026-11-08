@@ -10,7 +10,7 @@ struct AgentSetup: Codable, Identifiable, Equatable, Sendable {
     var arguments: [String] = []
     var enabled = true
 
-    static let providers: [AgentKind] = [.claudeCode, .codex, .openCode, .pi, .grok]
+    static let providers: [AgentKind] = [.claudeCode, .codex, .openCode, .pi, .grok, .antigravity]
 
     static func supportsShell(_ command: String) -> Bool {
         ["sh", "bash", "zsh", "dash", "ksh", "fish"].contains(ShellRecognition.basename(command))

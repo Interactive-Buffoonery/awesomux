@@ -7,6 +7,7 @@ public enum AwAgentIcon: Sendable, Equatable, Hashable {
     case openCode
     case pi
     case grok
+    case antigravity
     case hermes
     case generic
     case shell
@@ -151,6 +152,10 @@ public struct AgentTile: View, Equatable {
         case .grok:
             GrokGlyph()
                 .stroke(Color.aw.green, style: glyphStroke)
+                .frame(width: size * 0.55, height: size * 0.55)
+        case .antigravity:
+            AntigravityGlyph()
+                .stroke(Color.aw.sapphire, style: glyphStroke)
                 .frame(width: size * 0.55, height: size * 0.55)
         case .hermes:
             HermesGlyph()
@@ -442,6 +447,28 @@ private struct HermesGlyph: Shape {
     }
 }
 
+// Upward chevron floating above a curved horizon arc — lift / antigravity,
+// rendered in sapphire so it stays distinct from Hermes's yellow staff and
+// OpenCode's sky brackets.
+private struct AntigravityGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let s = min(rect.width, rect.height)
+        let origin = CGPoint(x: rect.midX - s / 2, y: rect.midY - s / 2)
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x + x / 100 * s, y: origin.y + y / 100 * s)
+        }
+
+        path.move(to: pt(24, 52))
+        path.addLine(to: pt(50, 18))
+        path.addLine(to: pt(76, 52))
+
+        path.move(to: pt(22, 80))
+        path.addQuadCurve(to: pt(78, 80), control: pt(50, 64))
+        return path
+    }
+}
+
 // Angle brackets — generic coding agent (Muse, Cursor, Windsurf, etc.).
 // `< >` reads as "generic code" and stays distinct from shell `>_` and
 // OpenCode's square `[ ]`.
@@ -494,6 +521,8 @@ public extension AwAgentIcon {
             "Pi"
         case .grok:
             "Grok"
+        case .antigravity:
+            "Antigravity"
         case .hermes:
             "Hermes"
         case .generic:

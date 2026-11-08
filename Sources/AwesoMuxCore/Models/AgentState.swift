@@ -170,7 +170,7 @@ public typealias AgentState = AgentDisplayState
 extension AgentKind {
     public var initialSessionState: AgentState {
         switch self {
-        case .claudeCode, .codex, .openCode, .pi, .grok:
+        case .claudeCode, .codex, .openCode, .pi, .grok, .antigravity:
             .running
         case .hermes, .shell, .generic:
             .idle
