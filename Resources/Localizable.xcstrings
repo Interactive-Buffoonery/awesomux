@@ -1335,6 +1335,9 @@
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
 
     },
+    "Choose a group for the new agent" : {
+      "comment" : "Accessibility hint for the sidebar menu that creates an agent"
+    },
     "Choose a local terminal with a reported working directory, then try again." : {
       "comment" : "Explanation when project transcript browsing has no local directory"
     },
@@ -3396,6 +3399,18 @@
     "Never show awesoMux in the menu bar" : {
       "comment" : "Accessibility label for the never-visible menu bar choice"
     },
+    "New Agent" : {
+      "comment" : "Tooltip for the sidebar menu that creates an agent"
+    },
+    "New Agent in" : {
+      "comment" : "Sidebar menu section header above the list of groups that can hold a new agent"
+    },
+    "New Agent in New Group…" : {
+      "comment" : "Sidebar menu item that creates a group and starts a new agent in it"
+    },
+    "New Agent menu" : {
+      "comment" : "Accessibility label for the sidebar menu that creates an agent"
+    },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
     },
@@ -3420,6 +3435,7 @@
 
     },
     "New Workspace Group…" : {
+      "comment" : "Sidebar menu item that creates a workspace group",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3442,6 +3458,7 @@
 
     },
     "New Workspace in…" : {
+      "comment" : "Sidebar submenu that lists the groups that can hold a new workspace",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3452,7 +3469,7 @@
       }
     },
     "New Workspace menu" : {
-
+      "comment" : "Accessibility label and tooltip for the sidebar menu that creates a workspace"
     },
     "New Worktree" : {
       "comment" : "Open the create worktree form."
@@ -3834,7 +3851,7 @@
       "comment" : "Accessibility hint for the available update sidebar indicator"
     },
     "Opens workspace creation options" : {
-
+      "comment" : "Accessibility hint for the sidebar menu that creates a workspace"
     },
     "Optional named launch choices for installed agents in the command palette. Saving a setup does not verify that it launches. Status integrations are managed separately." : {
       "comment" : "Explains that launch setups are optional and separate from status integration or launch verification."

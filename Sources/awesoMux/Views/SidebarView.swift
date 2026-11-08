@@ -1145,19 +1145,37 @@ struct SidebarView: View {
                     .stroke(Color.aw.border2, lineWidth: 0.5)
             }
 
-            NewWorkspaceSplitButton(
-                // Matches the search field's own fill (line 738) — a
-                // bordered pill, not blended into the sidebar — so the two
-                // chips on this row read as one family.
-                restFill: Color.aw.surface.elevated,
-                otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
-                onNewWorkspace: addWorkspaceInCurrentContext,
-                onNewWorkspaceInGroup: addWorkspace(inGroupID:),
-                onNewWorkspaceGroup: onNewWorkspaceGroup,
-                primaryFocusRequestID: emptyFocusRequestID,
-                primaryFocusIsActive: sessionStore.groups.isEmpty
-            )
-            .equatable()
+            if isWorkspacesMode {
+                NewWorkspaceSplitButton(
+                    // Matches the search field's own fill (line 738) — a
+                    // bordered pill, not blended into the sidebar — so the two
+                    // chips on this row read as one family.
+                    restFill: Color.aw.surface.elevated,
+                    otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
+                    onNewWorkspace: addWorkspaceInCurrentContext,
+                    onNewWorkspaceInGroup: addWorkspace(inGroupID:),
+                    onNewWorkspaceGroup: onNewWorkspaceGroup,
+                    primaryFocusRequestID: emptyFocusRequestID,
+                    primaryFocusIsActive: sessionStore.groups.isEmpty
+                )
+                .equatable()
+            } else {
+                NewWorkspaceMenuButton(
+                    size: AwSpacing.searchFieldHeight,
+                    cornerRadius: 7,
+                    restFill: Color.aw.surface.elevated,
+                    otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
+                    onNewWorkspace: addWorkspaceInCurrentContext,
+                    onNewWorkspaceInGroup: addWorkspace(inGroupID:),
+                    onNewWorkspaceGroup: onNewWorkspaceGroup,
+                    forAgents: true
+                )
+                .equatable()
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(Color.aw.border2, lineWidth: 0.5)
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.top, 10)
