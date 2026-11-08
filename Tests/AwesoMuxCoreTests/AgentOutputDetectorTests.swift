@@ -208,6 +208,22 @@ struct AgentOutputDetectorTests {
         )
     }
 
+    @Test(
+        "Antigravity approval cues do not change other providers",
+        arguments: [
+            AgentKind.shell, .generic, .claudeCode, .codex, .grok, .hermes, .antigravity,
+        ])
+    func antigravityApprovalCueIsProviderScoped(kind: AgentKind) {
+        let prompt = "Approve/reject  Your answer:"
+        let detection = detector.detectedOutput(in: prompt, assumingAgentContext: true, liveAgentKind: kind)
+        #expect((detection?.state == .needsAttention) == (kind == .antigravity))
+        #expect((detector.attentionCue(in: prompt, liveAgentKind: kind) != nil) == (kind == .antigravity))
+        if kind != .shell && kind != .antigravity {
+            let staleBanner = "Google Antigravity\n" + prompt
+            #expect(detector.detectedOutput(in: staleBanner, assumingAgentContext: true, liveAgentKind: kind)?.state != .needsAttention)
+        }
+    }
+
     @Test("live Codex approval identity survives menu navigation")
     func codexCueIgnoresSelectedChoice() {
         let prompt =
