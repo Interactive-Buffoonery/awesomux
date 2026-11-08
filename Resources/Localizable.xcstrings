@@ -973,6 +973,9 @@
     "Applied layout preset %arg" : {
       "comment" : "VoiceOver announcement after applying a layout preset."
     },
+    "Applies on next launch." : {
+      "comment" : "Hint for the default sidebar view setting"
+    },
     "Applies to executable files opened from Finder. Apps with their own terminal preference must be configured separately." : {
 
     },
@@ -2069,6 +2072,9 @@
     },
     "Default group" : {
       "comment" : "Workspace settings label."
+    },
+    "Default sidebar" : {
+      "comment" : "Settings label for the sidebar view used at launch"
     },
     "Default terminal" : {
 
@@ -4102,9 +4108,6 @@
     "Position" : {
       "comment" : "Settings field label for the sidebar position picker"
     },
-    "Position, row density, and collapsed-rail behavior." : {
-      "comment" : "Sidebar section subtitle"
-    },
     "Possibly stale remote session on %arg" : {
       "comment" : "VoiceOver label for a possibly stale remote path-bar button; the argument is the SSH host"
     },
@@ -5436,6 +5439,9 @@
     },
     "Startup" : {
       "comment" : "General settings title."
+    },
+    "Startup view, position, row density, and collapsed-rail behavior." : {
+      "comment" : "Sidebar section subtitle"
     },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
