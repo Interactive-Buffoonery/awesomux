@@ -538,6 +538,29 @@ struct AgentHookCommandTests {
         #expect(try Data(contentsOf: temp.file).isEmpty)
     }
 
+    @Test("Antigravity PostToolUse for write_file and edit_file surfaces Markdown touchedPath")
+    func antigravityPostToolUseSurfacesMarkdownTouchedPath() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let payload = Data(
+            #"{"conversationId":"2e914558-9675-43f3-9bac-238d469a8583","toolCall":{"name":"write_file","args":{"Path":"/Users/agent/plan.md"}}}"#
+                .utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "antigravity", "--event", "PostToolUse"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: payload,
+            output: { _ in }
+        )
+
+        #expect(status == 0)
+        let event = try #require(Self.readSingleEvent(from: temp.file))
+        #expect(event.source == .antigravity)
+        #expect(event.phase == .toolEnd)
+        #expect(event.touchedPath == "/Users/agent/plan.md")
+    }
+
     private static func hookPayload(
         _ hookEventName: String,
         notificationType: String? = nil,

@@ -12,12 +12,23 @@ struct AgentRuntimeEventTests {
         // Wrong phase: a forged path on any non-toolEnd phase is stripped.
         #"{"v":1,"source":"claude-code","phase":"stop","touchedPath":"/Users/agent/plan.md"}"#,
         #"{"v":1,"source":"claude-code","phase":"notification","touchedPath":"/Users/agent/plan.md"}"#,
+        #"{"v":1,"source":"antigravity","phase":"stop","touchedPath":"/Users/agent/plan.md"}"#,
     ])
     func touchedPathStrippedOutsideClaudeToolEndScope(line: String) {
         let event = AgentRuntimeEvent.parse(line: line)
         // The event still parses; only the out-of-scope path is dropped.
         #expect(event != nil)
         #expect(event?.touchedPath == nil)
+    }
+
+    @Test
+    func antigravityToolEndPreservesValidMarkdownTouchedPath() {
+        let line =
+            #"{"v":1,"source":"antigravity","phase":"toolEnd","touchedPath":"/Users/agent/plan.md"}"#
+        let event = AgentRuntimeEvent.parse(line: line)
+        #expect(event?.source == .antigravity)
+        #expect(event?.phase == .toolEnd)
+        #expect(event?.touchedPath == "/Users/agent/plan.md")
     }
 
     @Test(arguments: [

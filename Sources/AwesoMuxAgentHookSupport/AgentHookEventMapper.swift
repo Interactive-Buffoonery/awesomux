@@ -3,13 +3,14 @@ import AwesoMuxCore
 import Foundation
 
 public enum AgentHookEventMapper {
-    /// File-mutating Claude Code tools whose PostToolUse `file_path` is worth
-    /// surfacing. Read/Grep/Glob/Bash are deliberately excluded so merely
-    /// *viewing* a file never records it as agent-touched (issue #175).
-    /// NotebookEdit is absent on purpose: it reports `notebook_path`, not
-    /// `file_path`, and `.ipynb` is never Markdown, so it can never produce a
-    /// valid touched path.
-    private static let markdownMutatingTools: Set<String> = ["Write", "Edit", "MultiEdit"]
+    /// File-mutating Claude Code and Antigravity tools whose PostToolUse path
+    /// is worth surfacing. Read/Grep/Glob/Bash/read_file/run_command are
+    /// deliberately excluded so merely *viewing* a file never records it as
+    /// agent-touched (issue #175). NotebookEdit is absent on purpose: it
+    /// reports `notebook_path`, not `file_path`, and `.ipynb` is never Markdown,
+    /// so it can never produce a valid touched path.
+    private static let claudeMarkdownMutatingTools: Set<String> = ["Write", "Edit", "MultiEdit"]
+    private static let antigravityMarkdownMutatingTools: Set<String> = ["write_file", "edit_file"]
 
     public static func event(
         provider: AgentHookProvider,
@@ -63,9 +64,17 @@ public enum AgentHookEventMapper {
         toolName: String?,
         toolFilePath: String?
     ) -> String? {
-        guard provider == .claudeCode,
-            phase == .toolEnd,
-            let toolName, markdownMutatingTools.contains(toolName),
+        let mutatingTools: Set<String>
+        switch provider {
+        case .claudeCode:
+            mutatingTools = claudeMarkdownMutatingTools
+        case .antigravity:
+            mutatingTools = antigravityMarkdownMutatingTools
+        case .codex, .openCode, .pi, .grok:
+            return nil
+        }
+        guard phase == .toolEnd,
+            let toolName, mutatingTools.contains(toolName),
             let toolFilePath
         else {
             return nil
