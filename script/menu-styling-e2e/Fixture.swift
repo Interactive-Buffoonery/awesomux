@@ -12,7 +12,9 @@ struct MenuStylingFixture: App {
 }
 
 private struct FixtureView: View {
-    @State private var selection = 2
+    private static let fontFamilies = NSFontManager.shared.availableFontFamilies.sorted()
+    @State private var fontSelection = "System"
+    @State private var selection = 599
     @State private var typedInput = ""
     @State private var result = "No action"
     @State private var light = false
@@ -55,7 +57,9 @@ private struct FixtureView: View {
             }
             HStack {
                 AppDropdownPicker(title: "Sample selection", selection: $selection,
-                    options: (1...600).map { (value: $0, title: "Choice \($0)") })
+                    options: (1...600).map {
+                        (value: $0, title: "Choice \($0)" + ($0.isMultiple(of: 3) ? String(repeating: " long wrapping font family", count: 3) : ""))
+                    })
                 AppDropdown("Disabled choice", items: [
                     AppDropdownItem(title: "Unavailable", isEnabled: false, accessibilityHint: "Not available in this fixture", action: { result = "BUG: disabled action" }),
                     AppDropdownItem(title: "Available") { result = "Available" },
@@ -68,6 +72,12 @@ private struct FixtureView: View {
             }
             HStack {
                 AppDropdownPicker(title: "Empty", selection: $selection, options: [])
+                AppDropdown("Fonts", items: [
+                    AppDropdownItem(title: "System", id: "System", isSelected: fontSelection == "System") { fontSelection = "System" },
+                    .separator,
+                ] + Self.fontFamilies.map { family in
+                    AppDropdownItem(title: family, id: family, isSelected: fontSelection == family) { fontSelection = family }
+                })
                 Toggle("Light appearance", isOn: $light)
                 Toggle("Large text", isOn: $largeText)
                 Button("Floating host") { showFloatingHost() }
@@ -81,7 +91,7 @@ private struct FixtureView: View {
             }
             TextField("Focus return fixture", text: $typedInput)
                 .accessibilityLabel("Focus return fixture")
-            Text("Result: \(result); selected: \(selection); input: \(typedInput)")
+            Text("Result: \(result); selected: \(selection); font: \(fontSelection); input: \(typedInput)")
                 .accessibilityIdentifier("fixture-result")
         }
         .awFont(AwFont.UI.label)

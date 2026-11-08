@@ -9,7 +9,12 @@ styled control is the production component with fixture callbacks.
 
 Check keyboard opening, arrows, Return, Space, typed prefixes (including a
 space), Escape, a second click on the trigger, outside clicks, a disabled menu
-and row, a 600-choice scrolling list, light/dark and enlarged text. The result
+and row, a 600-choice scrolling list, light/dark and enlarged text.
+The list starts at Choice 599 and mixes wrapped and single-line rows. Open it,
+scroll to both ends, select a row, and reopen it. Repeat with Fonts, which uses
+the installed font-family names and a separator. Menus must stay within their
+360-point viewport, compact menus must shrink, and neither case may show
+continuous size jitter or an exception. The result
 label identifies the action and picker value. A disabled action deliberately
 prints `BUG: disabled action` if its gate fails.
 

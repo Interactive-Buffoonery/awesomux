@@ -60,3 +60,30 @@ multiple-display edge placement, held-key hardware repeat behavior, or an isolat
 performance benchmark. Opening the 600-choice lazy fixture plus AX observation
 returned in under one second in the observed run; that includes automation and
 must not be treated as application latency profiling.
+
+## Font-picker constraint-loop follow-up
+
+The Air reported an `NSGenericException` on macOS 27.2 (26B123), commit
+`14d543b9`, for excessive Update Constraints in Window passes in a 312 × 404
+`DropdownPanel`. The interaction that triggered the exception was not recorded.
+The exact exception has not reproduced locally.
+
+A variable-height 600-row fixture confirmed an unnecessary feedback path:
+scrolling changed the lazy stack estimate from 36,296 to 36,345 points and
+caused two presenter updates while the visible menu stayed capped at 360 points.
+The presenter previously forced layout and fitting-size measurement on every
+update. The fix clamps the geometry value before storing it, supplies the
+known viewport size plus shadow padding directly, and resizes only when that
+size changes. The same scroll caused zero presenter updates after the change.
+Temporary counters were removed.
+
+The native fixture now includes installed font names and mixed-height rows
+with an initially offscreen selection. This demonstrates the feedback-path
+change; it does not establish reproduction or elimination of the Air's exact
+interaction.
+
+The Remote helper settings binding ignores an unchanged global policy, so
+reselecting its checked choice does not clear saved host-specific preferences.
+Changing the global policy still clears those overrides as before. This guard
+is local to that binding: generic pickers keep invoking their setters because
+projected bindings such as exact-pane access use them to normalize backing state.

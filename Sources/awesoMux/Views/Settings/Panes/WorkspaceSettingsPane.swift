@@ -328,6 +328,7 @@ struct WorkspaceSettingsPane: View {
                     selection: Binding(
                         get: { appSettingsStore.workspaces.value.remoteHelperInstallPolicy },
                         set: { policy in
+                            guard policy != appSettingsStore.workspaces.value.remoteHelperInstallPolicy else { return }
                             appSettingsStore.workspaces.update {
                                 $0.rememberHelperInstallPolicy(policy)
                             }

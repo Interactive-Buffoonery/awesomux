@@ -6,6 +6,7 @@ import SwiftUI
 struct AppDropdownPresenter<Content: View>: NSViewRepresentable {
     @Binding var isPresented: Bool
     let title: String
+    let contentSize: CGSize
     let content: (@escaping () -> Void) -> Content
 
     func makeNSView(context: Context) -> NSView { NSView() }
@@ -35,7 +36,9 @@ struct AppDropdownPresenter<Content: View>: NSViewRepresentable {
             .environment(\.locale, context.environment.locale)
             .environment(\.layoutDirection, context.environment.layoutDirection)
             .padding(EdgeInsets(top: 16, leading: 16, bottom: 28, trailing: 16))
-        coordinator.show(root: AnyView(root), title: title, anchor: view, parent: parent)
+        // Match the shadow padding without asking the hosting view to lay out during this update.
+        let size = CGSize(width: contentSize.width + 32, height: contentSize.height + 44)
+        coordinator.show(root: AnyView(root), size: size, title: title, anchor: view, parent: parent)
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) { coordinator.close() }
@@ -48,19 +51,17 @@ struct AppDropdownPresenter<Content: View>: NSViewRepresentable {
         private weak var previousResponder: NSResponder?
         private var observers: [NSObjectProtocol] = []
 
-        func show(root: AnyView, title: String, anchor: NSView, parent: NSWindow) {
+        func show(root: AnyView, size: CGSize, title: String, anchor: NSView, parent: NSWindow) {
             if let hosting = panel?.contentViewController as? NSHostingController<AnyView> {
                 hosting.rootView = root
-                hosting.view.layoutSubtreeIfNeeded()
                 if let panel {
-                    panel.setContentSize(hosting.view.fittingSize)
+                    if panel.frame.size != size { panel.setContentSize(size) }
                     position(panel, anchor: anchor, parent: parent)
                 }
                 return
             }
             previousResponder = parent.firstResponder
             let hosting = NSHostingController(rootView: root)
-            let size = hosting.view.fittingSize
             let panel = DropdownPanel(
                 contentRect: NSRect(origin: .zero, size: size),
                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

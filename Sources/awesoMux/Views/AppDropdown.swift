@@ -1,6 +1,8 @@
 import DesignSystem
 import SwiftUI
 
+private let appDropdownWidth: CGFloat = 280
+
 struct AppDropdownItem {
     let title: String
     var id: AnyHashable?
@@ -76,7 +78,10 @@ struct AppDropdown<Label: View>: View {
         }
         .opacity(isEnabled ? 1 : 0.5)
         .background {
-            AppDropdownPresenter(isPresented: $isPresented, title: menuTitle) { dismiss in
+            AppDropdownPresenter(
+                isPresented: $isPresented, title: menuTitle, contentSize: CGSize(width: appDropdownWidth, height: contentHeight)
+            ) {
+                dismiss in
                 AppDropdownContent(items: items, menuTitle: menuTitle, contentHeight: $contentHeight, dismiss: dismiss)
             }
         }
@@ -229,7 +234,7 @@ private struct AppDropdownContent: View {
                 }
                 .padding(6)
                 .onGeometryChange(for: CGFloat.self) {
-                    $0.size.height
+                    min(max(ceil($0.size.height), 1), 360)
                 } action: {
                     contentHeight = $0
                 }
@@ -240,7 +245,7 @@ private struct AppDropdownContent: View {
                 accessibilityIndex = index
             }
         }
-        .frame(width: 280, height: min(max(contentHeight, 1), 360))
+        .frame(width: appDropdownWidth, height: contentHeight)
         .modifier(AppMenuChrome(accent: Color.aw.accent))
         .task {
             focusedIndex = enabledIndices.first(where: { items[$0].isSelected }) ?? enabledIndices.first
