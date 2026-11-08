@@ -519,6 +519,23 @@ struct AgentOutputDetectorTests {
             detector.detectedOutput(
                 in: "• Working (4s • esc to interrupt)\n└ Tip: Use a preset to\n  run a saved prompt.\n\n" + composer,
                 liveAgentKind: .codex)?.state == .thinking)
+        let backgroundTrailer = "• Working (2m 05s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close"
+        for working in [
+            backgroundTrailer
+                + "\n└ Tip: For models with adjustable reasoning, press ⌥. to increase reasoning effort or ⌥, to decrease it.\n\n",
+            backgroundTrailer.replacingOccurrences(of: " · /ps", with: "\n  · /ps") + "\n\n",
+            backgroundTrailer.replacingOccurrences(of: " · /stop to close", with: "") + "\n",
+        ] {
+            #expect(detector.detectedOutput(in: working + composer, liveAgentKind: .codex)?.state == .thinking)
+        }
+        for idle in [
+            "• Codex prints (3s • esc to interrupt) while working.\n\n",
+            "• Working (3s • esc to interrupt) is the status line · it ends with the timer\n\n",
+            "• Codex prints (3s • esc to interrupt) · shown only during active turns.\n\n",
+            "• Ran swift test\n  └ 1 background terminal running · /ps to view\n\n",
+        ] {
+            #expect(detector.detectedOutput(in: idle + composer, liveAgentKind: .codex)?.state == .waiting)
+        }
         let warningComposer = composer + "    ⚠ 2 warnings · f2 to view"
         #expect(detector.detectedOutput(in: warningComposer, liveAgentKind: .codex)?.codexUI == .composer)
         #expect(detector.detectedOutput(in: composer + "\nWarning details", liveAgentKind: .codex)?.codexUI != .composer)

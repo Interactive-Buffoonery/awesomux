@@ -613,7 +613,11 @@ public struct AgentOutputDetector: Sendable {
         let paragraph = trimmed[..<composer].reversed().drop(while: { $0.isEmpty })
             .prefix(while: { !$0.isEmpty }).prefix(40).reversed()
         let status = paragraph.prefix(while: { !$0.hasPrefix("└ tip:") }).joined(separator: " ")
-        if status.hasPrefix("• "), status.hasSuffix("esc to interrupt)") {
+        // Codex may append its background-terminal notice after the timer; other trailing text stays inert.
+        if status.range(
+            of: #"^• .*esc to interrupt\)(?: · [0-9]+ background terminals? running(?: · /ps to view)?(?: · /stop to close)?)?$"#,
+            options: .regularExpression) != nil
+        {
             return .thinking
         }
         return .waiting
