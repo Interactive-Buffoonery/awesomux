@@ -336,13 +336,13 @@ struct WorktreeManagerPanel: View {
                                 title: destination.title,
                                 isEnabled: destination == .newWorkspace || model.canOpenAsSplit
                             ) { Task { await open(row, destination: destination) } }
-                        }, menuTitle: String(localized: "Open in")
+                        }, menuTitle: String(localized: "Open in", comment: "Label for choosing where to open a worktree")
                     ) {
                         Image(systemName: "chevron.down")
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
-                    .accessibilityLabel(String(localized: "Open in"))
+                    .accessibilityLabel(String(localized: "Open in", comment: "Label for choosing where to open a worktree"))
                 }
             }
         }

@@ -71,7 +71,7 @@ struct AppDropdown<Label: View>: View {
         .focusEffectDisabled()
         .awFocusRing(triggerHasFocus, cornerRadius: AwRadius.button)
         .onKeyPress(keys: [.downArrow, .return, .space], phases: .down) { press in
-            guard press.modifiers.intersection([.command, .control, .option]).isEmpty else { return .ignored }
+            guard press.hasNoShortcutModifiers else { return .ignored }
             triggerHasFocus = true
             isPresented = true
             return .handled
@@ -150,7 +150,7 @@ private struct AppDropdownContent: View {
     @Binding var contentHeight: CGFloat
     let dismiss: () -> Void
     @State private var focusedIndex: Int?
-    @FocusState private var keyboardIndex: Int?
+    @FocusState private var menuHasFocus: Bool
     @AccessibilityFocusState private var accessibilityIndex: Int?
     @State private var typedPrefix = ""
     @State private var pointerNavigation = false
@@ -200,16 +200,8 @@ private struct AppDropdownContent: View {
                                     .accessibilityHidden(true)
                             }
                             .disabled(!item.isEnabled)
-                            .focusable()
-                            .focusEffectDisabled()
-                            .focused($keyboardIndex, equals: index)
-                            .onAppear {
-                                if focusedIndex == index { keyboardIndex = index }
-                            }
+                            .focusable(false)
                             .accessibilityFocused($accessibilityIndex, equals: index)
-                            .onKeyPress(keys: [.upArrow, .downArrow], action: handleNavigation)
-                            .onKeyPress(keys: [.return, .space], phases: .down, action: handleActivation)
-                            .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols), action: handleTyping)
                             .onHover { hovering in
                                 if hovering && item.isEnabled {
                                     pointerNavigation = true
@@ -239,23 +231,21 @@ private struct AppDropdownContent: View {
                     contentHeight = $0
                 }
             }
-            .onChange(of: focusedIndex) { _, index in
-                if !pointerNavigation, let index { proxy.scrollTo(index) }
-                keyboardIndex = index
-                accessibilityIndex = index
-            }
+            .onChange(of: focusedIndex) { _, _ in synchronizeFocus(using: proxy) }
+            .onChange(of: pointerNavigation) { _, _ in synchronizeFocus(using: proxy) }
         }
         .frame(width: appDropdownWidth, height: contentHeight)
         .modifier(AppMenuChrome(accent: Color.aw.accent))
+        .focusable()
+        .focused($menuHasFocus)
+        .focusEffectDisabled()
         .task {
+            menuHasFocus = true
             focusedIndex = enabledIndices.first(where: { items[$0].isSelected }) ?? enabledIndices.first
         }
         .onKeyPress(keys: [.upArrow, .downArrow], action: handleNavigation)
         .onKeyPress(keys: [.return, .space], phases: .down, action: handleActivation)
         .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols), action: handleTyping)
-        .onChange(of: keyboardIndex) { _, index in
-            if let index, enabledIndices.contains(index) { focusedIndex = index }
-        }
         .onChange(of: accessibilityIndex) { _, index in
             if let index, enabledIndices.contains(index) {
                 pointerNavigation = false
@@ -272,8 +262,15 @@ private struct AppDropdownContent: View {
         .accessibilityLabel(menuTitle)
     }
 
+    private func synchronizeFocus(using proxy: ScrollViewProxy) {
+        // Hover should not move native focus during trackpad inertia.
+        guard !pointerNavigation else { return }
+        if let focusedIndex { proxy.scrollTo(focusedIndex) }
+        accessibilityIndex = focusedIndex
+    }
+
     private func handleNavigation(_ press: KeyPress) -> KeyPress.Result {
-        guard press.modifiers.intersection([.command, .control, .option]).isEmpty else { return .ignored }
+        guard press.hasNoShortcutModifiers else { return .ignored }
         pointerNavigation = false
         focusedIndex = AppDropdownNavigation.next(
             after: focusedIndex, forward: press.key == .downArrow, enabled: enabledIndices)
@@ -281,7 +278,7 @@ private struct AppDropdownContent: View {
     }
 
     private func handleActivation(_ press: KeyPress) -> KeyPress.Result {
-        guard press.modifiers.intersection([.command, .control, .option]).isEmpty else { return .ignored }
+        guard press.hasNoShortcutModifiers else { return .ignored }
         if press.key == .space, !typedPrefix.isEmpty, let lastTypedAt,
             ContinuousClock.now - lastTypedAt <= .seconds(1)
         {
@@ -294,7 +291,7 @@ private struct AppDropdownContent: View {
     }
 
     private func handleTyping(_ press: KeyPress) -> KeyPress.Result {
-        guard press.modifiers.intersection([.command, .control, .option]).isEmpty else { return .ignored }
+        guard press.hasNoShortcutModifiers else { return .ignored }
         pointerNavigation = false
         let now = ContinuousClock.now
         if let lastTypedAt, now - lastTypedAt > .seconds(1) { typedPrefix = "" }
@@ -312,4 +309,10 @@ private struct AppDropdownContent: View {
         return .handled
     }
 
+}
+
+private extension KeyPress {
+    var hasNoShortcutModifiers: Bool {
+        modifiers.isDisjoint(with: [.command, .control, .option])
+    }
 }

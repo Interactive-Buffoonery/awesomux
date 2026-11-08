@@ -637,8 +637,14 @@ struct DiagnosticsSettingsPane: View {
 
     private var categoryPicker: some View {
         AppDropdownPicker(
-            title: String(localized: "Event category"), selection: $eventCategory,
-            options: [(LocalDiagnosticCategory?.none, String(localized: "All categories"))]
+            title: String(localized: "Event category", comment: "Label for filtering diagnostic events by category"),
+            selection: $eventCategory,
+            options: [
+                (
+                    LocalDiagnosticCategory?.none,
+                    String(localized: "All categories", comment: "Diagnostic event filter that includes every category")
+                )
+            ]
                 + LocalDiagnosticCategory.allCases.map { (Optional($0), $0.displayName) }
         )
         .accessibilityLabel("Event category")

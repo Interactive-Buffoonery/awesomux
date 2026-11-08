@@ -41,7 +41,7 @@ keyboard-opened menus preserve the trigger focus. Empty group lists still offer 
 
 Check in the running native host: short and long lists, light and dark appearance,
 keyboard opening/navigation/activation/Escape, outside-click dismissal, disabled
-choices, selection checks, and accessible labels. Automated navigation tests alone
+choices, selection checks, and accessible labels. Fixture navigation self-checks alone
 do not establish native focus or VoiceOver behavior.
 
 ## Recorded validation
@@ -87,3 +87,26 @@ reselecting its checked choice does not clear saved host-specific preferences.
 Changing the global policy still clears those overrides as before. This guard
 is local to that binding: generic pickers keep invoking their setters because
 projected bindings such as exact-pane access use them to normalize backing state.
+
+## Trackpad scrolling follow-up
+
+The user reported smoother inertia with the pointer over the scrollbar/gutter
+than over font rows. The hover path previously changed the highlighted index
+and then assigned keyboard and accessibility focus, allowing focus-driven
+scrolling during a trackpad gesture. Hover now changes only the highlighted
+row. Keyboard navigation and actual accessibility focus changes keep their
+focus/scroll synchronization. The menu container owns keyboard focus, so
+scrolling a lazy row out of view does not remove the key handler. Rows remain
+accessible buttons with separate accessibility focus.
+
+The A/B observation is user-supplied evidence, not a frame-time benchmark.
+Automated scrolling did not trigger hover callbacks in the diagnostic fixture,
+so it could not measure this path. No quantitative improvement is claimed;
+trackpad inertia and VoiceOver behavior still need native verification.
+
+A native fixture regression check opened Fonts at System, scrolled to the
+last fonts until the original row was recycled, and pressed Down then Return.
+With row-owned keyboard focus, the keys were ignored. With container-owned
+keyboard focus, the next font was selected and the menu dismissed. This
+establishes that keyboard routing survives row virtualization; it is not a
+trackpad frame-time or VoiceOver test.

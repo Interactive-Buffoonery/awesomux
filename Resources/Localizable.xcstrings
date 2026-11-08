@@ -770,10 +770,10 @@
       "comment" : "Placeholder requesting an OpenSSH config alias, not SSH command flags"
     },
     "All Hosts" : {
-
+      "comment" : "Remember an SSH helper decision for every host"
     },
     "All categories" : {
-
+      "comment" : "Diagnostic event filter that includes every category"
     },
     "All comments resolved" : {
       "comment" : "Quiet floating confirmation above the document send bar when the last comment is resolved"
@@ -877,7 +877,7 @@
       "comment" : "Menu bar visibility choice"
     },
     "Always Install" : {
-      "comment" : "Remember approving remote helper installation"
+      "comment" : "Remember approving remote helper installation\nRemote helper policy: install automatically"
     },
     "Always Manage Any Destination" : {
 
@@ -998,7 +998,7 @@
       "comment" : "Argument position"
     },
     "Ask Before Installing" : {
-
+      "comment" : "Remote helper policy: request permission before installation"
     },
     "Ask before terminal programs read the clipboard" : {
 
@@ -1211,7 +1211,7 @@
       "comment" : "Title for a terminal link that awesoMux rejected or could not resolve"
     },
     "Catppuccin" : {
-
+      "comment" : "Name of the Catppuccin terminal color theme"
     },
     "Change Access" : {
 
@@ -2486,7 +2486,7 @@
 
     },
     "Event category" : {
-
+      "comment" : "Label for filtering diagnostic events by category"
     },
     "Event severity" : {
 
@@ -3382,7 +3382,7 @@
       "comment" : "Menu bar visibility choice"
     },
     "Never Ask" : {
-      "comment" : "Remember declining remote helper installation"
+      "comment" : "Remember declining remote helper installation\nRemote helper policy: do not offer installation"
     },
     "Never Ask for Any Destination" : {
 
@@ -3761,7 +3761,7 @@
 
     },
     "Open in" : {
-      "comment" : "Worktree opening destination picker."
+      "comment" : "Label for choosing where to open a worktree\nWorktree opening destination picker."
     },
     "Open in Browser" : {
 
@@ -3848,7 +3848,7 @@
 
     },
     "Opens update options" : {
-      "comment" : "Accessibility hint for the available update sidebar indicator"
+      "comment" : "Accessibility hint for the available app update menu"
     },
     "Opens workspace creation options" : {
       "comment" : "Accessibility hint for the sidebar menu that creates a workspace"
@@ -4434,7 +4434,7 @@
 
     },
     "Remember choice for" : {
-
+      "comment" : "Label for choosing whether a remembered SSH helper decision applies to one host or all hosts"
     },
     "Remember this choice" : {
 
@@ -5138,7 +5138,7 @@
 
     },
     "Selenized" : {
-
+      "comment" : "Name of the Selenized terminal color theme"
     },
     "Send" : {
       "comment" : "Button to stage the composed prompt into the terminal"
@@ -5373,7 +5373,7 @@
       "comment" : "Welcome tour button dismissing the tour"
     },
     "Skip for Now" : {
-      "comment" : "Action that hides the current sidebar update reminder"
+      "comment" : "Menu action to dismiss the available app update for now"
     },
     "Sky" : {
       "comment" : "Workspace group tint color",
@@ -5620,7 +5620,7 @@
       "comment" : "Terminal settings subtitle."
     },
     "Terminal theme" : {
-
+      "comment" : "Label for the terminal color theme picker"
     },
     "Terminal unavailable" : {
       "comment" : "Fallback header shown when the Terminal Companion store has no selected session."
@@ -5932,7 +5932,7 @@
       "comment" : "Worktree Manager empty-state detail."
     },
     "This Host" : {
-
+      "comment" : "Remember an SSH helper decision only for the current host"
     },
     "This Mac" : {
 
@@ -6295,7 +6295,7 @@
       "comment" : "Settings field hint for the terminal font size slider"
     },
     "Update…" : {
-      "comment" : "Action that starts the standard update flow"
+      "comment" : "Menu action to start an available app update"
     },
     "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed." : {
       "comment" : "Settings field hint for the terminal background source picker"

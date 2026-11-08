@@ -19,14 +19,18 @@ struct UpdateAvailableIndicator: View {
         let accessibilityLabel = Self.accessibilityLabel(for: version)
         return AppDropdown(
             items: [
-                AppDropdownItem(title: String(localized: "Update…")) { updateController.checkForUpdates() },
-                AppDropdownItem(title: String(localized: "Skip for Now")) { updateController.skipAvailableUpdate() },
+                AppDropdownItem(title: String(localized: "Update…", comment: "Menu action to start an available app update")) {
+                    updateController.checkForUpdates()
+                },
+                AppDropdownItem(
+                    title: String(localized: "Skip for Now", comment: "Menu action to dismiss the available app update for now")
+                ) { updateController.skipAvailableUpdate() },
             ], menuTitle: accessibilityLabel
         ) {
             label
         }
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(String(localized: "Opens update options"))
+        .accessibilityHint(String(localized: "Opens update options", comment: "Accessibility hint for the available app update menu"))
         .help(accessibilityLabel)
             .frame(
                 width: displayMode == .collapsed ? 40 : nil,

@@ -606,10 +606,17 @@ private struct TerminalBackgroundSettings: View {
             if mode == .catppuccinTheme {
                 LabeledContent("Terminal theme") {
                     AppDropdownPicker(
-                        title: String(localized: "Terminal theme"), selection: namedThemeSelection,
+                        title: String(localized: "Terminal theme", comment: "Label for the terminal color theme picker"),
+                        selection: namedThemeSelection,
                         options: [
-                            (TerminalThemeCatalog.catppuccinID, String(localized: "Catppuccin")),
-                            (TerminalThemeCatalog.selenizedID, String(localized: "Selenized")),
+                            (
+                                TerminalThemeCatalog.catppuccinID,
+                                String(localized: "Catppuccin", comment: "Name of the Catppuccin terminal color theme")
+                            ),
+                            (
+                                TerminalThemeCatalog.selenizedID,
+                                String(localized: "Selenized", comment: "Name of the Selenized terminal color theme")
+                            ),
                         ]
                     )
                     .frame(maxWidth: 280, alignment: .leading)

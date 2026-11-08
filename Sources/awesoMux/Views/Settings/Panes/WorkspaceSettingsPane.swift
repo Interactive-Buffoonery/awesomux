@@ -335,9 +335,13 @@ struct WorkspaceSettingsPane: View {
                         }
                     ),
                     options: [
-                        (WorkspaceConfig.RemoteHelperInstallPolicy.ask, String(localized: "Ask Before Installing")),
-                        (.alwaysInstall, String(localized: "Always Install")),
-                        (.neverAsk, String(localized: "Never Ask")),
+                        (
+                            WorkspaceConfig.RemoteHelperInstallPolicy.ask,
+                            String(
+                                localized: "Ask Before Installing", comment: "Remote helper policy: request permission before installation")
+                        ),
+                        (.alwaysInstall, String(localized: "Always Install", comment: "Remote helper policy: install automatically")),
+                        (.neverAsk, String(localized: "Never Ask", comment: "Remote helper policy: do not offer installation")),
                     ])
             }
 

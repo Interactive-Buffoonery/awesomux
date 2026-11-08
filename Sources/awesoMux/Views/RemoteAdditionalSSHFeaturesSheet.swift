@@ -35,8 +35,14 @@ struct RemoteAdditionalSSHFeaturesSheet: View {
                 Toggle("Remember this choice", isOn: $rememberChoice)
                     .toggleStyle(.checkbox)
                 AppDropdownPicker(
-                    title: String(localized: "Remember choice for"), selection: $rememberAllHosts,
-                    options: [(false, String(localized: "This Host")), (true, String(localized: "All Hosts"))]
+                    title: String(
+                        localized: "Remember choice for",
+                        comment: "Label for choosing whether a remembered SSH helper decision applies to one host or all hosts"),
+                    selection: $rememberAllHosts,
+                    options: [
+                        (false, String(localized: "This Host", comment: "Remember an SSH helper decision only for the current host")),
+                        (true, String(localized: "All Hosts", comment: "Remember an SSH helper decision for every host")),
+                    ]
                 )
                 .fixedSize()
                 .disabled(!rememberChoice)

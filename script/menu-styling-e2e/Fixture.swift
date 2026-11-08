@@ -4,6 +4,10 @@ import SwiftUI
 
 @main
 struct MenuStylingFixture: App {
+    init() {
+        verifyDropdownNavigation()
+    }
+
     var body: some Scene {
         WindowGroup("Menu Styling Fixture") { FixtureView() }
             .defaultSize(width: 620, height: 360)
@@ -122,4 +126,25 @@ private struct FixtureView: View {
         panel.presentAndFocus()
     }
 
+}
+
+// Keep pure navigation failure checks in the native fixture, outside the unit suite.
+private func verifyDropdownNavigation() {
+    precondition(AppDropdownNavigation.next(after: nil, forward: true, enabled: [1, 3]) == 1)
+    precondition(AppDropdownNavigation.next(after: 1, forward: true, enabled: [1, 3]) == 3)
+    precondition(AppDropdownNavigation.next(after: 3, forward: true, enabled: [1, 3]) == 1)
+    precondition(AppDropdownNavigation.next(after: 1, forward: false, enabled: [1, 3]) == 3)
+    precondition(AppDropdownNavigation.next(after: nil, forward: false, enabled: [1, 3]) == 3)
+    precondition(AppDropdownNavigation.next(after: 7, forward: true, enabled: []) == nil)
+    precondition(AppDropdownNavigation.next(after: 7, forward: true, enabled: [3]) == 3)
+    let titles = ["New Agent in", "Personal", "Development", "Démo", "Disabled"]
+    precondition(AppDropdownNavigation.match(prefix: "de", titles: titles, enabled: [1, 2, 3]) == 2)
+    precondition(AppDropdownNavigation.match(prefix: "DEMO", titles: titles, enabled: [1, 2, 3]) == 3)
+    precondition(AppDropdownNavigation.match(prefix: "disabled", titles: titles, enabled: [1, 2, 3]) == nil)
+    precondition(AppDropdownNavigation.match(prefix: "missing", titles: titles, enabled: []) == nil)
+    precondition(AppDropdownNavigation.reconcile(current: 1, old: ["a", "b"], new: ["a", "b"], enabled: [0, 1], fallback: 0) == 1)
+    precondition(AppDropdownNavigation.reconcile(current: 1, old: ["a", "b"], new: ["b", "a"], enabled: [0, 1], fallback: 1) == 0)
+    precondition(AppDropdownNavigation.reconcile(current: 1, old: ["a", "b"], new: ["a"], enabled: [0], fallback: 0) == 0)
+    precondition(AppDropdownNavigation.reconcile(current: 1, old: ["a", "b"], new: ["a", "b"], enabled: [0], fallback: 0) == 0)
+    precondition(AppDropdownNavigation.reconcile(current: nil, old: ["a"], new: ["a"], enabled: [], fallback: nil) == nil)
 }
