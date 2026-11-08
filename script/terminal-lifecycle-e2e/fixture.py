@@ -36,6 +36,8 @@ elif mode == "respond":
     print(line, flush=True)
 elif mode == "job":
     identity["jobPID"] = os.getpid()
+    identity["marker"] = "TL_JOB_" + hashlib.sha256((root.joinpath("secret").read_text() + session + str(os.getpid())).encode()).hexdigest()[:20]
+    print(identity["marker"], flush=True)
     counter = 0
     while not root.joinpath("release").exists():
         write("job.json", dict(identity, heartbeat=counter))
