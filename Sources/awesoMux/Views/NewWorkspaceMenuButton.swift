@@ -5,10 +5,11 @@ import SwiftUI
 struct NewWorkspaceMenuButton: View, Equatable {
     let size: CGFloat
     let cornerRadius: CGFloat
-    /// Resting background fill. This component now serves the collapsed rail
-    /// only (the expanded header uses `NewWorkspaceSplitButton`) — the rail
-    /// passes `surface.elevated.opacity(0.6)` to match the search icon
-    /// button stacked above it.
+    /// Resting background fill. Serves the collapsed rail and the expanded
+    /// Agents header (the expanded Workspaces header uses
+    /// `NewWorkspaceSplitButton`) — the rail passes
+    /// `surface.elevated.opacity(0.6)` to match the search icon button
+    /// stacked above it.
     let restFill: Color
     /// Groups available for the "New Workspace in…" submenu, in the order
     /// they appear in the sidebar.
@@ -22,6 +23,9 @@ struct NewWorkspaceMenuButton: View, Equatable {
     /// `addSession(groupName:)`'s create-if-missing fallback.
     let onNewWorkspaceInGroup: (SessionGroup.ID) -> Void
     let onNewWorkspaceGroup: () -> Void
+    /// Agents mode has no workspace context to infer a group from, so the
+    /// menu asks for one instead of offering a default "New Workspace".
+    var forAgents = false
 
     // Same rationale and same bug class as NewWorkspaceSplitButton's gate
     // (see that file): this control sits in `collapsedSearchHeader`, outside
@@ -33,6 +37,7 @@ struct NewWorkspaceMenuButton: View, Equatable {
         lhs.size == rhs.size
             && lhs.cornerRadius == rhs.cornerRadius
             && lhs.restFill == rhs.restFill
+            && lhs.forAgents == rhs.forAgents
             && lhs.otherGroups.count == rhs.otherGroups.count
             && zip(lhs.otherGroups, rhs.otherGroups).allSatisfy { $0.id == $1.id && $0.name == $1.name }
     }
@@ -52,22 +57,10 @@ struct NewWorkspaceMenuButton: View, Equatable {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(restFill)
             Menu {
-                Button("New Workspace") {
-                    onNewWorkspace()
-                }
-
-                if !otherGroups.isEmpty {
-                    Menu("New Workspace in…") {
-                        ForEach(otherGroups, id: \.id) { entry in
-                            Button(entry.name) {
-                                onNewWorkspaceInGroup(entry.id)
-                            }
-                        }
-                    }
-                }
-
-                Button("New Workspace Group…") {
-                    onNewWorkspaceGroup()
+                if forAgents {
+                    agentMenuItems
+                } else {
+                    workspaceMenuItems
                 }
             } label: {
                 // Matches the rail's search button glyph exactly (same font
@@ -92,10 +85,52 @@ struct NewWorkspaceMenuButton: View, Equatable {
             // label's Image. The "?" help menu uses the same treatment.
             .tint(Color.aw.text3)
             .foregroundStyle(Color.aw.text3)
-            .accessibilityLabel("New Workspace menu")
-            .accessibilityHint("Opens workspace creation options")
-            .help("New Workspace menu")
+            .accessibilityLabel(
+                forAgents ? String(localized: "New Agent menu") : String(localized: "New Workspace menu")
+            )
+            .accessibilityHint(
+                forAgents
+                    ? String(localized: "Choose a group for the new agent")
+                    : String(localized: "Opens workspace creation options")
+            )
+            .help(forAgents ? String(localized: "New Agent") : String(localized: "New Workspace menu"))
         }
         .frame(width: size, height: size)
+    }
+
+    @ViewBuilder private var workspaceMenuItems: some View {
+        Button("New Workspace") {
+            onNewWorkspace()
+        }
+
+        if !otherGroups.isEmpty {
+            Menu("New Workspace in…") {
+                ForEach(otherGroups, id: \.id) { entry in
+                    Button(entry.name) {
+                        onNewWorkspaceInGroup(entry.id)
+                    }
+                }
+            }
+        }
+
+        Button("New Workspace Group…") {
+            onNewWorkspaceGroup()
+        }
+    }
+
+    @ViewBuilder private var agentMenuItems: some View {
+        if !otherGroups.isEmpty {
+            Section("New Agent in") {
+                ForEach(otherGroups, id: \.id) { entry in
+                    Button(entry.name) {
+                        onNewWorkspaceInGroup(entry.id)
+                    }
+                }
+            }
+        }
+
+        Button("New Agent in New Group…") {
+            onNewWorkspaceGroup()
+        }
     }
 }

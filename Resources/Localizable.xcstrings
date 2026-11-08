@@ -1335,6 +1335,9 @@
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
 
     },
+    "Choose a group for the new agent" : {
+
+    },
     "Choose a local terminal with a reported working directory, then try again." : {
       "comment" : "Explanation when project transcript browsing has no local directory"
     },
@@ -3395,6 +3398,18 @@
     },
     "Never show awesoMux in the menu bar" : {
       "comment" : "Accessibility label for the never-visible menu bar choice"
+    },
+    "New Agent" : {
+
+    },
+    "New Agent in" : {
+
+    },
+    "New Agent in New Group…" : {
+
+    },
+    "New Agent menu" : {
+
     },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
