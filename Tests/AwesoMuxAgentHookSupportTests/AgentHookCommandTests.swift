@@ -489,6 +489,55 @@ struct AgentHookCommandTests {
         }
     }
 
+    @Test("Antigravity CLI event flag and conversationId append runtime event and emit JSON stdout")
+    func antigravityEventFlagAndConversationIDAppendRuntimeEvent() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        var stdoutLines: [String] = []
+
+        let payload = Data(
+            #"{"conversationId":"2E914558-9675-43F3-9BAC-238D469A8583","terminationReason":"NO_TOOL_CALL","fullyIdle":true}"#
+                .utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "antigravity", "--event", "Stop"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: payload,
+            output: { stdoutLines.append($0) }
+        )
+
+        #expect(status == 0)
+        #expect(stdoutLines == ["{}"])
+        let event = try #require(Self.readSingleEvent(from: temp.file))
+        #expect(event.source == .antigravity)
+        #expect(event.kind == .antigravity)
+        #expect(event.phase == .stop)
+        #expect(event.executionState == .waiting)
+        #expect(event.providerSessionID == "2e914558-9675-43f3-9bac-238d469a8583")
+    }
+
+    @Test("Antigravity subagent hooks with parentConversationId are ignored")
+    func antigravitySubagentHooksWithParentConversationIDWriteNothing() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        var stdoutLines: [String] = []
+
+        let payload = Data(
+            #"{"conversationId":"11111111-2222-3333-4444-555555555555","parentConversationId":"2e914558-9675-43f3-9bac-238d469a8583","terminationReason":"NO_TOOL_CALL"}"#
+                .utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "antigravity", "--event", "Stop"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: payload,
+            output: { stdoutLines.append($0) }
+        )
+
+        #expect(status == 0)
+        #expect(stdoutLines == ["{}"])
+        #expect(try Data(contentsOf: temp.file).isEmpty)
+    }
+
     private static func hookPayload(
         _ hookEventName: String,
         notificationType: String? = nil,

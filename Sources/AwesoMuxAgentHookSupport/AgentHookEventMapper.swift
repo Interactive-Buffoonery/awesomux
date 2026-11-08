@@ -92,6 +92,8 @@ public enum AgentHookEventMapper {
             openCodeMapping(hookEventName: hookEventName)
         case .grok:
             grokMapping(hookEventName: hookEventName, reason: reason)
+        case .antigravity:
+            antigravityMapping(hookEventName: hookEventName, reason: reason)
         }
     }
 
@@ -167,6 +169,41 @@ public enum AgentHookEventMapper {
         case nil, "", "shutdown",
             "cancel", "cancelled", "canceled", "abort", "aborted",
             "error", "failed", "failure":
+            EventMapping(executionState: .error, phase: .stop)
+        default:
+            EventMapping(executionState: .error, phase: .stop)
+        }
+    }
+
+    private static func antigravityMapping(hookEventName: String, reason: String?) -> EventMapping? {
+        switch hookEventName {
+        case "SessionStart", "session_start":
+            baseMapping["SessionStart"]
+        case "PreInvocation", "pre_invocation", "UserPromptSubmit", "user_prompt_submit":
+            baseMapping["UserPromptSubmit"]
+        case "PreToolUse", "pre_tool_use":
+            baseMapping["PreToolUse"]
+        case "PostToolUse", "post_tool_use", "PostInvocation", "post_invocation":
+            baseMapping["PostToolUse"]
+        case "Stop", "stop":
+            antigravityStopMapping(reason: reason)
+        case "SessionEnd", "session_end":
+            localAgentMapping["SessionEnd"]
+        case "StopFailure", "stop_failure":
+            localAgentMapping["StopFailure"]
+        default:
+            nil
+        }
+    }
+
+    private static func antigravityStopMapping(reason: String?) -> EventMapping {
+        switch reason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case nil, "", "end_turn", "no_tool_call",
+            "user_canceled", "user_cancelled",
+            "terminal_step_type", "injected_response":
+            EventMapping(executionState: .waiting, phase: .stop)
+        case "error", "max_invocations", "max_forced_invocations",
+            "max_token_budget_exceeded", "terminal_custom_hook":
             EventMapping(executionState: .error, phase: .stop)
         default:
             EventMapping(executionState: .error, phase: .stop)

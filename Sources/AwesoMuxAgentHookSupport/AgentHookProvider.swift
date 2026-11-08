@@ -8,6 +8,7 @@ public enum AgentHookProvider: String, Sendable {
     case openCode = "opencode"
     case pi
     case grok
+    case antigravity
 
     var source: AgentRuntimeSource {
         switch self {
@@ -21,6 +22,8 @@ public enum AgentHookProvider: String, Sendable {
             .pi
         case .grok:
             .grok
+        case .antigravity:
+            .antigravity
         }
     }
 
@@ -36,6 +39,8 @@ public enum AgentHookProvider: String, Sendable {
             .pi
         case .grok:
             .grok
+        case .antigravity:
+            .antigravity
         }
     }
 }

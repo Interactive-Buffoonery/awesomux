@@ -43,6 +43,13 @@ public enum AgentHookCommand {
             return 0
         }
         let provider = invocation.provider
+        defer {
+            if case .hookPayload = invocation, provider == .antigravity {
+                // Antigravity's hook runner parses stdout as JSON on every hook
+                // execution; emit an empty JSON object on all exit paths.
+                (output ?? writeStandardOutput)("{}")
+            }
+        }
 
         // Codex's shared daemon inherits its founder pane's environment, so
         // even the founder's events cannot be routed safely (openai/codex#48500).
@@ -61,7 +68,7 @@ public enum AgentHookCommand {
         let event: AgentRuntimeEvent
         let eventName: String?
         switch invocation {
-        case .hookPayload(let provider):
+        case .hookPayload(let provider, let cliEventName):
             // Claude Code marks commands launched from its child session. Its
             // environment reaches nested `codex exec`, whose lifecycle hooks
             // would otherwise claim the enclosing Claude pane's JSONL stream.
@@ -79,7 +86,17 @@ public enum AgentHookCommand {
                 return 0
             }
 
-            guard let hookEventName = payload.hookEventName(for: provider) else {
+            if provider == .antigravity,
+                let parentID = payload.parentConversationID?.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ),
+                !parentID.isEmpty
+            {
+                log(provider: provider, eventName: cliEventName, category: "nested-child-session")
+                return 0
+            }
+
+            guard let hookEventName = payload.hookEventName(for: provider) ?? cliEventName else {
                 log(provider: provider, eventName: nil, category: "invalid-json")
                 return 0
             }
@@ -179,23 +196,32 @@ public enum AgentHookCommand {
             return .openDocument(provider: provider, documentPath: arguments[3])
         }
 
-        guard arguments.count == 2,
+        if arguments.count == 2,
             arguments[0] == "--provider",
             let provider = AgentHookProvider(rawValue: arguments[1])
-        else {
-            return nil
+        {
+            return .hookPayload(provider: provider, eventName: nil)
         }
 
-        return .hookPayload(provider: provider)
+        if arguments.count == 4,
+            arguments[0] == "--provider",
+            let provider = AgentHookProvider(rawValue: arguments[1]),
+            arguments[2] == "--event",
+            !arguments[3].isEmpty
+        {
+            return .hookPayload(provider: provider, eventName: arguments[3])
+        }
+
+        return nil
     }
 
     private enum Invocation {
-        case hookPayload(provider: AgentHookProvider)
+        case hookPayload(provider: AgentHookProvider, eventName: String?)
         case openDocument(provider: AgentHookProvider, documentPath: String)
 
         var provider: AgentHookProvider {
             switch self {
-            case .hookPayload(let provider), .openDocument(let provider, _):
+            case .hookPayload(let provider, _), .openDocument(let provider, _):
                 provider
             }
         }

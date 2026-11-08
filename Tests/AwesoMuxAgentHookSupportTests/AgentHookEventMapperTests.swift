@@ -195,4 +195,58 @@ struct AgentHookEventMapperTests {
         #expect(event.phase == .notification)
     }
 
+    @Test(arguments: [
+        ("SessionStart", AgentExecutionState.idle, AgentRuntimePhase.sessionStart),
+        ("PreInvocation", .thinking, .promptSubmit),
+        ("PreToolUse", .thinking, .toolStart),
+        ("PostToolUse", .thinking, .toolEnd),
+        ("PostInvocation", .thinking, .toolEnd),
+        ("Stop", .waiting, .stop),
+        ("SessionEnd", .idle, .sessionEnd),
+    ])
+    func antigravityLifecycleEventsMapToExpectedStates(
+        hookEventName: String,
+        executionState: AgentExecutionState,
+        phase: AgentRuntimePhase
+    ) throws {
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .antigravity,
+                hookEventName: hookEventName,
+                providerSessionID: "2e914558-9675-43f3-9bac-238d469a8583"
+            ))
+
+        #expect(event.source == .antigravity)
+        #expect(event.kind == .antigravity)
+        #expect(event.executionState == executionState)
+        #expect(event.attentionReason == nil)
+        #expect(event.phase == phase)
+        #expect(event.providerSessionID == "2e914558-9675-43f3-9bac-238d469a8583")
+    }
+
+    @Test(arguments: [
+        ("NO_TOOL_CALL", AgentExecutionState.waiting),
+        ("USER_CANCELED", .waiting),
+        ("TERMINAL_STEP_TYPE", .waiting),
+        ("INJECTED_RESPONSE", .waiting),
+        ("ERROR", .error),
+        ("MAX_INVOCATIONS", .error),
+        ("MAX_TOKEN_BUDGET_EXCEEDED", .error),
+    ])
+    func antigravityStopTerminationReasonSplitsWaitingFromError(
+        reason: String,
+        executionState: AgentExecutionState
+    ) throws {
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .antigravity,
+                hookEventName: "Stop",
+                reason: reason
+            ))
+
+        #expect(event.executionState == executionState)
+        #expect(event.attentionReason == nil)
+        #expect(event.phase == .stop)
+    }
+
 }
