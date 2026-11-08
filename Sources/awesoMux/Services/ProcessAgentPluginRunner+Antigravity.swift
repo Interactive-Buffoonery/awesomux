@@ -289,10 +289,22 @@ extension ProcessAgentPluginRunner {
 
     func antigravityConfirmationTitle(_ action: AgentPluginAction) -> String {
         switch action {
-        case .enableOrInstall: "Install the Antigravity status plugin"
-        case .repair: "Repair the Antigravity status plugin"
-        case .disable: "Disable the Antigravity status plugin"
-        case .uninstall: "Remove the Antigravity status plugin"
+        case .enableOrInstall:
+            String(
+                localized: "Install the Antigravity status plugin",
+                comment: "Confirmation dialog title for the Antigravity status plugin action")
+        case .repair:
+            String(
+                localized: "Repair the Antigravity status plugin",
+                comment: "Confirmation dialog title for the Antigravity status plugin action")
+        case .disable:
+            String(
+                localized: "Disable the Antigravity status plugin",
+                comment: "Confirmation dialog title for the Antigravity status plugin action")
+        case .uninstall:
+            String(
+                localized: "Remove the Antigravity status plugin",
+                comment: "Confirmation dialog title for the Antigravity status plugin action")
         }
     }
 

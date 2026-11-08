@@ -2194,6 +2194,9 @@
     "Diagnostics summary: %arg" : {
 
     },
+    "Disable the Antigravity status plugin" : {
+      "comment" : "Confirmation dialog title for the Antigravity status plugin action"
+    },
     "Disabling stops awesoMux from probing this provider" : {
       "comment" : "Accessibility hint for an enabled agent integration toggle."
     },
@@ -2936,6 +2939,9 @@
     },
     "Install state is temporarily unavailable" : {
       "comment" : "Unavailable agent integration install state error"
+    },
+    "Install the Antigravity status plugin" : {
+      "comment" : "Confirmation dialog title for the Antigravity status plugin action"
     },
     "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed." : {
       "comment" : "CLI agent plugin install record persistence failure warning"
@@ -4622,6 +4628,9 @@
     "Remove helper choice for %arg" : {
       "comment" : "Revoke a saved SSH helper choice; argument is the SSH destination"
     },
+    "Remove the Antigravity status plugin" : {
+      "comment" : "Confirmation dialog title for the Antigravity status plugin action"
+    },
     "Remove this folder from the list. Remove the plugin first to uninstall it." : {
       "comment" : "Help for forgetting an agent config folder without uninstalling its plugin."
     },
@@ -4713,6 +4722,9 @@
     },
     "Repair state & install" : {
       "comment" : "Agent integration recovery action"
+    },
+    "Repair the Antigravity status plugin" : {
+      "comment" : "Confirmation dialog title for the Antigravity status plugin action"
     },
     "Replace" : {
       "comment" : "Annotation intent option\nButton title that overwrites an existing layout preset."
