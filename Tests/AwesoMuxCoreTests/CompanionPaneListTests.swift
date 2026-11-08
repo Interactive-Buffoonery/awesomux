@@ -6,6 +6,32 @@ import Testing
 @MainActor
 @Suite("Companion pane list")
 struct CompanionPaneListTests {
+    // Failure mode: an agent CLI animates a braille spinner frame at the start
+    // of its terminal title, so the workspace name sent to API clients changed
+    // on every frame. The sidebar keeps the spinner; only API names drop it.
+    @Test(
+        "API workspace names drop a leading spinner frame",
+        arguments: [
+            ("⠴ Development", "Development"),
+            ("⠼  Development", "Development"),
+            ("Development", "Development"),
+            ("⠴", "⠴"),
+            ("⠴\u{2800}", "⠴\u{2800}"),
+            ("Build ⠴ status", "Build ⠴ status"),
+        ])
+    func apiWorkspaceNameDropsSpinnerFrame(live: String, expected: String) throws {
+        let pane = TerminalPane(title: "shell", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
+        var session = TerminalSession(title: "shell", workingDirectory: "~", layout: .pane(pane))
+        session = try #require(
+            PaneLayoutReducer.updatePane(
+                in: session, paneID: pane.id, title: live, workingDirectory: nil, localHostnames: []
+            ))
+        let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
+        #expect(store.sidebarResolvedTitles()[session.id] == live)
+        #expect(store.companionWorkspaces { _ in nil }.first?.name == expected)
+        #expect(store.localAPIAgents().first?.workspaceName == expected)
+    }
+
     @Test func terminalStreamUsesCarrierOnlyAfterSpawn() throws {
         let remote = try #require(RemoteTarget(parsing: "example.test"))
         let remoteName = try #require(RemoteSessionName(rawValue: "example"))

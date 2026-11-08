@@ -62,7 +62,9 @@ public extension SessionStore {
                     )
                 }
             }
-            return .init(workspaceID: session.id.uuidString, name: titles[session.id] ?? session.title, panes: panes)
+            return .init(
+                workspaceID: session.id.uuidString, name: SessionStoreText.apiWorkspaceName(titles[session.id] ?? session.title),
+                panes: panes)
         }
     }
 }

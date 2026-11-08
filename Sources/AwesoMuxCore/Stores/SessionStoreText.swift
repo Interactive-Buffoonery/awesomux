@@ -11,6 +11,19 @@ enum SessionStoreText: Sendable {
         UnicodeHygiene.sanitize(rawTitle, maxLength: maxTitleLength)
     }
 
+    /// The workspace name sent to API clients. The sidebar shows an agent's
+    /// animated spinner frame, but API clients need a name that stays the same
+    /// between frames. A title with nothing visible after the frame is kept so
+    /// the name never looks blank.
+    static func apiWorkspaceName(_ title: String) -> String {
+        guard let first = title.unicodeScalars.first, (0x2800...0x28FF).contains(first.value) else {
+            return title
+        }
+        let rest = String(String.UnicodeScalarView(title.unicodeScalars.dropFirst()))
+            .trimmingCharacters(in: .whitespaces)
+        return UnicodeHygiene.containsVisibleScalar(rest) ? rest : title
+    }
+
     static func sanitizedGroupName(_ rawName: String) -> String {
         UnicodeHygiene.sanitize(rawName, maxLength: maxGroupNameLength, stripInvisibleRoutingScalars: true)
     }
