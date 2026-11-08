@@ -51,8 +51,10 @@ struct WorktreeCreateForm: View {
             .pickerStyle(.segmented)
 
             if mode == .existing {
-                Picker(String(localized: "Branch", comment: "Existing local branch picker label."), selection: $selectedBranch) {
-                    ForEach(branches, id: \.self) { Text($0).tag($0) }
+                LabeledContent(String(localized: "Branch", comment: "Existing local branch picker label.")) {
+                    AppDropdownPicker(
+                        title: String(localized: "Branch"), selection: $selectedBranch,
+                        options: branches.map { (value: $0, title: $0) })
                 }
             } else {
                 TextField(
@@ -78,10 +80,10 @@ struct WorktreeCreateForm: View {
                 }
             }
 
-            Picker(String(localized: "Open in", comment: "Worktree opening destination picker."), selection: $destination) {
-                ForEach(WorktreeOpenDestination.allCases, id: \.self) { destination in
-                    Text(destination.title).tag(destination)
-                }
+            LabeledContent(String(localized: "Open in", comment: "Worktree opening destination picker.")) {
+                AppDropdownPicker(
+                    title: String(localized: "Open in"), selection: $destination,
+                    options: WorktreeOpenDestination.allCases.map { (value: $0, title: $0.title) })
             }
             .disabled(isBusy || !model.canOpenAsSplit)
             .onChange(of: model.canOpenAsSplit) { _, canSplit in

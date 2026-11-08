@@ -11,7 +11,7 @@ struct NewWorkspaceMenuButton: View, Equatable {
     /// `surface.elevated.opacity(0.6)` to match the search icon button
     /// stacked above it.
     let restFill: Color
-    /// Groups available for the "New Workspace in…" submenu, in the order
+    /// Groups available for "New Workspace in…", in the order
     /// they appear in the sidebar.
     let otherGroups: [(id: SessionGroup.ID, name: String)]
     /// Creates a workspace targeting the caller's chosen default group
@@ -27,12 +27,7 @@ struct NewWorkspaceMenuButton: View, Equatable {
     /// menu asks for one instead of offering a default "New Workspace".
     var forAgents = false
 
-    // Same rationale and same bug class as NewWorkspaceSplitButton's gate
-    // (see that file): this control sits in `collapsedSearchHeader`, outside
-    // SidebarActivitySection's invalidation boundary, so every unrelated
-    // SidebarView re-render reconstructed this Menu too — including while
-    // its own nested "New Workspace in…" submenu might be open. Callbacks
-    // excluded; same capture-stable rationale.
+    // Keep presentation stable during unrelated sidebar activity updates.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.size == rhs.size
             && lhs.cornerRadius == rhs.cornerRadius
@@ -43,26 +38,11 @@ struct NewWorkspaceMenuButton: View, Equatable {
     }
 
     var body: some View {
-        // The background lives in a ZStack sibling pinned to an outer
-        // `.frame`, not as a `.background` on the Menu itself — a Menu's own
-        // bounds don't reliably stretch to match its label's declared frame,
-        // so this box was rendering smaller than `size` while the
-        // plain-Button search button beside it rendered correctly.
-        //
-        // No border stroke — the search button this must match
-        // (SidebarView.swift:664) has none either; adding one here would
-        // make the two rail controls diverge again after eD's explicit
-        // "match search exactly" direction.
+        // The rail shares its resting fill and hit target with the search button.
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(restFill)
-            Menu {
-                if forAgents {
-                    agentMenuItems
-                } else {
-                    workspaceMenuItems
-                }
-            } label: {
+            AppDropdown(items: menuItems, menuTitle: forAgents ? String(localized: "New Agent menu") : Self.workspaceMenuLabel) {
                 // Matches the rail's search button glyph exactly (same font
                 // size and weight) so the two rail controls read as one
                 // family.
@@ -71,19 +51,7 @@ struct NewWorkspaceMenuButton: View, Equatable {
                     .frame(width: size, height: size)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
             .frame(width: size, height: size)
-            // SwiftUI draws a native disclosure chevron next to a Menu's
-            // label by default — this was never hidden here, so the rail
-            // has shown an unintended "+ ⌄" this whole time, not a plain
-            // "+". Hiding it now matches the search button beside it, which
-            // has no indicator at all.
-            .menuIndicator(.hidden)
-            // Menu labels render their glyph in the control's accent tint and
-            // ignore foregroundStyle — .tint is what actually reaches the
-            // label's Image. The "?" help menu uses the same treatment.
-            .tint(Color.aw.text3)
             .foregroundStyle(Color.aw.text3)
             .accessibilityLabel(
                 forAgents
@@ -112,47 +80,21 @@ struct NewWorkspaceMenuButton: View, Equatable {
         localized: "New Workspace menu",
         comment: "Accessibility label and tooltip for the sidebar menu that creates a workspace")
 
-    @ViewBuilder private var workspaceMenuItems: some View {
-        Button(String(localized: "New Workspace", comment: "Sidebar action to create a workspace.")) {
-            onNewWorkspace()
+    private var menuItems: [AppDropdownItem] {
+        var items: [AppDropdownItem] = []
+        if !forAgents {
+            items.append(AppDropdownItem(title: String(localized: "New Workspace"), action: onNewWorkspace))
         }
-
         if !otherGroups.isEmpty {
-            Menu(String(localized: "New Workspace in…", comment: "Sidebar submenu that lists the groups that can hold a new workspace")) {
-                ForEach(otherGroups, id: \.id) { entry in
-                    Button(entry.name) {
-                        onNewWorkspaceInGroup(entry.id)
-                    }
-                }
+            items.append(.heading(forAgents ? String(localized: "New Agent in") : String(localized: "New Workspace in…")))
+            items += otherGroups.map { entry in
+                AppDropdownItem(title: entry.name, id: entry.id) { onNewWorkspaceInGroup(entry.id) }
             }
         }
-
-        Button(String(localized: "New Workspace Group…", comment: "Sidebar menu item that creates a workspace group")) {
-            onNewWorkspaceGroup()
-        }
-    }
-
-    @ViewBuilder private var agentMenuItems: some View {
-        if !otherGroups.isEmpty {
-            Section(
-                String(
-                    localized: "New Agent in",
-                    comment: "Sidebar menu section header above the list of groups that can hold a new agent")
-            ) {
-                ForEach(otherGroups, id: \.id) { entry in
-                    Button(entry.name) {
-                        onNewWorkspaceInGroup(entry.id)
-                    }
-                }
-            }
-        }
-
-        Button(
-            String(
-                localized: "New Agent in New Group…",
-                comment: "Sidebar menu item that creates a group and starts a new agent in it")
-        ) {
-            onNewWorkspaceGroup()
-        }
+        items.append(
+            AppDropdownItem(
+                title: forAgents ? String(localized: "New Agent in New Group…") : String(localized: "New Workspace Group…"),
+                action: onNewWorkspaceGroup))
+        return items
     }
 }

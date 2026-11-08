@@ -328,17 +328,21 @@ struct WorktreeManagerPanel: View {
                     Task { await open(row) }
                 }
             } else {
-                Menu {
-                    ForEach(WorktreeOpenDestination.allCases, id: \.self) { destination in
-                        Button(destination.title) {
-                            Task { await open(row, destination: destination) }
-                        }
-                        .disabled(destination != .newWorkspace && !model.canOpenAsSplit)
+                HStack(spacing: 0) {
+                    Button(String(localized: "Open", comment: "Open a worktree in a new workspace.")) { Task { await open(row) } }
+                    AppDropdown(
+                        items: WorktreeOpenDestination.allCases.map { destination in
+                            AppDropdownItem(
+                                title: destination.title,
+                                isEnabled: destination == .newWorkspace || model.canOpenAsSplit
+                            ) { Task { await open(row, destination: destination) } }
+                        }, menuTitle: String(localized: "Open in", comment: "Label for choosing where to open a worktree")
+                    ) {
+                        Image(systemName: "chevron.down")
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Text(String(localized: "Open", comment: "Open a worktree in a new workspace."))
-                } primaryAction: {
-                    Task { await open(row) }
+                    .accessibilityLabel(String(localized: "Open in", comment: "Label for choosing where to open a worktree"))
                 }
             }
         }

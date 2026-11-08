@@ -11,15 +11,18 @@ struct SettingsFontPickerMenu: View {
     let fonts: [SettingsFontFamily]
 
     var body: some View {
-        Menu {
-            Button(systemLabel) { selection = systemValue }
-            if !fonts.isEmpty {
-                Divider()
-                ForEach(fonts) { family in
-                    Button(family.displayName) { selection = family.name }
-                }
-            }
-        } label: {
+        AppDropdown(
+            items: [
+                AppDropdownItem(title: systemLabel, id: systemValue, isSelected: selection == systemValue) { selection = systemValue }
+            ]
+                + (fonts.isEmpty ? [] : [.separator])
+                + fonts.map { family in
+                    AppDropdownItem(
+                        title: family.displayName, id: family.name,
+                        isSelected: family.name.caseInsensitiveCompare(selection) == .orderedSame
+                    ) { selection = family.name }
+                }, menuTitle: fieldLabel
+        ) {
             HStack(spacing: 6) {
                 Text(currentLabel)
                     .lineLimit(1)
@@ -42,8 +45,6 @@ struct SettingsFontPickerMenu: View {
                     .stroke(Color.aw.border, lineWidth: 0.5)
             }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .help(currentLabel)
         .accessibilityLabel(fieldLabel)
         .accessibilityValue(currentLabel)

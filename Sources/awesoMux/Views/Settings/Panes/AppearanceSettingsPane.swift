@@ -604,13 +604,24 @@ private struct TerminalBackgroundSettings: View {
             .padding(.bottom, 4)
 
             if mode == .catppuccinTheme {
-                Picker("Terminal theme", selection: namedThemeSelection) {
-                    Text("Catppuccin").tag(TerminalThemeCatalog.catppuccinID)
-                    Text("Selenized").tag(TerminalThemeCatalog.selenizedID)
+                LabeledContent("Terminal theme") {
+                    AppDropdownPicker(
+                        title: String(localized: "Terminal theme", comment: "Label for the terminal color theme picker"),
+                        selection: namedThemeSelection,
+                        options: [
+                            (
+                                TerminalThemeCatalog.catppuccinID,
+                                String(localized: "Catppuccin", comment: "Name of the Catppuccin terminal color theme")
+                            ),
+                            (
+                                TerminalThemeCatalog.selenizedID,
+                                String(localized: "Selenized", comment: "Name of the Selenized terminal color theme")
+                            ),
+                        ]
+                    )
+                    .frame(maxWidth: 280, alignment: .leading)
+                    .accessibilityLabel("Terminal theme")
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 280, alignment: .leading)
-                .accessibilityLabel("Terminal theme")
             }
 
             if mode == .custom {

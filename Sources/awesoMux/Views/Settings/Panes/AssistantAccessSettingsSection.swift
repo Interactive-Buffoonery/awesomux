@@ -693,10 +693,12 @@ private struct AssistantConnectionEditor: View {
                 VStack(alignment: .leading, spacing: 8) {
                     switch draft.scopeKind {
                     case .currentTarget:
-                        Picker(String(localized: "Pane"), selection: selectedExactPaneID) {
-                            ForEach(panes.filter { draft.targetVersions[$0.id] != nil }) { pane in
-                                Text("\(pane.title) — \(pane.workspaceTitle)").tag(Optional(pane.id))
-                            }
+                        LabeledContent(String(localized: "Pane")) {
+                            AppDropdownPicker(
+                                title: String(localized: "Pane"), selection: selectedExactPaneID,
+                                options: panes.filter { draft.targetVersions[$0.id] != nil }.map { pane in
+                                    (Optional(pane.id), "\(pane.title) — \(pane.workspaceTitle)")
+                                })
                         }
                     case .panes:
                         ForEach(panes) { pane in

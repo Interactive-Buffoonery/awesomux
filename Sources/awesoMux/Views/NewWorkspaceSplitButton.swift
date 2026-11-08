@@ -2,16 +2,13 @@ import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-/// Split-button replacement for `NewWorkspaceMenuButton` at the expanded
-/// sidebar header only — the collapsed rail keeps the original single-`Menu`
-/// control unchanged, since 60pt of rail width has no room for a second,
-/// honestly-sized hit target next to a 40pt primary segment.
+/// The expanded workspace header keeps direct creation beside its options menu.
 struct NewWorkspaceSplitButton: View, Equatable {
     /// Resting background fill. Matches the search field's own fill it sits
     /// beside — a bordered pill (see the `.overlay` stroke in `body`), not
     /// blended into the sidebar.
     let restFill: Color
-    /// Groups available for the "New Workspace in…" submenu, in the order
+    /// Groups available for "New Workspace in…", in the order
     /// they appear in the sidebar. Unfiltered — includes the current group,
     /// same as `NewWorkspaceMenuButton`'s existing behavior.
     let otherGroups: [(id: SessionGroup.ID, name: String)]
@@ -63,14 +60,7 @@ struct NewWorkspaceSplitButton: View, Equatable {
     @State private var isChevronHovering = false
     @State private var lastCreateAt: ContinuousClock.Instant?
 
-    // Without this gate, every unrelated SidebarView re-render (agent-status
-    // polling, terminal output — this view sits outside SidebarActivitySection's
-    // own invalidation boundary) reconstructs the chevron's Menu. When that
-    // lands while the nested "New Workspace in…" submenu is mid-open, AppKit's
-    // menu-tracking session resets: the row highlight flickers and the
-    // submenu never finishes presenting. Callbacks are excluded (same
-    // capture-stable rationale as SidebarActivitySection's invalidation key)
-    // — they wrap stores/actions, not values that need to gate re-render.
+    // Keep presentation stable during unrelated sidebar activity updates.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.restFill == rhs.restFill
             && lhs.otherGroups.count == rhs.otherGroups.count
@@ -177,21 +167,13 @@ struct NewWorkspaceSplitButton: View, Equatable {
                 topTrailingRadius: cornerRadius - 2
             )
             .fill(isChevronHovering ? Color.aw.surface.hover : Color.clear)
-            Menu {
-                Button("New Workspace Group…") {
-                    onNewWorkspaceGroup()
-                }
-
-                if !otherGroups.isEmpty {
-                    Menu("New Workspace in…") {
-                        ForEach(otherGroups, id: \.id) { entry in
-                            Button(entry.name) {
-                                onNewWorkspaceInGroup(entry.id)
-                            }
-                        }
-                    }
-                }
-            } label: {
+            AppDropdown(
+                items: [AppDropdownItem(title: String(localized: "New Workspace Group…"), action: onNewWorkspaceGroup)]
+                    + (otherGroups.isEmpty ? [] : [.heading(String(localized: "New Workspace in…"))])
+                    + otherGroups.map { entry in
+                        AppDropdownItem(title: entry.name, id: entry.id) { onNewWorkspaceInGroup(entry.id) }
+                    }, menuTitle: String(localized: "New Workspace Options")
+            ) {
                 Image(systemName: "chevron.down")
                     // Kept compact for the narrower segment, but matches the
                     // search icon's .medium weight — see the primary
@@ -201,21 +183,12 @@ struct NewWorkspaceSplitButton: View, Equatable {
                     .frame(width: chevronWidth, height: primarySize)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            // .borderlessButton menu labels render their glyph in the
-            // control's accent tint and ignore foregroundStyle entirely —
-            // .tint is what actually reaches the label's Image. Same fix
-            // already established for the "?" help menu (SidebarStatusFooter
-            // .swift's feedbackMenu) — this hit the identical bug before.
-            .tint(Color.aw.text3)
             .foregroundStyle(Color.aw.text3)
         }
         .frame(width: chevronWidth, height: primarySize)
         .onHover { isChevronHovering = $0 }
         .onDisappear { isChevronHovering = false }
         // Same reasoning as primaryButton above.
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("New Workspace Options")
         .accessibilityHint("Opens a menu to create a new workspace group or a workspace in a specific group.")
         .help("New Workspace Options")

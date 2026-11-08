@@ -1,26 +1,6 @@
 import DesignSystem
 import SwiftUI
 
-/// Shared chrome for the path bar's in-place foldout menus: rounded panel,
-/// chrome fill, accent hairline, and overlay shadow.
-private struct PathBarMenuChrome: ViewModifier {
-    let accent: Color
-
-    func body(content: Content) -> some View {
-        content
-            .background {
-                RoundedRectangle(cornerRadius: AwRadius.panel)
-                    .fill(Color.aw.surface.chrome)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AwRadius.panel)
-                            .stroke(accent.opacity(0.38), lineWidth: 0.75)
-                    }
-                    .awShadow(.overlay)
-                    .accessibilityHidden(true)
-            }
-    }
-}
-
 struct RemoteStatusMenu: View {
     let message: String
     let accent: Color
@@ -32,7 +12,7 @@ struct RemoteStatusMenu: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(10)
             .frame(width: 280, alignment: .leading)
-            .modifier(PathBarMenuChrome(accent: accent))
+            .modifier(AppMenuChrome(accent: accent))
             .accessibilityElement(children: .combine)
             .accessibilityLabel(String(localized: "Remote connection details"))
             .accessibilityValue(message)
@@ -87,7 +67,7 @@ struct BranchListMenu: View {
         .padding(6)
         .frame(minWidth: Self.minMenuWidth, maxWidth: Self.maxMenuWidth, alignment: .leading)
         .fixedSize(horizontal: true, vertical: false)
-        .modifier(PathBarMenuChrome(accent: accent))
+        .modifier(AppMenuChrome(accent: accent))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Branches menu")
     }
@@ -169,7 +149,7 @@ struct BranchListMenu: View {
             .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PathBarMenuRowButtonStyle(tone: Color.aw.text3, filled: false))
+        .buttonStyle(AppMenuRowButtonStyle(tone: Color.aw.text3, filled: false))
         .help(
             canInsertCheckout
                 ? "Insert `git checkout \(branch)` at the prompt"
@@ -229,7 +209,7 @@ struct OpenTargetMenu: View {
         .padding(6)
         .frame(minWidth: Self.minMenuWidth, maxWidth: Self.maxMenuWidth, alignment: .leading)
         .fixedSize(horizontal: true, vertical: false)
-        .modifier(PathBarMenuChrome(accent: accent))
+        .modifier(AppMenuChrome(accent: accent))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Open menu")
     }
@@ -300,7 +280,7 @@ struct OpenTargetMenu: View {
             .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PathBarMenuRowButtonStyle(tone: tone, filled: isDefault))
+        .buttonStyle(AppMenuRowButtonStyle(tone: tone, filled: isDefault))
         .accessibilityLabel(isDefault ? "\(title), default editor" : title)
     }
 
@@ -338,29 +318,11 @@ struct OpenTargetMenu: View {
             .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PathBarMenuRowButtonStyle(tone: didCopyPath ? ackTone : Color.aw.text3, filled: didCopyPath))
+        .buttonStyle(AppMenuRowButtonStyle(tone: didCopyPath ? ackTone : Color.aw.text3, filled: didCopyPath))
         .disabled(didCopyPath)
         .accessibilityLabel(didCopyPath ? "Copied" : "Copy Path")
         .onDisappear {
             acknowledgementWorkItem?.cancel()
         }
-    }
-}
-
-private struct PathBarMenuRowButtonStyle: ButtonStyle {
-    let tone: Color
-    let filled: Bool
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        let active = isHovering || configuration.isPressed
-        let fillOpacity = filled ? (active ? 0.18 : 0.12) : (active ? 0.10 : 0.05)
-        return configuration.label
-            .background(tone.opacity(fillOpacity), in: RoundedRectangle(cornerRadius: AwRadius.pill))
-            .overlay {
-                RoundedRectangle(cornerRadius: AwRadius.pill)
-                    .stroke(tone.opacity(filled ? 0.38 : (active ? 0.28 : 0.16)), lineWidth: 0.5)
-            }
-            .onHover { isHovering = $0 }
     }
 }
