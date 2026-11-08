@@ -23,12 +23,12 @@ struct AgentTranscriptImporterTests {
         #expect(transcript.resolvedURL == expected)
     }
 
-    @Test
-    func opensAntigravityTranscriptUnderSystemGeneratedLogs() throws {
+    @Test(arguments: [sessionA, sessionA.uppercased(), "3F2b1C4d-5e6F-4a7B-8c9D-0e1F2a3B4c5D"])
+    func opensAntigravityTranscriptUnderSystemGeneratedLogs(directorySessionID: String) throws {
         let fixture = try Fixture(provider: .antigravity)
         defer { fixture.remove() }
         let expected = try fixture.write(
-            "antigravity-cli/brain/\(Self.sessionA)/.system_generated/logs/transcript.jsonl",
+            "antigravity-cli/brain/\(directorySessionID)/.system_generated/logs/transcript.jsonl",
             #"{"type":"USER_INPUT","content":"<USER_REQUEST>\nhello\n</USER_REQUEST>"}"#
         )
         let transcript = try fixture.open(sessionID: Self.sessionA).get()

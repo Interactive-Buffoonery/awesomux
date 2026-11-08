@@ -94,7 +94,7 @@ public enum AgentTranscriptResumePolicy {
         case .pi:
             return "pi --session \(sessionID)"
         case .antigravity:
-            return "agy -r \(sessionID)"
+            return "agy --conversation \(sessionID)"
         case .openCode, .grok, .hermes, .shell, .generic:
             return nil
         }

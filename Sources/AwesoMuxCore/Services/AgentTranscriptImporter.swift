@@ -283,23 +283,40 @@ public enum AgentTranscriptImporter {
     ) -> CandidateSearch {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey]
         if provider == .antigravity {
-            let url =
-                root
-                .appending(path: sessionID, directoryHint: .isDirectory)
-                .appending(path: ".system_generated", directoryHint: .isDirectory)
-                .appending(path: "logs", directoryHint: .isDirectory)
-                .appending(path: "transcript.jsonl", directoryHint: .notDirectory)
-            guard fileManager.fileExists(atPath: url.path) else {
-                return CandidateSearch(
-                    candidates: [], reachedLimit: false, reachedMatchLimit: false
+            guard
+                let enumerator = fileManager.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: Array(keys),
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
                 )
+            else {
+                return CandidateSearch(candidates: [], reachedLimit: false, reachedMatchLimit: false)
             }
-            let modified = try? url.resourceValues(forKeys: keys).contentModificationDate
-            return CandidateSearch(
-                candidates: [(url, modified ?? .distantPast)],
-                reachedLimit: false,
-                reachedMatchLimit: false
-            )
+            var inspected = 0
+            var candidates: [(url: URL, modified: Date)] = []
+            for case let directory as URL in enumerator {
+                enumerator.skipDescendants()
+                inspected += 1
+                guard inspected <= maximumEntries else {
+                    return CandidateSearch(candidates: [], reachedLimit: true, reachedMatchLimit: false)
+                }
+                guard provider.source.validatedProviderSessionID(directory.lastPathComponent) == sessionID else {
+                    continue
+                }
+                let url =
+                    directory
+                    .appending(path: ".system_generated", directoryHint: .isDirectory)
+                    .appending(path: "logs", directoryHint: .isDirectory)
+                    .appending(path: "transcript.jsonl", directoryHint: .notDirectory)
+                guard fileManager.fileExists(atPath: url.path) else { continue }
+                // Case variants identify the same session; refuse ambiguous copies.
+                guard candidates.isEmpty, maximumMatches > 0 else {
+                    return CandidateSearch(candidates: [], reachedLimit: false, reachedMatchLimit: true)
+                }
+                let modified = try? url.resourceValues(forKeys: keys).contentModificationDate
+                candidates.append((url, modified ?? .distantPast))
+            }
+            return CandidateSearch(candidates: candidates, reachedLimit: false, reachedMatchLimit: false)
         }
         guard
             let enumerator = fileManager.enumerator(

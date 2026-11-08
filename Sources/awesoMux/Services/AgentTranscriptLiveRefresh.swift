@@ -262,7 +262,7 @@ final class AgentTranscriptLiveRefresh {
                     rootURL: url,
                     matchesPath: { path in
                         (identity.agentKind != .antigravity
-                            || path.contains("/\(identity.sessionID)/"))
+                            || path.split(separator: "/").contains { $0.lowercased() == identity.sessionID })
                             && AgentTranscriptImporter.matchesTranscriptFileName(
                                 agentKind: identity.agentKind,
                                 sessionID: identity.sessionID,

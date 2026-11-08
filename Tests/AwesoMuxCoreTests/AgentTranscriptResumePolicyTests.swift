@@ -25,7 +25,7 @@ private func localTerminal() -> TerminalPane {
             switch kind {
             case .claudeCode: "claude --resume"
             case .codex: "codex resume"
-            case .antigravity: "agy -r"
+            case .antigravity: "agy --conversation"
             default: "pi --session"
             }
         let command = try #require(AgentTranscriptResumePolicy.command(for: stored))
