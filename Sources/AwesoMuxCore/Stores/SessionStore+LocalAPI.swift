@@ -125,7 +125,7 @@ public extension SessionStore {
                         pane.agentKindIsRuntimeEstablished ? "native_projection_with_provider_hooks" : "native_inference_or_restore"
                     return LocalAPIAgent(
                         paneID: pane.id, workspaceID: session.id,
-                        workspaceName: titles[session.id] ?? session.title,
+                        workspaceName: SessionStoreText.apiWorkspaceName(titles[session.id] ?? session.title),
                         provider: pane.agentKind.rawValue,
                         executionLocation: pane.executionPlan.remoteTarget?.sshDestination ?? "local",
                         availability: PaneAvailability.of(.terminal(pane)).rawValue,
