@@ -154,6 +154,7 @@ extension ProcessAgentPluginRunner {
         case .claudeCode: claudeConfigHome(setup: setup).path
         case .codex: codexHome(setup: setup).path
         case .grok: grokHome(setup: setup).path
+        case .antigravity: antigravityHome(setup: setup).path
         }
     }
 
@@ -214,6 +215,7 @@ extension AgentPluginProvider {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .grok: "Grok"
+        case .antigravity: "Antigravity"
         }
     }
 
@@ -222,6 +224,7 @@ extension AgentPluginProvider {
         case .claudeCode: "Status plugin"
         case .codex: "Status hook"
         case .grok: "Status plugin"
+        case .antigravity: "Status plugin"
         }
     }
 
@@ -230,6 +233,7 @@ extension AgentPluginProvider {
         case .claudeCode: "claude"
         case .codex: "codex"
         case .grok: "grok"
+        case .antigravity: "agy"
         }
     }
 
@@ -240,6 +244,7 @@ extension AgentPluginProvider {
         case .claudeCode: "~/.claude"
         case .codex: "~/.codex"
         case .grok: "~/.grok"
+        case .antigravity: "~/.gemini"
         }
     }
 
@@ -249,6 +254,7 @@ extension AgentPluginProvider {
         case .claudeCode: "Config home"
         case .codex: "CODEX_HOME"
         case .grok: "GROK_HOME"
+        case .antigravity: "Config home"
         }
     }
 
@@ -260,6 +266,7 @@ extension AgentPluginProvider {
         case .claudeCode: "awesomux-claude"
         case .codex: "awesomux-codex"
         case .grok: "awesomux-grok"
+        case .antigravity: "awesomux-antigravity"
         }
     }
 
@@ -268,6 +275,7 @@ extension AgentPluginProvider {
         case .claudeCode: "awesomux-runtime-status"
         case .codex: "awesomux-codex-status"
         case .grok: "awesomux-grok-status"
+        case .antigravity: "awesomux-antigravity-status"
         }
     }
 }

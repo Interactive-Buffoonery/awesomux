@@ -14,6 +14,7 @@ enum AgentIntegrationDisplayProvider: CaseIterable, Hashable, Sendable {
     case openCode
     case pi
     case grok
+    case antigravity
 
     var agentKind: AgentKind {
         switch self {
@@ -22,6 +23,7 @@ enum AgentIntegrationDisplayProvider: CaseIterable, Hashable, Sendable {
         case .openCode: .openCode
         case .pi: .pi
         case .grok: .grok
+        case .antigravity: .antigravity
         }
     }
 
@@ -42,6 +44,8 @@ enum AgentIntegrationDisplayProvider: CaseIterable, Hashable, Sendable {
             self = .codex
         case .grok:
             self = .grok
+        case .antigravity:
+            self = .antigravity
         }
     }
 
@@ -52,7 +56,7 @@ enum AgentIntegrationDisplayProvider: CaseIterable, Hashable, Sendable {
             .openCode
         case .pi:
             .pi
-        case .claudeCode, .codex, .grok:
+        case .claudeCode, .codex, .grok, .antigravity:
             nil
         }
     }
@@ -68,6 +72,8 @@ enum AgentIntegrationDisplayProvider: CaseIterable, Hashable, Sendable {
             .codex
         case .grok:
             .grok
+        case .antigravity:
+            .antigravity
         }
     }
 }

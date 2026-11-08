@@ -15,6 +15,7 @@ enum AgentPluginProvider: String, CaseIterable, Hashable, Sendable {
     case claudeCode = "claude_code"
     case codex
     case grok
+    case antigravity
 
     /// The bundled marketplace-root tree, relative to the resources directory.
     /// The tree root is itself the marketplace root (it carries
@@ -27,6 +28,8 @@ enum AgentPluginProvider: String, CaseIterable, Hashable, Sendable {
             "AgentIntegrations/codex"
         case .grok:
             "AgentIntegrations/grok"
+        case .antigravity:
+            "AgentIntegrations/antigravity"
         }
     }
 
@@ -41,6 +44,8 @@ enum AgentPluginProvider: String, CaseIterable, Hashable, Sendable {
             ["plugins/awesomux-codex-status/hooks/hooks.json"]
         case .grok:
             ["plugins/awesomux-grok-status/hooks/hooks.json"]
+        case .antigravity:
+            ["plugins/awesomux-antigravity-status/hooks.json"]
         }
     }
 }

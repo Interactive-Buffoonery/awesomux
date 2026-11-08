@@ -210,6 +210,8 @@ struct AgentsSettingsPane: View {
             appSettingsStore.agentIntegrations.value.codex
         case .grok:
             appSettingsStore.agentIntegrations.value.grok
+        case .antigravity:
+            appSettingsStore.agentIntegrations.value.antigravity
         }
     }
 
@@ -222,6 +224,7 @@ struct AgentsSettingsPane: View {
             .claudeCode: integrations.claudeCode,
             .codex: integrations.codex,
             .grok: integrations.grok,
+            .antigravity: integrations.antigravity,
         ]
     }
 
@@ -236,6 +239,8 @@ struct AgentsSettingsPane: View {
             integrations.codex
         case .grok:
             integrations.grok
+        case .antigravity:
+            integrations.antigravity
         }
     }
 
@@ -335,6 +340,8 @@ struct AgentsSettingsPane: View {
                 integrations.codex = normalized
             case .grok:
                 integrations.grok = normalized
+            case .antigravity:
+                integrations.antigravity = normalized
             }
         }
     }
