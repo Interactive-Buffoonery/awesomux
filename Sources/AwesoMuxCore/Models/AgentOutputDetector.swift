@@ -31,7 +31,9 @@ public struct AgentOutputDetection: Equatable, Sendable {
 public struct AgentOutputDetector: Sendable {
     public init() {}
 
-    public func attentionCue(in visibleText: String, liveAgentKind: AgentKind) -> String? {
+    public func attentionCue(
+        in visibleText: String, liveAgentKind: AgentKind, inferredAgentKind: AgentKind? = nil
+    ) -> String? {
         let originalLines = visibleText.split(separator: "\n", omittingEmptySubsequences: false)
         let normalized = visibleText.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
@@ -48,7 +50,7 @@ public struct AgentOutputDetector: Sendable {
                 return codexApprovalChoice(in: raw)?.text ?? raw
             }.joined(separator: "\n")
         }
-        let cueAgentKind = liveAgentKind == .shell ? detectedOutput(in: visibleText)?.agentKind : liveAgentKind
+        let cueAgentKind = liveAgentKind == .shell ? inferredAgentKind : liveAgentKind
         guard containsNeedsAttentionPrompt(normalized, agentKind: cueAgentKind) else { return nil }
         let isChoice: (String) -> Bool = { $0.contains("[y]") || $0.contains("[n]") || $0.contains("[y/") }
         let hasInlineQuestion: (String) -> Bool = { line in

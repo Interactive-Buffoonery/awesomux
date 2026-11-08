@@ -218,6 +218,8 @@ struct AgentOutputDetectorTests {
         let detection = detector.detectedOutput(in: prompt, assumingAgentContext: true, liveAgentKind: kind)
         #expect((detection?.state == .needsAttention) == (kind == .antigravity))
         #expect((detector.attentionCue(in: prompt, liveAgentKind: kind) != nil) == (kind == .antigravity))
+        let inferredCue = detector.attentionCue(in: prompt, liveAgentKind: kind, inferredAgentKind: .antigravity)
+        #expect((inferredCue != nil) == (kind == .shell || kind == .antigravity))
         if kind != .shell && kind != .antigravity {
             let staleBanner = "Google Antigravity\n" + prompt
             #expect(detector.detectedOutput(in: staleBanner, assumingAgentContext: true, liveAgentKind: kind)?.state != .needsAttention)
