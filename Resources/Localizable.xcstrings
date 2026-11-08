@@ -3435,6 +3435,7 @@
 
     },
     "New Workspace Group…" : {
+      "comment" : "Sidebar menu item that creates a workspace group",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3457,6 +3458,7 @@
 
     },
     "New Workspace in…" : {
+      "comment" : "Sidebar submenu that lists the groups that can hold a new workspace",
       "localizations" : {
         "en" : {
           "stringUnit" : {

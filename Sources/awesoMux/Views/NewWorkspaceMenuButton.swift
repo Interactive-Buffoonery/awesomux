@@ -113,12 +113,12 @@ struct NewWorkspaceMenuButton: View, Equatable {
         comment: "Accessibility label and tooltip for the sidebar menu that creates a workspace")
 
     @ViewBuilder private var workspaceMenuItems: some View {
-        Button("New Workspace") {
+        Button(String(localized: "New Workspace", comment: "Sidebar action to create a workspace.")) {
             onNewWorkspace()
         }
 
         if !otherGroups.isEmpty {
-            Menu("New Workspace in…") {
+            Menu(String(localized: "New Workspace in…", comment: "Sidebar submenu that lists the groups that can hold a new workspace")) {
                 ForEach(otherGroups, id: \.id) { entry in
                     Button(entry.name) {
                         onNewWorkspaceInGroup(entry.id)
@@ -127,7 +127,7 @@ struct NewWorkspaceMenuButton: View, Equatable {
             }
         }
 
-        Button("New Workspace Group…") {
+        Button(String(localized: "New Workspace Group…", comment: "Sidebar menu item that creates a workspace group")) {
             onNewWorkspaceGroup()
         }
     }
