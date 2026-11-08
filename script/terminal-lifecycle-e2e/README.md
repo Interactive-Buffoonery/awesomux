@@ -175,9 +175,20 @@ root, and the exact PID's CG inventory. The retained helper also supports
 input admission: an actual AXWindow with the exact owner PID, standard subrole,
 and unique CG correspondence is still required.
 Owned modal diagnostics include descendant text/buttons with per-element PID
-checks and traversal limits. Modal PNG evidence permits nonzero CG layers while
-still requiring the exact owned AXDialog, unique bounds match, and valid main
-window. The first backend wait stops on an unexpected modal without pressing it.
+checks and traversal limits. Modal PNG evidence permits nonzero CG layers and
+requires the exact owned AXDialog and a valid main window. Prefer an exact
+on-screen CG bounds match. On macOS 27.2 (26B123), an alert's exact CG record was
+not marked on-screen and captured as a black PNG; its rendered content was in a
+separate CG surface padded by 75 points on every side. The matcher derives the
+padding rather than requiring that value. For modal screenshots only, when no exact visible
+match exists, require one exact-bounds owned CG anchor and one visible surface
+on that anchor's layer enclosing the AX bounds with positive, equal padding on
+all sides (the existing two-point tolerance). Missing or ambiguous correspondence
+blocks capture; the modal must never resolve to the main window's CG ID. Record
+the selected surface's actual CG window ID. This is
+geometric screenshot correspondence, not a pixel-content oracle. Inspect the
+PNG as human evidence. Main-window and keyboard admission do not use this
+fallback. The first backend wait stops on an unexpected modal without pressing it.
 Initial readiness polls missing windows and zero correspondence matches within
 the existing deadline; ambiguous matches fail immediately. Later failures retain
 `failure-diagnostic.json` when the owned app can still be inspected.
