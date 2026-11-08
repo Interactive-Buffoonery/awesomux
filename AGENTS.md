@@ -63,7 +63,7 @@ it with current code, ADRs, and GitHub; flag conflicts.
 - Use repository scripts for Ghostty/Zig setup. Never bypass commit or PR hooks.
 - `./script/build_and_run.sh` builds/runs the app; `./script/test.sh all` runs
   zmx and existing Swift tests. Filters match identifiers: require a non-zero count.
-- Iterate on a failing UI test with `-only-testing:<Target>/<Class>/<test>`.
+- Rerun one failing test with `./script/swift-test.sh --filter <Suite>/<test>`.
   Commit once it passes, not once per attempt.
 - Before a non-docs PR, run `./script/preflight.sh` directly and preserve its exit
   status. Docs-only changes can use `git diff --check`.
