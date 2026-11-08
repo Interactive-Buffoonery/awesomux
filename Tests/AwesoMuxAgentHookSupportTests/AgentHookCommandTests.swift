@@ -508,7 +508,7 @@ struct AgentHookCommandTests {
 
         #expect(status == 0)
         #expect(stdoutLines == ["{}"])
-        let event = try #require(Self.readSingleEvent(from: temp.file))
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
         #expect(event.source == .antigravity)
         #expect(event.kind == .antigravity)
         #expect(event.phase == .stop)
@@ -555,7 +555,7 @@ struct AgentHookCommandTests {
         )
 
         #expect(status == 0)
-        let event = try #require(Self.readSingleEvent(from: temp.file))
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
         #expect(event.source == .antigravity)
         #expect(event.phase == .toolEnd)
         #expect(event.touchedPath == "/Users/agent/plan.md")

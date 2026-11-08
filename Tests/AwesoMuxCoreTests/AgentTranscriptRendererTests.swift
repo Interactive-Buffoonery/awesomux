@@ -461,7 +461,7 @@ import Testing
             #"{"type":"PLANNER_RESPONSE","thinking":"Checking test suite","content":"Running tests now.","tool_calls":[{"name":"run_command","args":{"CommandLine":"swift test"}}]}"#,
             #"{"type":"GENERIC","content":"Test Suite Passed"}"#,
         ]
-        let text = render(lines, provider: .antigravity)
+        let text = render(lines, provider: .antigravity, agentKind: .antigravity).text
         #expect(text.contains("## user\n\n```text\nFix the tests\n```"))
         #expect(!text.contains("ADDITIONAL_METADATA"))
         #expect(text.contains("## assistant · thinking\n\n```text\nChecking test suite\n```"))
