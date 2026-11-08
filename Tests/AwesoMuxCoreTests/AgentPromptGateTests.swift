@@ -52,11 +52,14 @@ struct AgentPromptGateTests {
         (AgentKind.codex, "codex"),
         (AgentKind.pi, "pi"),
         (AgentKind.openCode, "opencode"),
+        (AgentKind.antigravity, "agy"),
+        (AgentKind.antigravity, "antigravity"),
         (AgentKind.claudeCode, "2.1.214"),
         (AgentKind.claudeCode, "claude.exe"),
         (AgentKind.codex, "codex.exe"),
         (AgentKind.pi, "pi.exe"),
         (AgentKind.openCode, "opencode.exe"),
+        (AgentKind.antigravity, "agy.exe"),
     ])
     func verifiedProviders(kind: AgentKind, comm: String) {
         #expect(verdict(kind: kind, comm: comm) == .verified(kind))
@@ -146,6 +149,9 @@ struct AgentPromptGateTests {
             (AgentKind.codex, "codex.exe", nil, true),
             (AgentKind.openCode, "opencode.exe", nil, true),
             (AgentKind.pi, "pi.exe", nil, true),
+            (AgentKind.antigravity, "agy", nil, true),
+            (AgentKind.antigravity, "agy-darwin-arm64", nil, true),
+            (AgentKind.antigravity, "antigravity", nil, true),
             (AgentKind.claudeCode, "claude.exe.exe", nil, false),
             (AgentKind.claudeCode, "my-agent.exe", "my-agent.exe", true),
             (AgentKind.claudeCode, "my-agent", "my-agent.exe", true),

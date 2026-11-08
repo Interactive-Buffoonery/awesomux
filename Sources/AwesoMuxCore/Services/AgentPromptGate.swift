@@ -62,7 +62,7 @@ public enum AgentPromptGate {
     /// The v1 provider scope modeled by INT-569. Grok and generic agents are
     /// excluded until they can provide a trusted waiting-at-input signal.
     static let supportedProviders: Set<AgentKind> = [
-        .claudeCode, .codex, .pi, .openCode,
+        .claudeCode, .codex, .pi, .openCode, .antigravity,
     ]
 
     public enum Verdict: Hashable, Sendable {
@@ -213,11 +213,17 @@ public enum AgentPromptGate {
             if name == "pi" {
                 return true
             }
+        case .antigravity:
+            if name == "agy" || name.hasPrefix("agy-") || name == "antigravity"
+                || name.hasPrefix("antigravity-")
+            {
+                return true
+            }
         case .generic:
             if AgentProcessRecognition.agentKind(forCommand: observedCommand) == .generic {
                 return true
             }
-        case .grok, .antigravity, .hermes, .shell:
+        case .grok, .hermes, .shell:
             return false
         }
 

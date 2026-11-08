@@ -20,6 +20,7 @@ public enum PlanAnnotationAuthor: String, Equatable, Sendable, CaseIterable {
     case codex
     case pi
     case opencode
+    case antigravity
 }
 
 /// The `intent=` of an annotation. An unrecognized value parses as `.comment`

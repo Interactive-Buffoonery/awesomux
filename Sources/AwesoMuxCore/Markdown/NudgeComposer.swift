@@ -33,7 +33,8 @@ public extension PlanAnnotationAuthor {
         case .codex: self = .codex
         case .pi: self = .pi
         case .openCode: self = .opencode
-        case .grok, .antigravity, .hermes, .shell, .generic: return nil
+        case .antigravity: self = .antigravity
+        case .grok, .hermes, .shell, .generic: return nil
         }
     }
 
@@ -44,6 +45,7 @@ public extension PlanAnnotationAuthor {
         case .codex: "Codex"
         case .pi: "Pi"
         case .opencode: "OpenCode"
+        case .antigravity: "Antigravity"
         }
     }
 }
