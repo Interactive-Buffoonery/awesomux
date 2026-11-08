@@ -32,7 +32,10 @@ extension ProcessAgentPluginRunner {
                 ?? (try? marketplaceRef(provider: .antigravity))
         else {
             return AgentPluginStatusReport(
-                status: .unsupported("Bundled Antigravity plugin manifest is missing")
+                status: .unsupported(
+                    String(
+                        localized: "Bundled Antigravity plugin manifest is missing",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         }
 
@@ -53,7 +56,10 @@ extension ProcessAgentPluginRunner {
 
         guard result.isSuccess else {
             return AgentPluginStatusReport(
-                status: .needsRepair("agy plugin list failed; re-install may be required"),
+                status: .needsRepair(
+                    String(
+                        localized: "agy plugin list failed; re-install may be required",
+                        comment: "Antigravity integration status or repair guidance")),
                 diagnostics: diagnostics(
                     executable: executable,
                     args: args,
@@ -78,16 +84,24 @@ extension ProcessAgentPluginRunner {
         switch error {
         case .executableNotFound:
             return AgentPluginStatusReport(
-                status: .unsupported("The agy CLI was not found at \(executable)")
+                status: .unsupported(
+                    String(
+                        localized: "The agy CLI was not found at \(executable)",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         case .spawnFailed(_, let reason):
             return AgentPluginStatusReport(
-                status: .unsupported("agy could not be started at \(executable): \(reason)")
+                status: .unsupported(
+                    String(
+                        localized: "agy could not be started at \(executable): \(reason)",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         case .outputTruncated:
             return AgentPluginStatusReport(status: .unsupported(error.localizedDescription))
         case .timedOut:
-            return AgentPluginStatusReport(status: .unsupported("agy plugin list timed out"))
+            return AgentPluginStatusReport(
+                status: .unsupported(
+                    String(localized: "agy plugin list timed out", comment: "Antigravity integration status or repair guidance")))
         }
     }
 
@@ -97,13 +111,18 @@ extension ProcessAgentPluginRunner {
     ) -> AgentPluginStatus {
         switch error {
         case .executableNotFound:
-            return .unsupported("The agy CLI was not found at \(executable)")
+            return .unsupported(
+                String(
+                    localized: "The agy CLI was not found at \(executable)", comment: "Antigravity integration status or repair guidance"))
         case .spawnFailed(_, let reason):
-            return .unsupported("agy could not be started at \(executable): \(reason)")
+            return .unsupported(
+                String(
+                    localized: "agy could not be started at \(executable): \(reason)",
+                    comment: "Antigravity integration status or repair guidance"))
         case .outputTruncated:
             return .needsRepair(error.localizedDescription)
         case .timedOut:
-            return .unsupported("agy timed out")
+            return .unsupported(String(localized: "agy timed out", comment: "Antigravity integration status or repair guidance"))
         }
     }
 
@@ -118,7 +137,10 @@ extension ProcessAgentPluginRunner {
             entries = try AntigravityPluginList.parse(stdout)
         } catch {
             return AgentPluginStatusReport(
-                status: .unsupported("This agy version does not support plugin list --json")
+                status: .unsupported(
+                    String(
+                        localized: "This agy version does not support plugin list --json",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         }
 
@@ -126,7 +148,10 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(
                 status: hasInstallRecord
                     ? .needsRepair(
-                        "awesoMux's Antigravity plugin was installed but Antigravity reports no matching plugin; repair or remove it"
+                        String(
+                            localized:
+                                "awesoMux's Antigravity plugin was installed but Antigravity reports no matching plugin; repair or remove it",
+                            comment: "Antigravity integration status or repair guidance")
                     )
                     : .notInstalled,
                 presence: .absent
@@ -180,12 +205,17 @@ extension ProcessAgentPluginRunner {
             )
         } catch AgentPluginRunnerError.helperPathUnavailable {
             return AgentPluginActionOutcome(
-                status: .unsupported("The bundled status helper could not be resolved")
+                status: .unsupported(
+                    String(
+                        localized: "The bundled status helper could not be resolved",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         } catch {
             return AgentPluginActionOutcome(
                 status: .needsRepair(
-                    "Rendering the Antigravity plugin failed: \(error.localizedDescription)"
+                    String(
+                        localized: "Rendering the Antigravity plugin failed: \(error.localizedDescription)",
+                        comment: "Antigravity integration status or repair guidance")
                 )
             )
         }
@@ -208,7 +238,9 @@ extension ProcessAgentPluginRunner {
             executable: executable,
             steps: steps,
             env: env,
-            repairGuidance: "Install failed partway through; use Repair to reconcile",
+            repairGuidance: String(
+                localized: "Install failed partway through; use Repair to reconcile",
+                comment: "Antigravity integration status or repair guidance"),
             mapCommandError: { antigravityMutationFailure($0, executable: $1) }
         ) {
             return failure
@@ -222,9 +254,14 @@ extension ProcessAgentPluginRunner {
         )
         return AgentPluginActionOutcome(
             status: .enabled,
-            guidance: [recordWarning, "Restart open Antigravity sessions to pick this up"]
-                .compactMap { $0 }
-                .joined(separator: "\n")
+            guidance: [
+                recordWarning,
+                String(
+                    localized: "Restart open Antigravity sessions to pick this up",
+                    comment: "Antigravity integration status or repair guidance"),
+            ]
+            .compactMap { $0 }
+            .joined(separator: "\n")
         )
     }
 
@@ -239,7 +276,10 @@ extension ProcessAgentPluginRunner {
                 ?? (try? marketplaceRef(provider: .antigravity))
         else {
             return AgentPluginActionOutcome(
-                status: .unsupported("Bundled Antigravity plugin manifest is missing")
+                status: .unsupported(
+                    String(
+                        localized: "Bundled Antigravity plugin manifest is missing",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         }
 
@@ -267,7 +307,10 @@ extension ProcessAgentPluginRunner {
                 ?? (try? marketplaceRef(provider: .antigravity))
         else {
             return AgentPluginActionOutcome(
-                status: .unsupported("Bundled Antigravity plugin manifest is missing")
+                status: .unsupported(
+                    String(
+                        localized: "Bundled Antigravity plugin manifest is missing",
+                        comment: "Antigravity integration status or repair guidance"))
             )
         }
 
@@ -341,7 +384,10 @@ extension ProcessAgentPluginRunner {
     }
 
     private func antigravityMissingHomeGuidance(home: URL) -> String {
-        "Antigravity config home does not exist: \(home.path). Point the Config home field at an existing directory (or clear it for ~/.gemini), then Repair"
+        String(
+            localized:
+                "Antigravity config home does not exist: \(home.path). Point the Config home field at an existing directory (or clear it for ~/.gemini), then Repair",
+            comment: "Antigravity integration status or repair guidance")
     }
 
     private func antigravityEnvironment(home: URL) -> [String: String] {
@@ -415,7 +461,9 @@ enum AntigravityInstalledHooksInspector {
 
         guard trimmed.hasPrefix("/") else {
             return
-                "The Antigravity status plugin path is not absolute; Repair to reinstall under the configured home"
+                String(
+                    localized: "The Antigravity status plugin path is not absolute; Repair to reinstall under the configured home",
+                    comment: "Antigravity integration status or repair guidance")
         }
 
         let pluginDirectory = URL(fileURLWithPath: trimmed, isDirectory: true)
@@ -428,7 +476,10 @@ enum AntigravityInstalledHooksInspector {
                 || pluginPath.hasPrefix(homePath.hasSuffix("/") ? homePath : homePath + "/")
             guard underHome else {
                 return
-                    "The Antigravity status plugin path is outside the configured home; Repair to reinstall under the configured home"
+                    String(
+                        localized:
+                            "The Antigravity status plugin path is outside the configured home; Repair to reinstall under the configured home",
+                        comment: "Antigravity integration status or repair guidance")
             }
         }
 
@@ -437,21 +488,27 @@ enum AntigravityInstalledHooksInspector {
             isDirectory.boolValue
         else {
             return
-                "The Antigravity status plugin directory is missing; Repair to reinstall the current plugin"
+                String(
+                    localized: "The Antigravity status plugin directory is missing; Repair to reinstall the current plugin",
+                    comment: "Antigravity integration status or repair guidance")
         }
 
         let hooksURL = pluginDirectory.appending(path: "hooks.json", directoryHint: .notDirectory)
 
         guard fileManager.fileExists(atPath: hooksURL.path) else {
             return
-                "The Antigravity status plugin is missing hooks.json; Repair to reinstall the current plugin"
+                String(
+                    localized: "The Antigravity status plugin is missing hooks.json; Repair to reinstall the current plugin",
+                    comment: "Antigravity integration status or repair guidance")
         }
 
         let attrs = try? fileManager.attributesOfItem(atPath: hooksURL.path)
         let size = (attrs?[.size] as? NSNumber)?.intValue ?? -1
         guard size >= 0, size <= maximumHooksJSONByteCount else {
             return
-                "The Antigravity status plugin hooks file is unreadable; Repair to reinstall the current plugin"
+                String(
+                    localized: "The Antigravity status plugin hooks file is unreadable; Repair to reinstall the current plugin",
+                    comment: "Antigravity integration status or repair guidance")
         }
 
         guard let data = try? Data(contentsOf: hooksURL),
@@ -459,7 +516,9 @@ enum AntigravityInstalledHooksInspector {
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return
-                "The Antigravity status plugin hooks file is unreadable; Repair to reinstall the current plugin"
+                String(
+                    localized: "The Antigravity status plugin hooks file is unreadable; Repair to reinstall the current plugin",
+                    comment: "Antigravity integration status or repair guidance")
         }
 
         var eventNames: Set<String> = []
@@ -474,6 +533,9 @@ enum AntigravityInstalledHooksInspector {
         }
 
         return
-            "The installed Antigravity status plugin is missing required lifecycle hooks; Repair to reinstall the current plugin"
+            String(
+                localized:
+                    "The installed Antigravity status plugin is missing required lifecycle hooks; Repair to reinstall the current plugin",
+                comment: "Antigravity integration status or repair guidance")
     }
 }

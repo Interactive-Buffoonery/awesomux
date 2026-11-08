@@ -224,7 +224,7 @@ extension AgentPluginProvider {
         case .claudeCode: "Status plugin"
         case .codex: "Status hook"
         case .grok: "Status plugin"
-        case .antigravity: "Status plugin"
+        case .antigravity: String(localized: "Status plugin", comment: "Subtitle for the Antigravity agent integration")
         }
     }
 
@@ -254,7 +254,7 @@ extension AgentPluginProvider {
         case .claudeCode: "Config home"
         case .codex: "CODEX_HOME"
         case .grok: "GROK_HOME"
-        case .antigravity: "Config home"
+        case .antigravity: String(localized: "Config home", comment: "Label for the Antigravity configuration directory")
         }
     }
 

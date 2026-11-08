@@ -955,6 +955,9 @@
     "Answer recorded on Mac" : {
       "comment" : "The Mac recorded the decision; delivery to the hook is not yet confirmed."
     },
+    "Antigravity config home does not exist: %arg. Point the Config home field at an existing directory (or clear it for ~/.gemini), then Repair" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
     "Apache License" : {
       "comment" : "Button opening an Apache license text"
     },
@@ -1130,6 +1133,9 @@
     },
     "Bundle" : {
       "comment" : "Advanced settings label."
+    },
+    "Bundled Antigravity plugin manifest is missing" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "Bundled UI font" : {
       "comment" : "About settings field label for the bundled interface font attribution"
@@ -1650,6 +1656,9 @@
     },
     "Comparison changed." : {
       "comment" : "VoiceOver announcement when Refresh updates an open branch diff to a different branch, base, or repository comparison"
+    },
+    "Config home" : {
+      "comment" : "Label for the Antigravity configuration directory"
     },
     "Configuration" : {
       "comment" : "Advanced settings title.\nDiagnostics event category"
@@ -2915,6 +2924,9 @@
     },
     "Install awesoMux Remote Helper?" : {
       "comment" : "Remote helper installation title"
+    },
+    "Install failed partway through; use Repair to reconcile" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "Install record could not be read" : {
       "comment" : "Unreadable agent integration install manifest error\nUnreadable agent integration install manifest status"
@@ -4694,6 +4706,9 @@
     "Rendered branch changes can't browse to other files" : {
       "comment" : "Help text for the Files toggle when the visible document is a rendered branch diff"
     },
+    "Rendering the Antigravity plugin failed: %arg" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
     "Reopen Closed Workspace" : {
       "localizations" : {
         "en" : {
@@ -4815,6 +4830,9 @@
     },
     "Restart Terminal Engine" : {
       "comment" : "Button: recover from a wedged terminal event loop by reloading it"
+    },
+    "Restart open Antigravity sessions to pick this up" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "Restart pane" : {
       "comment" : "Button label on the remote-disconnected overlay when the pane's session has moved to a local group, so there is no remote host to reconnect to"
@@ -5455,6 +5473,9 @@
     "Startup view, position, row density, and collapsed-rail behavior." : {
       "comment" : "Sidebar section subtitle"
     },
+    "Status plugin" : {
+      "comment" : "Subtitle for the Antigravity agent integration"
+    },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
     },
@@ -5658,8 +5679,26 @@
     "The .awesomux/layouts folder is missing or is not a plain folder. Symbolic links are not followed." : {
       "comment" : "Failure reason when the layout preset folder is unusable."
     },
+    "The Antigravity status plugin directory is missing; Repair to reinstall the current plugin" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
+    "The Antigravity status plugin hooks file is unreadable; Repair to reinstall the current plugin" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
+    "The Antigravity status plugin is missing hooks.json; Repair to reinstall the current plugin" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
+    "The Antigravity status plugin path is not absolute; Repair to reinstall under the configured home" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
+    "The Antigravity status plugin path is outside the configured home; Repair to reinstall under the configured home" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
     "The Git repository changed. Reopen Worktree Manager from the active workspace." : {
       "comment" : "Worktree Manager open error when the captured repository is no longer current.\nWorktree Manager refresh error when the captured repository is no longer current."
+    },
+    "The agy CLI was not found at %arg" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "The annotation changed or was removed." : {
       "comment" : "Annotation save recovery message when no draft can be recovered\nSave recovery announcement when an annotation no longer exists"
@@ -5684,6 +5723,9 @@
     },
     "The bundled remote helper is unavailable" : {
       "comment" : "Bundled helper unavailable title"
+    },
+    "The bundled status helper could not be resolved" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "The change was not saved." : {
       "comment" : "Document note save failure message"
@@ -5793,6 +5835,9 @@
     },
     "The install state is temporarily unavailable. Agent integration changes are blocked." : {
       "comment" : "Unavailable CLI agent plugin install state warning"
+    },
+    "The installed Antigravity status plugin is missing required lifecycle hooks; Repair to reinstall the current plugin" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "The installed remote helper is incompatible" : {
       "comment" : "Installed helper verification failure title"
@@ -5975,6 +6020,9 @@
     },
     "This agent's conversation isn't available yet. Wait for a supported agent session, then try again." : {
 
+    },
+    "This agy version does not support plugin list --json" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "This app no longer has access, but awesoMux couldn't finish removing it." : {
 
@@ -6574,6 +6622,26 @@
     "agents, watched" : {
       "comment" : "Welcome tour heading for the agents beat"
     },
+    "agy could not be started at %arg: %arg" : {
+      "comment" : "Antigravity integration status or repair guidance",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "agy could not be started at %1$arg: %2$arg"
+          }
+        }
+      }
+    },
+    "agy plugin list failed; re-install may be required" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
+    "agy plugin list timed out" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
+    "agy timed out" : {
+      "comment" : "Antigravity integration status or repair guidance"
+    },
     "always within reach" : {
       "comment" : "Welcome tour heading for the floating panel and Terminal Companion beat"
     },
@@ -6753,6 +6821,9 @@
     },
     "awesoMux workspace needs input" : {
       "comment" : "Tooltip and accessibility label for the menu bar item when any workspace needs input."
+    },
+    "awesoMux's Antigravity plugin was installed but Antigravity reports no matching plugin; repair or remove it" : {
+      "comment" : "Antigravity integration status or repair guidance"
     },
     "awesoMux's terminal engine has stopped responding. Restarting it will reload all open panes." : {
       "comment" : "Body text for the alert offering to recover from a wedged terminal event loop"
