@@ -410,7 +410,7 @@
         }
       }
     },
-    "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, and Pi." : {
+    "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, Pi, and Antigravity." : {
       "comment" : "Transcript failure when the pane's agent has no transcript adapter"
     },
     "%arg, %arg added, %arg removed" : {
