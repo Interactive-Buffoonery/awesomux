@@ -21,6 +21,91 @@ struct AnnotationKeyboardHostedTests {
         }
     }
 
+    @Test(arguments: ["note", "rich", "reply", "edit"], [false, true])
+    func hostedAcceptAfterLeavingEditor(scenario: String, buttonFocus: Bool) async throws {
+        for code: UInt16 in [36, 76] {
+            let fixture = try AnnotationKeyboardFixture(scenario: scenario)
+            defer { fixture.close() }
+            fixture.enter("draft")
+            if buttonFocus {
+                let button = NSButton(title: "Fixture focus", target: nil, action: nil)
+                fixture.window.contentView?.addSubview(button)
+                #expect(fixture.window.makeFirstResponder(button))
+            } else {
+                #expect(fixture.window.makeFirstResponder(fixture.window))
+            }
+            SidebarHostedTestHarness.settleMainRunLoop()
+            fixture.key(code, modifiers: .command)
+            await SidebarHostedTestHarness.drainMainQueue()
+            #expect(fixture.submissions == ["draft"], "blurred \(scenario), key \(code)")
+        }
+    }
+
+    @Test
+    func hostedReplyEditorsRemainIndependent() async throws {
+        var replies: [String] = []
+        let window = SidebarHostedTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close(); window.contentView = nil }
+        let host = NSHostingView(
+            rootView: VStack {
+                ForEach(0..<2) { index in
+                    FullCommentPopover(
+                        displayNumber: index + 1,
+                        annotation: PlanAnnotation(id: "fixture-\(index)", author: .user, payload: "note", anchor: .span),
+                        quotedText: "fixture", onEdit: { _ in .saved }, onDelete: { .saved }, onSetStatus: { _ in .saved },
+                        onReply: { text in
+                            replies.append("\(index):\(text)")
+                            return .saved
+                        })
+                }
+            })
+        window.contentView = host
+        window.alphaValue = 0
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        SidebarHostedTestHarness.settleMainRunLoop()
+        func fields(in view: NSView) -> [NSTextField] {
+            let here = (view as? NSTextField).map { $0.placeholderString == "Reply…" ? [$0] : [] } ?? []
+            return here + view.subviews.flatMap { fields(in: $0) }
+        }
+        let controls = fields(in: host)
+        try #require(controls.count == 2)
+        controls[0].selectText(nil)
+        let first = try #require(controls[0].currentEditor() as? NSTextView)
+        first.insertText("first", replacementRange: first.selectedRange())
+        SidebarHostedTestHarness.settleMainRunLoop()
+        controls[1].selectText(nil)
+        let second = try #require(controls[1].currentEditor() as? NSTextView)
+        #expect(first !== second)
+        second.insertText("second", replacementRange: second.selectedRange())
+        SidebarHostedTestHarness.settleMainRunLoop()
+        second.setMarkedText(
+            "候補", selectedRange: NSRange(location: 0, length: 2), replacementRange: NSRange(location: NSNotFound, length: 0))
+        let markedEvent = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false,
+            keyCode: 36)!
+        if !window.performKeyEquivalent(with: markedEvent) { NSApp.sendEvent(markedEvent) }
+        await SidebarHostedTestHarness.drainMainQueue()
+        #expect(replies.isEmpty)
+        second.unmarkText()
+        second.selectAll(nil)
+        second.insertText("second", replacementRange: second.selectedRange())
+        SidebarHostedTestHarness.settleMainRunLoop()
+        for (index, code) in [(1, UInt16(76)), (0, UInt16(36))] {
+            controls[index].selectText(nil)
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: code == 76 ? "\u{3}" : "\r",
+                charactersIgnoringModifiers: code == 76 ? "\u{3}" : "\r", isARepeat: false, keyCode: code)!
+            #expect(window.performKeyEquivalent(with: event))
+            await SidebarHostedTestHarness.drainMainQueue()
+        }
+        #expect(replies == ["1:second", "0:first"])
+    }
+
     @Test(arguments: ["note", "rich", "reply", "edit", "compose"])
     func hostedMarkedTextAndRejection(scenario: String) async throws {
         for code: UInt16 in [36, 76] {

@@ -308,7 +308,8 @@ private struct MultilineDocumentNoteEditor: View {
             AnnotationNoteTextView(
                 text: $draft,
                 isFocused: $isFocused,
-                placeholder: String(localized: "Write a note about the whole document…"),
+                placeholder: String(
+                    localized: "Write a note about the whole document…", comment: "Placeholder for the whole-document note editor"),
                 accessibilityLabel: title,
                 onSave: onSubmit
             )

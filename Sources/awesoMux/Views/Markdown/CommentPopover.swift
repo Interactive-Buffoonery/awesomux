@@ -166,8 +166,9 @@ struct FullCommentPopover: View {
                     AnnotationNoteTextView(
                         text: $draft,
                         isFocused: $isEditFieldFocused,
-                        placeholder: String(localized: "Note…"),
-                        accessibilityLabel: String(localized: "Edit annotation"),
+                        placeholder: String(localized: "Note…", comment: "Placeholder for editing an annotation note"),
+                        accessibilityLabel: String(
+                            localized: "Edit annotation", comment: "Accessibility label for the annotation edit text area"),
                         onSave: saveEdit
                     )
                     .frame(height: 76)
@@ -817,6 +818,22 @@ private final class AnnotationReplyTextFieldCell: NSTextFieldCell {
     }
 }
 
+private final class AnnotationReplyControl: NSTextField {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, !event.isARepeat, isEnabled, isEditable,
+            AwKeyboardAcceptChord.isKeyboardAcceptKeyDown(keyCode: event.keyCode, modifiers: event.modifierFlags),
+            let cell = cell as? AnnotationReplyTextFieldCell, let window
+        else { return super.performKeyEquivalent(with: event) }
+        let activeEditor = window.firstResponder as? NSTextView
+        guard activeEditor?.hasMarkedText() != true else { return false }
+        if let activeEditor, activeEditor.isEditable, activeEditor !== cell.acceptEditor { return false }
+        // The field editor leaves the responder tree on blur; keep the form's
+        // chord without restoring a composition-blind SwiftUI button shortcut.
+        cell.acceptEditor.onAcceptChord()
+        return true
+    }
+}
+
 private struct AnnotationReplyTextField: NSViewRepresentable {
     @Binding var text: String
     let onSubmit: () -> Void
@@ -825,7 +842,7 @@ private struct AnnotationReplyTextField: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = AnnotationReplyControl()
         let cell = AnnotationReplyTextFieldCell(textCell: "")
         cell.usesSingleLineMode = true
         cell.isScrollable = true

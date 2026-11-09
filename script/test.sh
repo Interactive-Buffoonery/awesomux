@@ -59,6 +59,7 @@ case "$group" in
         ;;
     system)
         filter='^awesoMuxTests\.'
+        export AWESOMUX_APPKIT_TEST_HOST=1
         ;;
     timing)
         filter="^(($timing_pattern)/|$timing_test_pattern)"
