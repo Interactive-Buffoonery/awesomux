@@ -68,6 +68,17 @@ class Blocked(Exception):
     pass
 
 
+def output_batches_match(text, batches):
+    """Reject missing, duplicated, malformed or reordered lines across all emitted batches."""
+    if not batches or any(not batch["prefix"] or not batch["lines"]
+                          or any(not line.startswith(batch["prefix"] + "_") for line in batch["lines"])
+                          for batch in batches):
+        return False
+    expected = [line for batch in batches for line in batch["lines"]]
+    observed = [line for line in text.replace("\r", "").splitlines() if "TL_OUTPUT_" in line]
+    return observed == expected
+
+
 def run(argv, **kwargs):
     result = subprocess.run([str(x) for x in argv], capture_output=True, text=True,
                             timeout=kwargs.pop("timeout", 15), **kwargs)
@@ -865,14 +876,80 @@ export GHOSTTY_SHELL_FEATURES=""
                 if not all(item["running"] for item in births.values()):
                     raise RuntimeError("Lifecycle baseline process missing")
 
-                def continuity(scenario, phase):
+                def observe_original_processes():
                     observed = {name: observe_process(pid) for name, pid in processes.items()}
-                    current_backend = backend_identity()
-                    if current_backend["daemon_pid"] != baseline["daemon_pid"] or sessions() != {second} or any(
+                    if any(
                             not item["running"] or item.get("processStart") != births[name]["processStart"]
                             or item.get("executableCanonical") != births[name]["executableCanonical"]
                             for name, item in observed.items()):
                         raise RuntimeError("Lifecycle replaced daemon/shell/job: " + json.dumps(observed))
+                    return observed
+
+                def request_output_batch(scenario):
+                    if owned_running():
+                        raise RuntimeError("Output request requires an absent owned app")
+                    absent_before = time.monotonic()
+                    request_path = fixtures / ("output-" + scenario + "-request.json")
+                    receipt_path = fixtures / ("output-" + scenario + "-receipt.json")
+                    if request_path.exists() or receipt_path.exists() or scenario in report.get("outputBatches", {}):
+                        raise RuntimeError("Output batch was already requested")
+                    nonce = secrets.token_hex(12)
+                    digest = hashlib.sha256(("output:" + secret + ":" + nonce + ":" + second
+                                             + ":" + str(job["jobPID"]) + ":" + scenario).encode()).hexdigest()
+                    prefix = "TL_OUTPUT_" + digest[:20]
+                    request_evidence = output / (scenario + "-output-request.json")
+                    receipt_evidence = output / (scenario + "-output-receipt.json")
+                    batch = {"prefix": prefix, "lines": [f"{prefix}_{i:02d}" for i in range(1, 13)],
+                             "nonce": nonce, "appPID": app_pid, "requestEvidence": str(request_evidence),
+                             "receiptEvidence": str(receipt_evidence), "receipt": None,
+                             "appAbsentBeforeEmissionAt": absent_before}
+                    report.setdefault("outputBatches", {})[scenario] = batch
+                    payload = json.dumps({"nonce": nonce}) + "\n"
+                    request_evidence.write_text(payload)
+                    batch["requestedAt"] = time.monotonic()
+                    save()
+                    try:
+                        temporary = request_path.with_name(request_path.name + ".next")
+                        temporary.write_text(payload)
+                        temporary.replace(request_path)
+                        def produced():
+                            if owned_running() or not alive(job["jobPID"]):
+                                raise RuntimeError("App absence/job liveness changed during output emission")
+                            if not receipt_path.exists():
+                                return None
+                            raw = receipt_path.read_bytes()
+                            receipt_evidence.write_bytes(raw)
+                            batch["receiptEvidenceSource"] = "poll"
+                            data = json.loads(raw)
+                            batch["receipt"] = data
+                            observed_at = time.monotonic()
+                            if not isinstance(data, dict) or not same_identity(data, second) \
+                                    or data.get("jobPID") != job["jobPID"] or data.get("scenario") != scenario \
+                                    or data.get("nonce") != nonce or data.get("prefix") != prefix \
+                                    or data.get("lineCount") != 12 \
+                                    or not all(type(data.get(key)) is float for key in ("startedAt", "completedAt")) \
+                                    or not batch["requestedAt"] <= data["startedAt"] <= data["completedAt"] <= observed_at:
+                                raise RuntimeError("Output receipt identity/sequence/timing mismatch")
+                            return data
+                        poll("output flushed while app absent " + scenario, produced)
+                        batch["processesAfterEmission"] = observe_original_processes()
+                        if owned_running():
+                            raise RuntimeError("Owned app returned before output emission was bracketed")
+                        batch["appAbsentAfterEmissionAt"] = time.monotonic()
+                        log(scenario + "-output-produced-while-absent", "pass", **batch)
+                        return batch
+                    finally:
+                        if not receipt_evidence.exists():
+                            receipt_present = receipt_path.exists()
+                            receipt_evidence.write_bytes(receipt_path.read_bytes() if receipt_present else b"null\n")
+                            batch["receiptEvidenceSource"] = "finally" if receipt_present else "absent"
+                        save()
+
+                def continuity(scenario, phase):
+                    observed = observe_original_processes()
+                    current_backend = backend_identity()
+                    if current_backend["daemon_pid"] != baseline["daemon_pid"] or sessions() != {second}:
+                        raise RuntimeError("Lifecycle backend inventory changed")
                     heartbeat = receipt(fixtures / "job.json")
                     if not same_identity(heartbeat, second) or heartbeat["jobPID"] != job["jobPID"]:
                         raise RuntimeError("Lifecycle job receipt identity changed")
@@ -883,6 +960,9 @@ export GHOSTTY_SHELL_FEATURES=""
                                if item.get("receipt", {}).get("session") == second and "response" in item]
                     if not all(marker in history.splitlines() for marker in markers):
                         raise RuntimeError("Lifecycle lost terminal marker")
+                    batches = list(report.get("outputBatches", {}).values())
+                    if batches and not output_batches_match(history, batches):
+                        raise RuntimeError("Lifecycle backend output batches missing, duplicated or reordered")
                     (output / (scenario + "-" + phase + "-history.txt")).write_text(history)
                     log(scenario + "-" + phase, "pass", processes=observed, pids=processes, marker=job["marker"])
 
@@ -903,7 +983,11 @@ export GHOSTTY_SHELL_FEATURES=""
                     # Ordered bridge cleanup may defer app termination for roughly 30 seconds.
                     poll("app exited without backend cleanup", lambda: not owned_running(), seconds=35)
                     continuity(scenario, "app-absent")
+                    batch = request_output_batch(scenario)
+                    # No backend read after emission until the relaunched AX surface has caught up.
+                    batch["relaunchAttemptedAt"] = time.monotonic()
                     launch_app(scenario)
+                    batch["relaunchedAppPID"] = app_pid
                     state = poll("relaunched owned content window", initial_window)
                     window_id = state["windowID"]
                     report["windowID"] = window_id
@@ -911,14 +995,30 @@ export GHOSTTY_SHELL_FEATURES=""
                     poll("relaunched owned app focused", activated_window)
                     poll("same terminal restored", reopened)
                     # No keyboard input after relaunch until retained native AX text is observed.
+                    last_text = {"snapshot": None}
                     def retained_text():
                         state = snapshot()
-                        return state if state["focusedTerminal"] and terminal_matches(
-                            state["focusedDescription"], second) and job["marker"] in state["focusedValue"].splitlines() else None
-                    text = poll("retained native AX terminal marker before input", retained_text)
-                    (output / (scenario + "-retained-text.json")).write_text(json.dumps(text, indent=2))
+                        last_text["snapshot"] = state
+                        return state if state["frontmost"] and state["ownedWindowFocused"] and state["focusedTerminal"] \
+                            and len(state["terminals"]) == 1 and terminal_matches(state["focusedDescription"], second) \
+                            and job["marker"] in state["focusedValue"].splitlines() \
+                            and output_batches_match(state["focusedValue"], list(report["outputBatches"].values())) else None
+                    try:
+                        poll("retained native AX output batches before input", retained_text)
+                    except BaseException:
+                        # Diagnose only after the AX assertion failed; never retry it after this read.
+                        try:
+                            (output / (scenario + "-after-failed-AX-history.txt")).write_text(amx("history", second))
+                        except Exception as diagnostic_error:
+                            report[scenario + "-outputDiagnosticError"] = str(diagnostic_error)
+                        raise
+                    finally:
+                        (output / (scenario + "-retained-text.json")).write_text(
+                            json.dumps(last_text["snapshot"], indent=2) + "\n")
                     continuity(scenario, "relaunched")
                     capture(scenario + "-retained-terminal")
+                    log(scenario + "-output-catchup-before-input", "pass",
+                        batches=list(report["outputBatches"]), renderedPixels="not-assessed-by-driver")
                     log(scenario, "pass", previousAppPID=old_pid, appPID=app_pid)
                 report["activeScenario"] = "TL05"
                 (fixtures / "release").touch()
