@@ -369,6 +369,7 @@ def main():
         evidence["sha256"] = digest(Path(evidence["path"]))
         report["screenshots"].append(evidence)
         save()
+        return evidence
 
     def retain_startup_diagnostics():
         """Collect bounded sample and log evidence after verifying the owned process identity."""
@@ -480,7 +481,7 @@ def main():
                     raise RuntimeError("Challenge response in sibling history: " + sibling)
 
     def challenge(session, scenario):
-        """Verify a session-specific response and reject execution in any sibling terminal."""
+        """Verify and return a session-specific response; reject execution in any sibling."""
         nonce = secrets.token_hex(12)
         report.setdefault("challenges", []).append({"scenario": scenario, "nonce": nonce,
                                                    "session": session, "siblings": sorted(sessions() - {session})})
@@ -499,6 +500,7 @@ def main():
         audit_challenges()
         (output / (scenario + "-history.txt")).write_text(amx("history", session))
         log(scenario, "pass", nonce=nonce, response=response, receipt=data)
+        return response
 
     def launch_app(label):
         nonlocal app_pid, launched, launch_attempted, launch_receipt, window_id
@@ -921,19 +923,56 @@ export GHOSTTY_SHELL_FEATURES=""
                 report["activeScenario"] = "TL05"
                 (fixtures / "release").touch()
                 poll("job completed normally", lambda: receipt(fixtures / "job-finished.json") and not alive(job["jobPID"]))
-                challenge(second, "TL05-before-close")
+                response = challenge(second, "TL05-before-close")
+                markers = [response, job["marker"]]
+
+                def persistent_identity(phase):
+                    observed = {name: observe_process(processes[name]) for name in ("daemon", "shell")}
+                    if backend_identity()["daemon_pid"] != baseline["daemon_pid"] or sessions() != {second} or any(
+                            not item["running"] or item.get("processStart") != births[name]["processStart"]
+                            or item.get("executableCanonical") != births[name]["executableCanonical"]
+                            for name, item in observed.items()):
+                        raise RuntimeError("Soft close/reopen replaced daemon/shell: " + json.dumps(observed))
+                    log("TL05-" + phase + "-identity", "pass", processes=observed,
+                        pids={name: processes[name] for name in observed})
+
+                def retain_reopen_evidence(phase):
+                    label = "TL05-" + phase
+                    evidence = {"expectedMarkers": markers, "pollCount": 0, "snapshot": None, "history": None}
+                    text_path = output / (label + "-retained-text.json")
+                    result = {"textEvidence": str(text_path), "renderedPixels": "not-assessed-by-driver"}
+                    report["reopenRetention"][phase] = result
+                    def retained():
+                        state = snapshot()
+                        history = amx("history", second).replace("\r", "")
+                        evidence.update(snapshot=state, history=history, pollCount=evidence["pollCount"] + 1)
+                        return state["frontmost"] and state["ownedWindowFocused"] and state["focusedTerminal"] \
+                            and len(state["terminals"]) == 1 and terminal_matches(state["focusedDescription"], second) \
+                            and all(marker in state["focusedValue"].splitlines() and marker in history.splitlines()
+                                    for marker in markers)
+                    try:
+                        poll("retained terminal markers " + label, retained)
+                    finally:
+                        text_path.write_text(json.dumps(evidence, indent=2) + "\n")
+                    result["screenshot"] = capture(label + "-terminal")
+                    persistent_identity(phase)
+                    return result
+
+                report["reopenRetention"] = {"expectedMarkers": markers}
+                retain_reopen_evidence("before-close")
                 menu("Workspace", "Close Workspace")
                 poll("workspace soft closed", lambda: len(snapshot()["terminals"]) == 0)
-                if sessions() != {second} or not alive(identities[second]["shellPID"]):
-                    raise RuntimeError("Soft close destroyed persistent shell")
+                persistent_identity("soft-closed")
                 menu("Workspace", "Reopen Closed Workspace")
                 poll("reopened same terminal", reopened)
+                # Retain text and PNG before any pane-focus command or new terminal input.
+                retained = retain_reopen_evidence("reopened-before-input")
+                log("TL05-retained-before-input", "pass", **retained)
                 menu("Pane", "Focus Pane 1")
                 challenge(second, "TL05-reopened")
-                if sessions() != {second} or not alive(identities[second]["shellPID"]):
-                    raise RuntimeError("Reopen replaced persistent shell")
+                persistent_identity("after-input")
                 capture("reopened-usable-terminal")
-                log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"])
+                log("TL05", "pass", session=second, shellPID=identities[second]["shellPID"], daemonPID=daemon_pid)
                 audit_challenges()
             report["status"] = "pass"
             code = 0
