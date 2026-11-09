@@ -3106,6 +3106,9 @@
     "Loading Markdown files" : {
 
     },
+    "Loading branches…" : {
+      "comment" : "Branch chip status while the branch list is being read"
+    },
     "Loading document" : {
       "comment" : "Progress status while a Markdown document is loading"
     },
