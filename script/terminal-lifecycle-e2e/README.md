@@ -46,7 +46,7 @@ the helper, reports, fixtures, and evidence remain.
 | TL04 | Cancel busy-close preserves the same running controlled job | Pane > Close Workspace (last pane), Cancel; `App/AwesoMuxApp.swift`, `Services/DestructivePaneActionConfirmationPolicy.swift` |
 | TL06 | Ordinary app-menu quit/relaunch preserves daemon, shell, busy job, history and native AX terminal marker before input | App menu > Quit; daemon-backed work needs no confirmation; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
 | TL07 | App-only SIGKILL/relaunch preserves those same identities and contents | Exact copied app PID only; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
-| TL05 | Soft-close/reopen restores a usable same persistent terminal, retaining its authoritative grid until interactive input/takeover | Workspace > Close Workspace / Reopen Closed Workspace; `App/AwesoMuxApp.swift`, `AwesoMuxCore/Models/SessionSnapshot.swift`, `Services/AmxBackend.swift` |
+| TL05 | Soft-close/reopen retains fresh marker text before input and leaves the same daemon/shell usable; paired window PNGs support separate visual inspection | Workspace > Close Workspace / Reopen Closed Workspace; `App/AwesoMuxApp.swift`, `AwesoMuxCore/Models/SessionSnapshot.swift`, `Services/AmxBackend.swift` |
 
 TL06 and TL07 run after TL04 while the same controlled foreground job is busy,
 then TL05 releases it normally. Verbose isolated `amx list` binds the daemon PID
@@ -64,10 +64,29 @@ app quit. Each LaunchServices incarnation has a separate request and receipt. SI
 app-only abrupt termination, not daemon death or a host reboot. No live profile
 or installed app is targeted.
 
-TL05's current driver proves backend identity and usable input after reopening.
-It does not observe the retained grid before that first input, or prove follower
-layout and leader presentation. The zmx socket leadership harness covers the
-daemon rule; native presentation remains a separate acceptance gap.
+TL05 releases the foreground job normally, then generates a fresh challenge
+response before soft-close. Both that response and the earlier job marker must
+appear as exact lines in backend history and the exact focused terminal's AX
+value before close and after reopen. The same baseline daemon and shell must
+retain their PID, birth and executable while closed, before reopened input and
+after the separate usability challenge. The finished job is not required alive.
+
+`TL05-before-close-retained-text.json` and
+`TL05-reopened-before-input-retained-text.json` retain the expected markers,
+last AX/history observations and poll count, including on a marker timeout.
+Each phase's text path is linked under `reopenRetention` before polling, so a
+failed phase remains discoverable from the report.
+Their corresponding `*-terminal.png` files capture the owned window. After
+reopen, text, PNG and identity evidence precede even the Focus Pane 1 command
+and the new input challenge; the later `reopened-usable-terminal.png` is separate.
+
+AX exposes full scrollback, so an automated TL05 pass cannot rule out a blank
+viewport. Inspect the paired PNGs separately for visible retained content;
+`reopenRetention` explicitly records `renderedPixels: not-assessed-by-driver`.
+No screenshot baseline, model decision or pixel-complete grid assertion is
+added. Styled cells, cursor position, follower layout and leader presentation
+remain outside this journey's proof. The zmx socket leadership harness covers
+the daemon rule; native presentation requires that separate visual acceptance.
 
 Paths in the table are relative to `Sources/awesoMux/` except those beginning
 `AwesoMuxCore/`, which are relative to `Sources/`. The current documented
@@ -257,8 +276,9 @@ fails. A console block before relaunch is reported as blocked if process cleanup
 succeeds. If process cleanup fails, including after a console-blocked relaunch,
 the run is failed and isolated paths and the bundle stay for inspection.
 
-Screenshots: two panes ready, busy-close modal, reopened usable terminal, and
-last failure when an owned window is available. They are captured by exact owner
+Screenshots: two panes ready, busy-close modal, TL06/TL07 retained terminal,
+TL05 before-close and reopened-before-input terminal, reopened usable terminal,
+and last failure when an owned window is available. They are captured by exact owner
 PID + CG window ID, decoded as PNG, and never use a desktop fallback. This manual
 gate does not imply full preflight, VoiceOver, device, or hosted CI acceptance.
 
