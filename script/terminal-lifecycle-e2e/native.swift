@@ -274,6 +274,45 @@ func ownedWindow(_ element: AXUIElement) -> Bool {
     return AXUIElementGetPid(element, &owner) == .success && owner == pid
         && string(element, kAXRoleAttribute) == kAXWindowRole && !CFEqual(element, ax)
 }
+func matchingCGWindows(
+    _ inventory: [[String: Any]], pid: pid_t, bounds: CGRect, modalEvidence: Bool
+) -> [[String: Any]] {
+    func valid(_ rect: CGRect) -> Bool {
+        [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, rect.maxX, rect.maxY].allSatisfy(\.isFinite)
+            && rect.size.width > 0 && rect.size.height > 0
+    }
+    guard valid(bounds) else { return [] }
+    func rectangle(_ entry: [String: Any]) -> CGRect? {
+        guard let raw = entry[kCGWindowBounds as String] as? NSDictionary,
+            let rect = CGRect(dictionaryRepresentation: raw), valid(rect)
+        else { return nil }
+        return rect
+    }
+    func exact(_ entry: [String: Any]) -> Bool {
+        guard let rect = rectangle(entry) else { return false }
+        return abs(rect.minX - bounds.minX) < 2 && abs(rect.minY - bounds.minY) < 2
+            && abs(rect.width - bounds.width) < 2 && abs(rect.height - bounds.height) < 2
+    }
+    let owned = inventory.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid }
+    let visible = owned.filter {
+        ($0[kCGWindowIsOnscreen as String] as? Bool) == true
+            && (modalEvidence || ($0[kCGWindowLayer as String] as? Int) == 0)
+    }
+    let matches = visible.filter(exact)
+    guard modalEvidence, matches.isEmpty else { return matches }
+    let anchors = owned.filter(exact)
+    guard anchors.count == 1, let layer = anchors[0][kCGWindowLayer as String] as? Int else { return [] }
+    // An alert's exact CG anchor can capture black; its rendered surface has uniform padding.
+    return visible.filter { entry in
+        guard (entry[kCGWindowLayer as String] as? Int) == layer,
+            let rect = rectangle(entry), rect.contains(bounds)
+        else { return false }
+        let margins = [bounds.minX - rect.minX, bounds.minY - rect.minY,
+                       rect.maxX - bounds.maxX, rect.maxY - bounds.maxY]
+        return margins.allSatisfy { $0.isFinite && $0 > 0 }
+            && margins.max()! - margins.min()! < 2
+    }
+}
 // One content window is the shared invariant. Attached alerts may be separate AX windows.
 let mainWindows = windows.filter {
     ownedWindow($0) && string($0, kAXSubroleAttribute) == kAXStandardWindowSubrole
@@ -306,16 +345,7 @@ func cgID(_ element: AXUIElement, modalEvidence: Bool = false) -> UInt32 {
             let inventory = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]]
         else { fail("CG window inventory unavailable") }
-        let matches = inventory.filter { entry in
-            guard (entry[kCGWindowOwnerPID as String] as? Int32) == pid,
-                (entry[kCGWindowIsOnscreen as String] as? Bool) == true,
-                modalEvidence || (entry[kCGWindowLayer as String] as? Int) == 0,
-                let rawBounds = entry[kCGWindowBounds as String] as? NSDictionary,
-                let rect = CGRect(dictionaryRepresentation: rawBounds)
-            else { return false }
-            return abs(rect.minX - before.minX) < 2 && abs(rect.minY - before.minY) < 2
-                && abs(rect.width - before.width) < 2 && abs(rect.height - before.height) < 2
-        }
+        let matches = matchingCGWindows(inventory, pid: pid, bounds: before, modalEvidence: modalEvidence)
         guard matches.count <= 1 else { fail("Ambiguous owned AX/CG window correspondence") }
         if let match = matches.first, bounds() == before {
             guard let id = match[kCGWindowNumber as String] as? UInt32 else { fail("Owned CG window ID invalid") }
@@ -525,6 +555,7 @@ if command == "snapshot" {
     let modalWindows = windows.filter { (attr($0, kAXModalAttribute) as? Bool) == true }
     guard modalWindows.count <= 1 else { fail("Multiple owned modal windows") }
     let captureID = modalWindows.first.map { cgID($0, modalEvidence: true) } ?? windowID
+    guard modalWindows.isEmpty || captureID != windowID else { fail("Modal capture resolved to main window") }
     task.arguments = ["-x", "-l", String(captureID), args[4]]
     do { try task.run(); task.waitUntilExit() } catch { fail("screencapture launch failed: \(error)") }
     guard task.terminationStatus == 0,
