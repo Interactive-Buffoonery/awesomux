@@ -2073,6 +2073,9 @@
     "Daemon" : {
       "comment" : "Diagnostics process type"
     },
+    "Decoder Notice" : {
+      "comment" : "Button opening the UTF-8 decoder notice"
+    },
     "Default" : {
       "comment" : "Pane title-bar color submenu item that clears a custom pane color."
     },
@@ -6284,6 +6287,9 @@
     },
     "Unavailable while notifications are muted." : {
 
+    },
+    "Unicode tables and grapheme handling — MIT and Unicode License V3" : {
+      "comment" : "About credit for uucode and its Unicode data"
     },
     "Unknown" : {
       "comment" : "Composer placeholder when the terminal has not reported a folder\nFallback status when GitHub reports no check status"
