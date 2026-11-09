@@ -67,6 +67,10 @@ it with current code, ADRs, and GitHub; flag conflicts.
   zmx and existing Swift tests. Filters match identifiers: require a non-zero count.
 - Rerun one failing test with `./script/swift-test.sh --filter <Suite>/<test>`.
   Commit once it passes, not once per attempt.
+- Before reviewing a fork PR, check `command -v kodus` and ask once for any
+  missing tools. Rebase once, right before the final preflight. Run a fork's
+  scripts, including preflight, only in a disposable environment with no access
+  to reviewer credentials; without one, leave preflight pending and say so.
 - Before a non-docs PR, run `./script/preflight.sh` directly and preserve its exit
   status. Docs-only changes can use `git diff --check`.
 - After preflight, run [merge-risk](.agents/skills/merge-risk/SKILL.md) and add its
