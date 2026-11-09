@@ -2629,6 +2629,9 @@
     "Find in Pane" : {
 
     },
+    "Find in this scrollback snapshot" : {
+      "comment" : "Help for searching only the immutable Scrollback sheet text"
+    },
     "Finish or cancel the annotation before switching or closing document tabs." : {
       "comment" : "Feedback when a document tab shortcut is blocked by an open annotation draft"
     },
