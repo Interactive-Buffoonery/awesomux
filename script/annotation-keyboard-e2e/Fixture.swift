@@ -119,6 +119,31 @@ private struct AnnotationKeyboardFixtureView: View {
                 defer { NSEvent.removeMonitor(monitor) }
                 editor.insertText("delegate proof", replacementRange: editor.selectedRange())
                 await Check.mainTurn()
+                if target == "Comment" {
+                    let payload = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+                    payload.string = "annotation payload"
+                    payload.isEditable = false
+                    payload.isSelectable = true
+                    window.contentView!.addSubview(payload)
+                    try Check.require(window.makeFirstResponder(payload), "readonly payload focus")
+                    payload.selectAll(nil)
+                    for code: UInt16 in [36, 76] {
+                        let count = probe.deliveredKeys.count
+                        Check.post(to: window, code: code, flags: .command)
+                        _ = try await Check.ready("readonly accept event") { probe.deliveredKeys.count > count ? true : nil }
+                        await Check.mainTurn()
+                        try Check.require(saved.isEmpty, "readonly focus submitted reply")
+                        try Check.require(payload.string == "annotation payload", "readonly payload changed")
+                    }
+                    payload.removeFromSuperview()
+                    let field = try await Check.ready("reply field after readonly focus") {
+                        Check.descendant(NSTextField.self, in: window.contentView!, matching: { $0.placeholderString == "Reply…" })
+                    }
+                    field.selectText(nil)
+                    try Check.require(field.currentEditor() === editor, "reply editor ownership changed")
+                    try Check.require(editor.string == "delegate proof", "readonly focus changed draft")
+                    print("READONLY_REPLY_CHECK_PASS keys=36,76 draft=unchanged callbacks=0")
+                }
                 for code: UInt16 in [36, 76] {
                     let count = probe.commands.count
                     Check.post(to: window, code: code, repeated: true)

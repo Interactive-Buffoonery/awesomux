@@ -826,7 +826,7 @@ private final class AnnotationReplyControl: NSTextField {
         else { return super.performKeyEquivalent(with: event) }
         let activeEditor = window.firstResponder as? NSTextView
         guard activeEditor?.hasMarkedText() != true else { return false }
-        if let activeEditor, activeEditor.isEditable, activeEditor !== cell.acceptEditor { return false }
+        if let activeEditor, activeEditor !== cell.acceptEditor { return false }
         // The field editor leaves the responder tree on blur; keep the form's
         // chord without restoring a composition-blind SwiftUI button shortcut.
         cell.acceptEditor.onAcceptChord()

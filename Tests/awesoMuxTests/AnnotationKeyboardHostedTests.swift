@@ -41,6 +41,27 @@ struct AnnotationKeyboardHostedTests {
         }
     }
 
+    @Test(arguments: [UInt16(36), UInt16(76)])
+    func hostedReplyRejectsReadonlyTextFocus(code: UInt16) async throws {
+        let fixture = try AnnotationKeyboardFixture(scenario: "reply")
+        defer { fixture.close() }
+        fixture.enter("draft")
+        let payload = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        payload.string = "annotation payload"
+        payload.isEditable = false
+        payload.isSelectable = true
+        fixture.window.contentView?.addSubview(payload)
+        #expect(fixture.window.makeFirstResponder(payload))
+        payload.selectAll(nil)
+        #expect(fixture.window.firstResponder === payload)
+        fixture.key(code, modifiers: .command)
+        await SidebarHostedTestHarness.drainMainQueue()
+        #expect(fixture.submissions.isEmpty)
+        try fixture.focusEditor()
+        #expect(fixture.editor.string == "draft")
+        #expect(payload.string == "annotation payload")
+    }
+
     @Test
     func hostedReplyEditorsRemainIndependent() async throws {
         var replies: [String] = []
