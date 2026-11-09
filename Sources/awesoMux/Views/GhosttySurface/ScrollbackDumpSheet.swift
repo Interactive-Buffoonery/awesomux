@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import DesignSystem
 import SwiftUI
 
@@ -6,6 +7,9 @@ struct ScrollbackDumpSheet: View {
     let presentation: ScrollbackDumpPresentation
     let revision: UInt64
     let onDismiss: () -> Void
+
+    @Environment(AppSettingsStore.self) private var appSettingsStore
+    @State private var findTarget = ScrollbackDumpFindTarget()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,6 +19,15 @@ struct ScrollbackDumpSheet: View {
                     .foregroundStyle(Color.aw.text)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
+                Button("Find") { findTarget.show(for: revision) }
+                    .keyboardShortcut(
+                        KeyboardShortcutCatalog.resolved(KeyboardShortcutCatalog.find, keyboard: appSettingsStore.keyboard.value)
+                    )
+                    .disabled(presentation.copyPayload == nil)
+                    .help(
+                        String(
+                            localized: "Find in this scrollback snapshot",
+                            comment: "Help for searching only the immutable Scrollback sheet text"))
                 // Disabled on an empty dump: the handler clears the pasteboard
                 // before writing, so copying nothing silently destroyed whatever
                 // the user had on the clipboard.
@@ -45,7 +58,9 @@ struct ScrollbackDumpSheet: View {
         // `.cancelAction` onto Done cost it `.defaultAction` and left Return
         // dead. Hosted in a background so the sheet's layout ignores it.
         .background {
-            Button("Close", action: onDismiss)
+            Button("Close") {
+                if !findTarget.hide(for: revision) { onDismiss() }
+            }
                 .keyboardShortcut(.cancelAction)
                 .hidden()
                 .accessibilityHidden(true)
@@ -77,7 +92,7 @@ struct ScrollbackDumpSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case let .loaded(text):
-            ScrollbackDumpTextView(text: text)
+            ScrollbackDumpTextView(text: text, revision: revision, findTarget: findTarget, onDismiss: onDismiss)
                 .id(revision)
 
         case let .recent(text):
@@ -93,7 +108,7 @@ struct ScrollbackDumpSheet: View {
                 .foregroundStyle(Color.aw.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(16)
-                ScrollbackDumpTextView(text: text)
+                ScrollbackDumpTextView(text: text, revision: revision, findTarget: findTarget, onDismiss: onDismiss)
                     .id(revision)
             }
 
@@ -248,6 +263,17 @@ private extension ScrollbackDumpPresentation {
 
 private struct ScrollbackDumpTextView: NSViewRepresentable {
     let text: String
+    let revision: UInt64
+    let findTarget: ScrollbackDumpFindTarget
+    let onDismiss: () -> Void
+
+    func makeCoordinator() -> ScrollbackDumpFindTarget { findTarget }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: ScrollbackDumpFindTarget) {
+        if coordinator.textView?.enclosingScrollView === scrollView {
+            coordinator.textView = nil
+        }
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -256,13 +282,18 @@ private struct ScrollbackDumpTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let textView = NSTextView()
+        let textView = ScrollbackSnapshotTextView()
+        textView.onCancelFind = { [weak findTarget = findTarget, revision = revision, onDismiss = onDismiss] in
+            if findTarget?.hide(for: revision) != true { onDismiss() }
+        }
         textView.layoutManager?.allowsNonContiguousLayout = true
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = false
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textColor = NSColor.labelColor
         textView.backgroundColor = .clear
@@ -275,10 +306,58 @@ private struct ScrollbackDumpTextView: NSViewRepresentable {
         textView.string = text
 
         scrollView.documentView = textView
+        findTarget.textView = textView
+        findTarget.revision = revision
         return scrollView
     }
 
     // The source revision gives each immutable snapshot its own view identity.
     // Unrelated SwiftUI updates must not read or compare the multi-MB text storage.
     func updateNSView(_ scrollView: NSScrollView, context: Context) {}
+}
+
+/// Sheet-owned weak target keeps Find away from the live terminal responder.
+@MainActor
+private final class ScrollbackDumpFindTarget {
+    weak var textView: NSTextView?
+    var revision: UInt64?
+
+    func show(for revision: UInt64) {
+        guard let textView = target(for: revision),
+            textView.window?.makeFirstResponder(textView) == true
+        else { return }
+        let sender = NSMenuItem()
+        sender.tag = NSTextFinder.Action.showFindInterface.rawValue
+        textView.performFindPanelAction(sender)
+    }
+
+    func hide(for revision: UInt64) -> Bool {
+        guard let textView = target(for: revision),
+            textView.enclosingScrollView?.isFindBarVisible == true
+        else { return false }
+        let sender = NSMenuItem()
+        sender.tag = NSTextFinder.Action.hideFindInterface.rawValue
+        textView.performFindPanelAction(sender)
+        textView.window?.makeFirstResponder(textView)
+        return true
+    }
+
+    private func target(for revision: UInt64) -> NSTextView? {
+        guard self.revision == revision,
+            let textView, let window = textView.window,
+            window.isKeyWindow, !textView.isHiddenOrHasHiddenAncestor,
+            let contentView = window.contentView, textView.isDescendant(of: contentView)
+        else { return nil }
+        return textView
+    }
+}
+
+/// NSTextView handles Escape before the sheet's SwiftUI cancel button.
+@MainActor
+private final class ScrollbackSnapshotTextView: NSTextView {
+    var onCancelFind: (() -> Void)?
+
+    override func cancelOperation(_ sender: Any?) {
+        if let onCancelFind { onCancelFind() } else { super.cancelOperation(sender) }
+    }
 }
