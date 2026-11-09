@@ -24,7 +24,8 @@ EOF
 # soft limit even after the real-blocking suites are removed.
 timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|SubprocessSafetyTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests'
 timing_test_pattern='AwesoMuxAgentHookSupportTests\.AgentIntegrationTemplateTests/piTemplateBoundsHungHelpersAndPreservesNormalEvents(\(|$)'
-sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
+# Annotation windows use the same AppKit host and process isolation as sidebar UI.
+sidebar_pattern='awesoMuxTests\.(Sidebar[^/]*|AnnotationKeyboardHostedTests)'
 # Suites that replace the global TerminalAccessibilityAnnouncer poster stub.
 # They must not run in the same parallel `swift test` process as each other
 # or unrelated suites, or one test can observe another suite's stub mid-flight.

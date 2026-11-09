@@ -298,29 +298,20 @@ private struct MultilineDocumentNoteEditor: View {
     let hasRecoveryDraft: Bool
     let onCopyDraft: () -> Void
 
-    @FocusState private var isFocused: Bool
+    @State private var isFocused = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color.aw.text)
-            ZStack(alignment: .topLeading) {
-                if draft.isEmpty {
-                    Text("Write a note about the whole document…")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.aw.text3)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 10)
-                        .allowsHitTesting(false)
-                }
-                TextEditor(text: $draft)
-                    .font(.system(size: 13))
-                    .scrollContentBackground(.hidden)
-                    .padding(5)
-                    .focused($isFocused)
-                    .accessibilityLabel(title)
-            }
+            AnnotationNoteTextView(
+                text: $draft,
+                isFocused: $isFocused,
+                placeholder: String(localized: "Write a note about the whole document…"),
+                accessibilityLabel: title,
+                onSave: onSubmit
+            )
             .frame(minHeight: 160, maxHeight: 320)
             .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: 7))
             .overlay {
@@ -341,7 +332,6 @@ private struct MultilineDocumentNoteEditor: View {
                 Button(submitTitle, action: onSubmit)
                     .buttonStyle(.borderedProminent)
                     .tint(Color.aw.mauve)
-                    .keyboardShortcut(.return, modifiers: .command)
                     .disabled(
                         !canSubmit
                             || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

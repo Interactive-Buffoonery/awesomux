@@ -19,7 +19,7 @@ struct AnnotationHandoffPresentation {
 /// Bigfoot-style annotation view shown when the user clicks a `•••` pill on an
 /// existing `<mark>` annotation. Shows the quoted text, the note, the thread,
 /// and inline edit / resolve / delete / reply actions. Edit drops into a
-/// SwiftUI TextField in place.
+/// native multiline editor in place.
 ///
 /// Fix 2 (INT-562): removed dead Spacers and fixed heights; the view sizes to
 /// its intrinsic content height so short notes yield short popovers.
@@ -46,7 +46,7 @@ struct FullCommentPopover: View {
     @State private var recovery: AnnotationSaveOutcome?
     @State private var recoveryDraft: String?
     @State private var presentationID: UUID?
-    @FocusState private var isEditFieldFocused: Bool
+    @State private var isEditFieldFocused = false
 
     private var isResolved: Bool { annotation.status == .resolved }
 
@@ -163,21 +163,23 @@ struct FullCommentPopover: View {
             // Note body / edit field
             if isEditing {
                 VStack(alignment: .trailing, spacing: 6) {
-                    TextField("Note…", text: $draft, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .lineLimit(4, reservesSpace: true)
-                        .padding(6)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.aw.mauve.opacity(0.4), lineWidth: 1)
-                        )
-                        .focused($isEditFieldFocused)
-                        // Entering edit mode means "type now" — a keyboard
-                        // user shouldn't have to Tab into the field.
-                        .onAppear { isEditFieldFocused = true }
+                    AnnotationNoteTextView(
+                        text: $draft,
+                        isFocused: $isEditFieldFocused,
+                        placeholder: String(localized: "Note…"),
+                        accessibilityLabel: String(localized: "Edit annotation"),
+                        onSave: saveEdit
+                    )
+                    .frame(height: 76)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.aw.mauve.opacity(0.4), lineWidth: 1)
+                    )
+                    // Entering edit mode means "type now" — a keyboard
+                    // user shouldn't have to Tab into the field.
+                    .onAppear { isEditFieldFocused = true }
 
                     HStack(spacing: 8) {
                         Button("Cancel") {
@@ -191,10 +193,6 @@ struct FullCommentPopover: View {
                         Button("Save", action: saveEdit)
                             .buttonStyle(.borderedProminent)
                             .tint(Color.aw.mauve)
-                            // Known ceiling: matches ⌘Return only, not
-                            // ⌘-keypad-Enter; swap the TextField for the AppKit
-                            // accept-chord bridge if keypad users report it.
-                            .keyboardShortcut(.return, modifiers: .command)
                             .font(.system(size: 12, weight: .medium))
                             .disabled(
                                 !canSubmit
@@ -283,23 +281,12 @@ struct FullCommentPopover: View {
                 Divider()
                     .padding(.horizontal, 12)
                 HStack(spacing: 6) {
-                    TextField(String(localized: "Reply…", comment: "Placeholder for the annotation reply field"), text: $replyDraft)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .onSubmit(submitReply)
-                        .accessibilityLabel(
-                            String(localized: "Reply to annotation", comment: "Accessibility label for the annotation reply field"))
+                    AnnotationReplyTextField(text: $replyDraft, onSubmit: submitReply)
                     Button(action: submitReply) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
-                    // Never active at the same time as the edit-mode Save
-                    // button (isEditing gates them), so the chord can't clash.
-                    // Known ceiling: matches ⌘Return only, not ⌘-keypad-Enter;
-                    // swap the TextField for the AppKit accept-chord bridge if
-                    // keypad users report it.
-                    .keyboardShortcut(.return, modifiers: .command)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
                     .foregroundStyle(Color.aw.mauve)
@@ -649,8 +636,8 @@ struct ComposeCommentPopover: View {
 
 // MARK: - AnnotationNoteTextView
 
-/// The new-annotation popover's narrowly scoped multiline AppKit editor.
-private struct AnnotationNoteTextView: View {
+/// Multiline AppKit editor shared by the annotation and document-note forms.
+struct AnnotationNoteTextView: View {
     @Binding var text: String
     @Binding var isFocused: Bool
     let placeholder: String
@@ -815,6 +802,81 @@ private struct AnnotationNoteTextViewRepresentable: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+        }
+    }
+}
+
+// MARK: - Single-line reply
+
+private final class AnnotationReplyTextFieldCell: NSTextFieldCell {
+    let acceptEditor = AnnotationAcceptChordTextView()
+
+    override func fieldEditor(for controlView: NSView) -> NSTextView? {
+        acceptEditor.isFieldEditor = true
+        return acceptEditor
+    }
+}
+
+private struct AnnotationReplyTextField: NSViewRepresentable {
+    @Binding var text: String
+    let onSubmit: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        let cell = AnnotationReplyTextFieldCell(textCell: "")
+        cell.usesSingleLineMode = true
+        cell.isScrollable = true
+        cell.wraps = false
+        field.cell = cell
+        field.isEditable = true
+        field.isSelectable = true
+        field.isBordered = false
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: 12)
+        field.placeholderString = String(localized: "Reply…", comment: "Placeholder for the annotation reply field")
+        field.setAccessibilityLabel(String(localized: "Reply to annotation", comment: "Accessibility label for the annotation reply field"))
+        field.delegate = context.coordinator
+        cell.acceptEditor.onAcceptChord = { [weak field, weak coordinator = context.coordinator] in
+            guard field?.isEnabled == true else { return }
+            coordinator?.onSubmit()
+        }
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.onSubmit = onSubmit
+        field.isEnabled = isEnabled
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        var onSubmit: () -> Void
+
+        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
+            self.text = text
+            self.onSubmit = onSubmit
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            text.wrappedValue = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            guard control.isEnabled, !textView.hasMarkedText() else { return false }
+            if let event = NSApp.currentEvent, event.type == .keyDown {
+                let held = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .function, .numericPad])
+                guard !event.isARepeat, held.isEmpty else { return true }
+            }
+            onSubmit()
+            return true
         }
     }
 }
