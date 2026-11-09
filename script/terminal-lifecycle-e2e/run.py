@@ -75,7 +75,7 @@ def output_batches_match(text, batches):
                           for batch in batches):
         return False
     expected = [line for batch in batches for line in batch["lines"]]
-    observed = [line for line in text.replace("\r", "").splitlines() if "TL_OUTPUT_" in line]
+    observed = [line for line in text.replace("\r", "").split("\n") if "TL_OUTPUT_" in line]
     return observed == expected
 
 
