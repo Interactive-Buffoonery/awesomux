@@ -13,7 +13,9 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > action follows awesoMux's existing ignored application-action policy.
 > The embedded pointer contracts and all ten local extension insertion points
 > remain compatible. Local libxev patches and the separately owned zmx pin
-> are preserved. Validation evidence must be collected for this revision.
+> are preserved. The ReleaseFast build with Zig 0.17.1 passed 68 libxev tests
+> and 400 native regressions. A fresh archive audit retained 277 members and
+> the recorded member digest. App preflight and runtime checks are separate.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work

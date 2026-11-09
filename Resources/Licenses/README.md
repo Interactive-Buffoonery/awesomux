@@ -90,7 +90,7 @@ The z2d row covers Zig rasterization code compiled into `ghostty_zcu.o`. Its
 MPL-2.0 terms and upstream notices are bundled unchanged. `z2d/SOURCE.txt` links
 the exact unmodified source and archive used by this pin.
 
-The ReleaseFast archive at the Ghostty pin above was rebuilt with Zig 0.17.0.
+The ReleaseFast archive at the Ghostty pin above was rebuilt with Zig 0.17.1.
 Its 277 members match the inventory recorded in the manifest. Bundled notices
 were checked against the pinned package sources and compiler license. This
 records archive contents and licensing; it does not establish runtime behavior.
