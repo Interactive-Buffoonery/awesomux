@@ -215,6 +215,30 @@ final class GhosttySurfaceContainerView: NSView {
         postFocusReadinessIfMounted(surfaceView)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window, let surfaceView = ownedSurfaceView else { return }
+        let sessionID = surfaceView.sessionID
+        let paneID = surfaceView.paneID
+        // SwiftUI can mount before attaching the container; retry after the
+        // outgoing document's controls have left the responder chain.
+        DispatchQueue.main.async { [weak self, weak window, weak surfaceView] in
+            guard let self, let window, let surfaceView,
+                self.window === window, surfaceView.window === window,
+                window.isKeyWindow, window.attachedSheet == nil,
+                self.ownedSurfaceView === surfaceView,
+                surfaceView.superview === self.documentView,
+                let contentView = window.contentView,
+                surfaceView.isDescendant(of: contentView),
+                surfaceView.sessionID == sessionID, surfaceView.paneID == paneID,
+                surfaceView.runtime.cachedSurfaceView(for: paneID) === surfaceView,
+                PaneFocusCommandHandler.canRequestTerminalFocus(
+                    sessionID: sessionID, paneID: paneID, sessionStore: surfaceView.sessionStore)
+            else { return }
+            surfaceView.requestFocusIfWindowHasNoTarget()
+        }
+    }
+
     override func layout() {
         super.layout()
         synchronizeLayout()

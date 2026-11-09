@@ -203,6 +203,61 @@ struct SurfaceRemountOnSplitCollapseTests {
         #expect(runtime.surfaceRemountNudgeRevision == revisionBefore)
     }
 
+    // Detached containers reproduce SwiftUI's real mount-before-window ordering;
+    // a normal mounted fixture never exercises this focus handoff boundary.
+    @Test(
+        "window attachment recovers focus after a detached mount",
+        arguments: ["vacant", "document", "tab", "search", "inactivePane", "inactiveWorkspace", "nonKey"])
+    func detachedMountFocusHandoff(scenario: String) async throws {
+        let fixture = try makeSplitFixture()
+        let window = AttachmentWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.reportsKey = scenario != "nonKey"
+        defer { window.close() }
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let surface = makeSurvivorView(runtime: runtime, fixture: fixture)
+        let container = GhosttySurfaceContainerView(contentSize: paneSize)
+        container.mount(surface, isActive: true, contentSize: paneSize)
+        #expect(surface.window == nil)
+
+        let outgoing: NSView
+        switch scenario {
+        case "document": outgoing = SelectionAwareTextView(frame: .zero)
+        case "tab": outgoing = NSButton(title: "Document tab", target: nil, action: nil)
+        case "search": outgoing = NSTextField(string: "keep search")
+        default: outgoing = NSView()
+        }
+        window.contentView?.addSubview(outgoing)
+        if scenario == "document" || scenario == "tab" || scenario == "search" {
+            #expect(window.makeFirstResponder(outgoing))
+        } else {
+            window.makeFirstResponder(window)
+        }
+        let originalResponder = window.firstResponder
+        window.contentView?.addSubview(container)
+        if scenario == "document" || scenario == "tab" { outgoing.removeFromSuperview() }
+        if scenario == "inactivePane" {
+            fixture.store.setActivePane(id: fixture.deadPane.id, in: fixture.session.id)
+        }
+        if scenario == "inactiveWorkspace" { fixture.store.selectedSessionID = nil }
+        await drainMainQueue()
+
+        if ["vacant", "document", "tab"].contains(scenario) {
+            #expect(window.firstResponder === surface)
+            #expect(fixture.store.selectedSession?.activePaneID == fixture.siblingPane.id)
+        } else {
+            #expect(window.firstResponder === originalResponder)
+        }
+    }
+
+    private final class AttachmentWindow: NSWindow {
+        var reportsKey = true
+        override var isKeyWindow: Bool { reportsKey }
+    }
+
     // MARK: - Fixture
 
     private let paneSize = CGSize(width: 640, height: 480)
