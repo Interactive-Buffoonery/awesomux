@@ -37,6 +37,7 @@ named in the table:
 | SPIRV-Cross | 13.1.1 (`N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv`) | `SPIRV-Cross/LICENSE`, `SPIRV-Cross/KhronosFreeUse.txt` |
 | Wuffs | `7411f488fe2e2c205c3d3b3d28638b7356522930` (`N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`) | `Wuffs/LICENSE`, `Wuffs/LICENSE-APACHE`, `Wuffs/LICENSE-MIT` |
 | z2d | 0.13.2 / `8787d71bac42d9aab00428ccb37a4fd453418761` | `z2d/COPYING`, `z2d/LICENSE`, `z2d/SOURCE.txt` |
+| uucode | `1fb73433bba5d93366c57f23ff2e9d7939746500` | `uucode/LICENSE.md`, `uucode/LICENSE_unicode`, `uucode/LICENSE_Bjoern_Hoehrmann`, `uucode/SOURCE.txt` |
 | Zig compiler runtime | Compatible 0.17.x toolchain (exact artifact version stamped at build time; license matches 0.17.0) | `Zig/LICENSE` |
 
 When a dependency pin changes, refresh its corresponding files from that exact
