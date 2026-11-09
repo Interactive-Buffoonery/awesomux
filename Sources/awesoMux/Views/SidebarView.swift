@@ -77,6 +77,7 @@ struct SidebarView: View {
     @State private var dragClearScheduler = SidebarDragClearScheduler()
     @State private var accessibilityAnnouncer = SidebarAccessibilityAnnouncer()
     @State private var activityPanelOpen = false
+    @State private var hasAppliedDefaultSidebar = false
     @State private var collapsedAgentSections = Set<AgentActivityRoster.Section>()
     @State private var collapsedPreviewAgentSections = Set<AgentActivityRoster.Section>()
     @Environment(\.awAccent) private var footerAccent
@@ -766,6 +767,11 @@ struct SidebarView: View {
             )
         }
         .onAppear {
+                // Reappearing must preserve the window's manual footer choice.
+                if !hasAppliedDefaultSidebar {
+                    activityPanelOpen = appSettingsStore.appearance.value.defaultSidebar == .agents
+                    hasAppliedDefaultSidebar = true
+                }
             sessionStore.undoManager = undoManager
             // The setter's didSet refreshes the sticky and @Observable publishes
             // even a false→false write, so the default-off launch would

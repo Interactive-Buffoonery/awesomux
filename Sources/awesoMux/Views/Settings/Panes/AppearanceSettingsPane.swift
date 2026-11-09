@@ -176,12 +176,26 @@ struct AppearanceSettingsPane: View {
                 index: 6,
                 title: String(localized: "Sidebar", comment: "Appearance settings section title"),
                 subtitle: String(
-                    localized: "Position, row density, and collapsed-rail behavior.",
+                    localized: "Startup view, position, row density, and collapsed-rail behavior.",
                     comment: "Sidebar section subtitle")
             ) {
                 SettingsField(
-                    label: String(localized: "Position", comment: "Settings field label for the sidebar position picker"),
+                    label: String(localized: "Default sidebar", comment: "Settings label for the sidebar view used at launch"),
+                    hint: String(localized: "Applies on next launch.", comment: "Hint for the default sidebar view setting"),
                     isFirst: true
+                ) {
+                    Picker("Default sidebar", selection: appSettingsStore.appearance.binding(\.defaultSidebar)) {
+                        Text("Workspaces").tag(AppearanceConfig.SidebarMode.workspaces)
+                        Text("Agents").tag(AppearanceConfig.SidebarMode.agents)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accessibilityLabel("Default sidebar")
+                    .accessibilityHint("Applies on next launch.")
+                }
+
+                SettingsField(
+                    label: String(localized: "Position", comment: "Settings field label for the sidebar position picker")
                 ) {
                     Picker("Sidebar position", selection: appSettingsStore.appearance.binding(\.sidebarPosition)) {
                         Text("Left").tag(AppearanceConfig.SidebarPosition.left)
@@ -377,6 +391,7 @@ struct AppearanceSettingsPane: View {
             appearance.alwaysShowJumpNumbers = defaults.alwaysShowJumpNumbers
             appearance.tintedHighContrast = defaults.tintedHighContrast
             appearance.promoteWorkspacesNeedingInput = defaults.promoteWorkspacesNeedingInput
+            appearance.defaultSidebar = defaults.defaultSidebar
             appearance.sidebarPosition = defaults.sidebarPosition
             appearance.crtScanlines = defaults.crtScanlines
         }
@@ -422,6 +437,7 @@ struct AppearanceSettingsPane: View {
             && appearance.alwaysShowJumpNumbers == defaults.alwaysShowJumpNumbers
             && appearance.tintedHighContrast == defaults.tintedHighContrast
             && appearance.promoteWorkspacesNeedingInput == defaults.promoteWorkspacesNeedingInput
+            && appearance.defaultSidebar == defaults.defaultSidebar
             && appearance.sidebarPosition == defaults.sidebarPosition
             && appearance.crtScanlines == defaults.crtScanlines
             && appSettingsStore.general.value.sidebarCompactMode

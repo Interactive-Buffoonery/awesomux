@@ -43,6 +43,20 @@ struct TOMLConfigCodecTests {
     private static var roundTripCases: [RoundTripCase] {
         let codec = TOMLConfigCodec()
         var cases: [RoundTripCase] = []
+        cases.append(
+            RoundTripCase(name: "missingSidebarDefaultUsesWorkspaces", source: defaultTOML) { _, encoded, _ in
+                #expect(encoded.contains("default_sidebar = \"workspaces\""))
+            })
+        for mode in ["workspaces", "agents"] {
+            cases.append(
+                RoundTripCase(
+                    name: "sidebarDefaultRoundTrips-\(mode)",
+                    source: defaultTOML.replacing("[appearance]", with: "[appearance]\ndefault_sidebar = \"\(mode)\"")
+                ) { decoded, encoded, _ in
+                    #expect(!decoded.unknownAppearanceTableLines.contains("default_sidebar"))
+                    #expect(encoded.contains("default_sidebar = \"\(mode)\""))
+                })
+        }
         for version in [1, 2] {
             let source = defaultTOML.replacing("config_schema_version = 2", with: "config_schema_version = \(version)")
             cases.append(
@@ -434,6 +448,14 @@ struct TOMLConfigCodecTests {
 
     private static var invalidValues: [InvalidValueCase] {
         var cases: [InvalidValueCase] = []
+        for value in ["\"other\"", "42"] {
+            cases.append(
+                InvalidValueCase(source: defaultTOML.replacing("[appearance]", with: "[appearance]\ndefault_sidebar = \(value)")) {
+                    path, _ in
+                    #expect(path.contains("default_sidebar"))
+                })
+        }
+
         cases.append(
             InvalidValueCase(
                 source: defaultTOML.replacing(

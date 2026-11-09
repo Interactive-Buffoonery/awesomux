@@ -20,6 +20,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
     /// default: lifting a workspace reorders the list, a bigger interruption
     /// than the peach cue it accompanies.
     @TOMLDefault<DefaultPromoteWorkspacesNeedingInput> public var promoteWorkspacesNeedingInput: Bool
+    @TOMLDefault<DefaultSidebar> public var defaultSidebar: SidebarMode
     @TOMLDefault<DefaultSidebarPosition> public var sidebarPosition: SidebarPosition
     @TOMLDefault<DefaultTerminalThemeID> public var terminalThemeID: String?
     @TOMLDefault<DefaultTerminalBackgroundMode> public var terminalBackgroundMode: TerminalBackgroundMode
@@ -41,6 +42,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         alwaysShowJumpNumbers: Bool = DefaultAlwaysShowJumpNumbers.defaultValue,
         tintedHighContrast: Bool = DefaultTintedHighContrast.defaultValue,
         promoteWorkspacesNeedingInput: Bool = DefaultPromoteWorkspacesNeedingInput.defaultValue,
+        defaultSidebar: SidebarMode = DefaultSidebar.defaultValue,
         sidebarPosition: SidebarPosition = DefaultSidebarPosition.defaultValue,
         terminalThemeID: String? = DefaultTerminalThemeID.defaultValue,
         terminalBackgroundMode: TerminalBackgroundMode = DefaultTerminalBackgroundMode.defaultValue,
@@ -59,6 +61,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         self.alwaysShowJumpNumbers = alwaysShowJumpNumbers
         self.tintedHighContrast = tintedHighContrast
         self.promoteWorkspacesNeedingInput = promoteWorkspacesNeedingInput
+        self.defaultSidebar = defaultSidebar
         self.sidebarPosition = sidebarPosition
         self.terminalThemeID = terminalThemeID
         self.terminalBackgroundMode = terminalBackgroundMode
@@ -79,6 +82,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         case alwaysShowJumpNumbers = "always_show_jump_numbers"
         case tintedHighContrast = "tinted_high_contrast"
         case promoteWorkspacesNeedingInput = "promote_workspaces_needing_input"
+        case defaultSidebar = "default_sidebar"
         case sidebarPosition = "sidebar_position"
         case terminalThemeID = "terminal_theme_id"
         case terminalBackgroundMode = "terminal_background_mode"
@@ -99,6 +103,7 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
         CodingKeys.alwaysShowJumpNumbers.rawValue,
         CodingKeys.tintedHighContrast.rawValue,
         CodingKeys.promoteWorkspacesNeedingInput.rawValue,
+        CodingKeys.defaultSidebar.rawValue,
         CodingKeys.sidebarPosition.rawValue,
         CodingKeys.terminalThemeID.rawValue,
         CodingKeys.terminalBackgroundMode.rawValue,
@@ -158,6 +163,10 @@ public struct DefaultPromoteWorkspacesNeedingInput: DefaultProvider {
     public static let defaultValue = false
 }
 
+public struct DefaultSidebar: DefaultProvider {
+    public static let defaultValue: AppearanceConfig.SidebarMode = .workspaces
+}
+
 public struct DefaultSidebarPosition: DefaultProvider {
     public static let defaultValue: AppearanceConfig.SidebarPosition = .left
 }
@@ -186,6 +195,11 @@ public extension AppearanceConfig {
         case mauve
         case sapphire
         case green
+    }
+
+    enum SidebarMode: String, Codable, CaseIterable, Equatable, Sendable {
+        case workspaces
+        case agents
     }
 
     enum SidebarPosition: String, Codable, CaseIterable, Equatable, Sendable {
