@@ -108,6 +108,11 @@ enum AgentPluginSourceFingerprint {
                 "plugins/awesomux-grok-status/hooks/hooks.json",
                 "plugins/awesomux-grok-status/.grok-plugin/plugin.json",
             ]
+        case .antigravity:
+            [
+                "plugins/awesomux-antigravity-status/hooks.json",
+                "plugins/awesomux-antigravity-status/plugin.json",
+            ]
         }
     }
 

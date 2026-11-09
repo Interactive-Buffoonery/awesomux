@@ -3,13 +3,14 @@ import AwesoMuxCore
 import Foundation
 
 public enum AgentHookEventMapper {
-    /// File-mutating Claude Code tools whose PostToolUse `file_path` is worth
-    /// surfacing. Read/Grep/Glob/Bash are deliberately excluded so merely
-    /// *viewing* a file never records it as agent-touched (issue #175).
-    /// NotebookEdit is absent on purpose: it reports `notebook_path`, not
-    /// `file_path`, and `.ipynb` is never Markdown, so it can never produce a
-    /// valid touched path.
-    private static let markdownMutatingTools: Set<String> = ["Write", "Edit", "MultiEdit"]
+    /// File-mutating Claude Code and Antigravity tools whose PostToolUse path
+    /// is worth surfacing. Read/Grep/Glob/Bash/read_file/run_command are
+    /// deliberately excluded so merely *viewing* a file never records it as
+    /// agent-touched (issue #175). NotebookEdit is absent on purpose: it
+    /// reports `notebook_path`, not `file_path`, and `.ipynb` is never Markdown,
+    /// so it can never produce a valid touched path.
+    private static let claudeMarkdownMutatingTools: Set<String> = ["Write", "Edit", "MultiEdit"]
+    private static let antigravityMarkdownMutatingTools: Set<String> = ["write_file", "edit_file"]
 
     public static func event(
         provider: AgentHookProvider,
@@ -63,9 +64,17 @@ public enum AgentHookEventMapper {
         toolName: String?,
         toolFilePath: String?
     ) -> String? {
-        guard provider == .claudeCode,
-            phase == .toolEnd,
-            let toolName, markdownMutatingTools.contains(toolName),
+        let mutatingTools: Set<String>
+        switch provider {
+        case .claudeCode:
+            mutatingTools = claudeMarkdownMutatingTools
+        case .antigravity:
+            mutatingTools = antigravityMarkdownMutatingTools
+        case .codex, .openCode, .pi, .grok:
+            return nil
+        }
+        guard phase == .toolEnd,
+            let toolName, mutatingTools.contains(toolName),
             let toolFilePath
         else {
             return nil
@@ -92,6 +101,8 @@ public enum AgentHookEventMapper {
             openCodeMapping(hookEventName: hookEventName)
         case .grok:
             grokMapping(hookEventName: hookEventName, reason: reason)
+        case .antigravity:
+            antigravityMapping(hookEventName: hookEventName, reason: reason)
         }
     }
 
@@ -167,6 +178,41 @@ public enum AgentHookEventMapper {
         case nil, "", "shutdown",
             "cancel", "cancelled", "canceled", "abort", "aborted",
             "error", "failed", "failure":
+            EventMapping(executionState: .error, phase: .stop)
+        default:
+            EventMapping(executionState: .error, phase: .stop)
+        }
+    }
+
+    private static func antigravityMapping(hookEventName: String, reason: String?) -> EventMapping? {
+        switch hookEventName {
+        case "SessionStart", "session_start":
+            baseMapping["SessionStart"]
+        case "PreInvocation", "pre_invocation", "UserPromptSubmit", "user_prompt_submit":
+            baseMapping["UserPromptSubmit"]
+        case "PreToolUse", "pre_tool_use":
+            baseMapping["PreToolUse"]
+        case "PostToolUse", "post_tool_use", "PostInvocation", "post_invocation":
+            baseMapping["PostToolUse"]
+        case "Stop", "stop":
+            antigravityStopMapping(reason: reason)
+        case "SessionEnd", "session_end":
+            localAgentMapping["SessionEnd"]
+        case "StopFailure", "stop_failure":
+            localAgentMapping["StopFailure"]
+        default:
+            nil
+        }
+    }
+
+    private static func antigravityStopMapping(reason: String?) -> EventMapping {
+        switch reason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case nil, "", "end_turn", "no_tool_call",
+            "user_canceled", "user_cancelled",
+            "terminal_step_type", "injected_response":
+            EventMapping(executionState: .waiting, phase: .stop)
+        case "error", "max_invocations", "max_forced_invocations",
+            "max_token_budget_exceeded", "terminal_custom_hook":
             EventMapping(executionState: .error, phase: .stop)
         default:
             EventMapping(executionState: .error, phase: .stop)

@@ -593,6 +593,7 @@ public enum AgentTranscriptRenderer {
         case .claudeCode: return renderClaudeRecord(record, type: type)
         case .codex: return renderCodexRecord(record, type: type)
         case .pi: return renderPiRecord(record, type: type)
+        case .antigravity: return renderAntigravityRecord(record, type: type)
         }
     }
 
@@ -846,6 +847,77 @@ public enum AgentTranscriptRenderer {
             current = parent
         }
         return PiBranchIndex(lineIDs: lineIDs, active: branch)
+    }
+
+    // MARK: Antigravity
+
+    private static func renderAntigravityRecord(_ record: [String: Any], type: String) -> String? {
+        switch type {
+        case "USER_INPUT":
+            guard let content = record["content"] as? String else { return nil }
+            return turn(
+                role: "user",
+                detail: nil,
+                isSidechain: false,
+                body: extractAntigravityUserInput(from: content)
+            )
+        case "PLANNER_RESPONSE":
+            var chunks: [String] = []
+            if let thinking = record["thinking"] as? String,
+                let chunk = turn(
+                    role: "assistant", detail: "thinking", isSidechain: false, body: thinking
+                )
+            {
+                chunks.append(chunk)
+            }
+            if let content = record["content"] as? String,
+                let chunk = turn(role: "assistant", detail: nil, isSidechain: false, body: content)
+            {
+                chunks.append(chunk)
+            }
+            if let toolCalls = record["tool_calls"] as? [[String: Any]] {
+                for call in toolCalls {
+                    if let chunk = turn(
+                        role: "assistant",
+                        detail: toolDetail(call["name"]),
+                        isSidechain: false,
+                        body: jsonBody(call["args"])
+                    ) {
+                        chunks.append(chunk)
+                    }
+                }
+            }
+            return chunks.isEmpty ? nil : chunks.joined()
+        case "GENERIC":
+            return turn(
+                role: "tool result",
+                detail: nil,
+                isSidechain: false,
+                body: record["content"] as? String
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func extractAntigravityUserInput(from content: String) -> String {
+        let openTag = "<USER_REQUEST>"
+        let closeTag = "</USER_REQUEST>"
+        guard let openRange = content.range(of: openTag),
+            let closeRange = content.range(
+                of: closeTag, range: openRange.upperBound..<content.endIndex
+            )
+        else {
+            return content
+        }
+        var slice = content[openRange.upperBound..<closeRange.lowerBound]
+        if slice.first?.isNewline == true {
+            slice = slice.dropFirst()
+        }
+        if slice.last?.isNewline == true {
+            slice = slice.dropLast()
+        }
+        return String(slice)
     }
 
     // MARK: Turn formatting

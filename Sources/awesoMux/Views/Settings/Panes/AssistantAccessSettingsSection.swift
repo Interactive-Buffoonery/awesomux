@@ -381,7 +381,7 @@ struct AssistantAccessSettingsSection: View {
                     throw LocalAPIError.contextUnavailable
                 }
                 guard agent.providerSessionID != nil, let provider = AgentKind(rawValue: agent.provider),
-                    [.claudeCode, .codex, .pi, .openCode].contains(provider)
+                    [.claudeCode, .codex, .pi, .openCode, .antigravity].contains(provider)
                 else {
                     errorMessage = String(
                         localized: "This agent's conversation isn't available yet. Wait for a supported agent session, then try again.")

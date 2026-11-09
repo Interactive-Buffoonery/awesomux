@@ -30,12 +30,14 @@ public enum AgentTranscriptImporter {
         case claudeCode
         case codex
         case pi
+        case antigravity
 
         init?(agentKind: AgentKind) {
             switch agentKind {
             case .claudeCode: self = .claudeCode
             case .codex: self = .codex
             case .pi: self = .pi
+            case .antigravity: self = .antigravity
             case .openCode, .grok, .hermes, .shell, .generic: return nil
             }
         }
@@ -45,6 +47,7 @@ public enum AgentTranscriptImporter {
             case .claudeCode: .claudeCode
             case .codex: .codex
             case .pi: .pi
+            case .antigravity: .antigravity
             }
         }
 
@@ -56,6 +59,10 @@ public enum AgentTranscriptImporter {
                 configHome.appending(path: "sessions", directoryHint: .isDirectory)
             case .pi:
                 configHome.appending(path: "sessions", directoryHint: .isDirectory)
+            case .antigravity:
+                configHome
+                    .appending(path: "antigravity-cli", directoryHint: .isDirectory)
+                    .appending(path: "brain", directoryHint: .isDirectory)
             }
         }
 
@@ -75,6 +82,8 @@ public enum AgentTranscriptImporter {
                 guard fileName.hasSuffix(suffix) else { return false }
                 let prefix = fileName.dropLast(suffix.count)
                 return !prefix.isEmpty && !prefix.contains("_")
+            case .antigravity:
+                return fileName == "transcript.jsonl"
             }
         }
 
@@ -89,6 +98,7 @@ public enum AgentTranscriptImporter {
                 case .claudeCode where type == "user" || type == "assistant": return true
                 case .codex where AgentTranscriptRenderer.isCodexConversationRecord(record): return true
                 case .pi where type == "message" || type == "custom_message": return true
+                case .antigravity where type == "USER_INPUT" || type == "PLANNER_RESPONSE": return true
                 default: continue
                 }
             }
@@ -272,6 +282,42 @@ public enum AgentTranscriptImporter {
         maximumMatches: Int = maximumMatchingCandidates
     ) -> CandidateSearch {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey]
+        if provider == .antigravity {
+            guard
+                let enumerator = fileManager.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: Array(keys),
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                )
+            else {
+                return CandidateSearch(candidates: [], reachedLimit: false, reachedMatchLimit: false)
+            }
+            var inspected = 0
+            var candidates: [(url: URL, modified: Date)] = []
+            for case let directory as URL in enumerator {
+                enumerator.skipDescendants()
+                inspected += 1
+                guard inspected <= maximumEntries else {
+                    return CandidateSearch(candidates: [], reachedLimit: true, reachedMatchLimit: false)
+                }
+                guard provider.source.validatedProviderSessionID(directory.lastPathComponent) == sessionID else {
+                    continue
+                }
+                let url =
+                    directory
+                    .appending(path: ".system_generated", directoryHint: .isDirectory)
+                    .appending(path: "logs", directoryHint: .isDirectory)
+                    .appending(path: "transcript.jsonl", directoryHint: .notDirectory)
+                guard fileManager.fileExists(atPath: url.path) else { continue }
+                // Case variants identify the same session; refuse ambiguous copies.
+                guard candidates.isEmpty, maximumMatches > 0 else {
+                    return CandidateSearch(candidates: [], reachedLimit: false, reachedMatchLimit: true)
+                }
+                let modified = try? url.resourceValues(forKeys: keys).contentModificationDate
+                candidates.append((url, modified ?? .distantPast))
+            }
+            return CandidateSearch(candidates: candidates, reachedLimit: false, reachedMatchLimit: false)
+        }
         guard
             let enumerator = fileManager.enumerator(
                 at: root,

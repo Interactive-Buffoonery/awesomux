@@ -132,6 +132,43 @@ struct ClaudeCodexPluginTemplateTests {
         #expect(list.stdout.contains("awesomux-codex-status@awesomux-codex"))
     }
 
+    // MARK: - Bundled Antigravity validation
+
+    @Test
+    func everyAntigravityTemplateEventResolvesToAMapping() throws {
+        let raw = try Self.contents(of: "antigravity/plugins/awesomux-antigravity-status/hooks.json")
+        let root = try #require(
+            try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: [String: Any]]
+        )
+        let group = try #require(root["awesomux-status"])
+
+        for event in group.keys {
+            #expect(
+                AgentHookEventMapper.event(
+                    provider: .antigravity,
+                    hookEventName: event
+                ) != nil,
+                "Antigravity template event \(event) has no mapping"
+            )
+        }
+    }
+
+    @Test(.enabled(if: Self.executableOnPath("agy") != nil, "agy CLI not found on PATH"))
+    func bundledAntigravityPluginValidates() throws {
+        let agyURL = try #require(
+            Self.executableOnPath("agy"),
+            "agy CLI not found on PATH"
+        )
+
+        let pluginDir = try Self.packageRootURL()
+            .appendingPathComponent("Resources/AgentIntegrations/antigravity/plugins/awesomux-antigravity-status")
+        let result = try Self.run(agyURL, arguments: ["plugin", "validate", pluginDir.path])
+        #expect(
+            result.exitCode == 0,
+            "agy plugin validate failed (exit \(result.exitCode)):\n\(result.stdout)\n\(result.stderr)"
+        )
+    }
+
     private static func hooksManifestRelativePath(_ provider: Provider) -> String {
         "\(provider.directory)/plugins/\(provider.pluginDirectory)/hooks/hooks.json"
     }

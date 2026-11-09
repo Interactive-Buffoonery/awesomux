@@ -93,6 +93,7 @@ enum BridgeAttachDecision {
 extension AgentIntegrationsConfig {
     var anyProviderEnabled: Bool {
         claudeCode.enabled || codex.enabled || grok.enabled || openCode.enabled || pi.enabled
+            || antigravity.enabled
     }
 }
 

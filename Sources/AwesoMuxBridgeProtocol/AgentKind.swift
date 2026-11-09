@@ -6,6 +6,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
     case openCode = "OpenCode"
     case pi = "Pi"
     case grok = "Grok"
+    case antigravity = "Antigravity"
     case hermes = "Hermes"
     case shell = "Shell"
     case generic = "Generic"
@@ -17,7 +18,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
     /// would otherwise flip the still-working parent to `.done`).
     public var usesReliableHooks: Bool {
         switch self {
-        case .claudeCode, .codex, .openCode, .pi, .grok:
+        case .claudeCode, .codex, .openCode, .pi, .grok, .antigravity:
             true
         case .hermes, .shell, .generic:
             false
@@ -33,7 +34,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .claudeCode, .codex, .openCode:
             true
-        case .pi, .grok, .hermes, .shell, .generic:
+        case .pi, .grok, .antigravity, .hermes, .shell, .generic:
             false
         }
     }
@@ -53,7 +54,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .grok, .hermes:
             true
-        case .claudeCode, .codex, .openCode, .pi, .shell, .generic:
+        case .claudeCode, .codex, .openCode, .pi, .antigravity, .shell, .generic:
             false
         }
     }

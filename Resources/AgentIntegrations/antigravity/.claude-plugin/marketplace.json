@@ -1,0 +1,18 @@
+{
+  "name": "awesomux-antigravity",
+  "owner": {
+    "name": "awesoMux"
+  },
+  "plugins": [
+    {
+      "name": "awesomux-antigravity-status",
+      "description": "Emits coarse runtime status to awesoMux so the sidebar can reflect agent activity.",
+      "version": "0.1.0",
+      "author": {
+        "name": "awesoMux"
+      },
+      "source": "./plugins/awesomux-antigravity-status",
+      "category": "development"
+    }
+  ]
+}

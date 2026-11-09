@@ -31,7 +31,9 @@ public struct AgentOutputDetection: Equatable, Sendable {
 public struct AgentOutputDetector: Sendable {
     public init() {}
 
-    public func attentionCue(in visibleText: String, liveAgentKind: AgentKind) -> String? {
+    public func attentionCue(
+        in visibleText: String, liveAgentKind: AgentKind, inferredAgentKind: AgentKind? = nil
+    ) -> String? {
         let originalLines = visibleText.split(separator: "\n", omittingEmptySubsequences: false)
         let normalized = visibleText.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
@@ -48,7 +50,8 @@ public struct AgentOutputDetector: Sendable {
                 return codexApprovalChoice(in: raw)?.text ?? raw
             }.joined(separator: "\n")
         }
-        guard containsNeedsAttentionPrompt(normalized) else { return nil }
+        let cueAgentKind = liveAgentKind == .shell ? inferredAgentKind : liveAgentKind
+        guard containsNeedsAttentionPrompt(normalized, agentKind: cueAgentKind) else { return nil }
         let isChoice: (String) -> Bool = { $0.contains("[y]") || $0.contains("[n]") || $0.contains("[y/") }
         let hasInlineQuestion: (String) -> Bool = { line in
             let choice = ["[y", "[n]"].compactMap { line.range(of: $0)?.lowerBound }.min()
@@ -59,7 +62,10 @@ public struct AgentOutputDetector: Sendable {
             return Self.attentionPromptHeadings.contains { hasTokenBoundedPrefix(content, $0) }
         }
         // An older structured prompt must not hide a newer introductory permission request.
-        guard let last = trimmed.lastIndex(where: { isChoice($0) || (!$0.hasPrefix("-") && containsNeedsAttentionPrompt($0)) })
+        guard
+            let last = trimmed.lastIndex(where: {
+                isChoice($0) || (!$0.hasPrefix("-") && containsNeedsAttentionPrompt($0, agentKind: cueAgentKind))
+            })
         else { return nil }
         let start: Int
         let end: Int
@@ -200,7 +206,11 @@ public struct AgentOutputDetector: Sendable {
         // prose: a hookless (shared app-server) pane has no hook to correct it.
         if liveKindIsCodex
             ? containsCodexApprovalPrompt(lines)
-            : canEvaluateAttentionCues && containsNeedsAttentionPrompt(normalized)
+            : canEvaluateAttentionCues
+                && containsNeedsAttentionPrompt(
+                    normalized,
+                    agentKind: liveAgentKind == .shell ? attentionCueAgentKind : liveAgentKind
+                )
         {
             return AgentOutputDetection(state: .needsAttention, agentKind: attentionCueAgentKind)
         }
@@ -287,6 +297,7 @@ public struct AgentOutputDetector: Sendable {
         containsConfidentClaudeIdentity(lines, allowsPromptLaunch: true)
             || containsConfidentOpenCodeIdentity(lines)
             || containsConfidentCodexIdentity(lines)
+            || containsConfidentAntigravityIdentity(lines)
             || containsConfidentGenericIdentity(lines, allowsPromptLaunch: true)
     }
 
@@ -327,6 +338,9 @@ public struct AgentOutputDetector: Sendable {
         }
         if containsConfidentOpenCodeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .openCode
+        }
+        if containsConfidentAntigravityIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
+            return .antigravity
         }
         return nil
     }
@@ -520,6 +534,20 @@ public struct AgentOutputDetector: Sendable {
         }
     }
 
+    private func containsConfidentAntigravityIdentity(
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool = true
+    ) -> Bool {
+        if lineHasAnchoredPrefix(lines, ["google antigravity", "antigravity cli"]) {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return lineHasPromptLaunch(lines, command: "agy")
+            || lineHasPromptLaunch(lines, command: "antigravity")
+    }
+
     private func containsConfidentGenericIdentity(
         _ lines: [Substring],
         allowsPromptLaunch: Bool
@@ -667,7 +695,7 @@ public struct AgentOutputDetector: Sendable {
         "permission needed", "permission required", "needs permission", "approve pending request",
     ]
 
-    private func containsNeedsAttentionPrompt(_ text: String) -> Bool {
+    private func containsNeedsAttentionPrompt(_ text: String, agentKind: AgentKind?) -> Bool {
         if Self.attentionPromptHeadings.contains(where: { text.contains($0) }) {
             return true
         }
@@ -676,6 +704,7 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("[y/n/a]")
             || text.contains("[y/n/s]")
             || text.contains("[y/n/e]")
+            || (agentKind == .antigravity && text.contains("approve/reject"))
         {
             return true
         }

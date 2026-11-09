@@ -46,6 +46,7 @@ enum AgentConfigHome {
         case .codex: ".codex"
         case .openCode: ".config/opencode"
         case .pi: ".pi/agent"
+        case .antigravity: ".gemini"
         case .grok, .hermes, .shell, .generic: nil
         }
     }
@@ -62,6 +63,7 @@ enum AgentConfigHome {
         case .openCode: integrations.openCode
         case .pi: integrations.pi
         case .grok: integrations.grok
+        case .antigravity: integrations.antigravity
         case .shell, .hermes, .generic: .defaultValue
         }
     }

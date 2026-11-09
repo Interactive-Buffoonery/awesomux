@@ -489,6 +489,78 @@ struct AgentHookCommandTests {
         }
     }
 
+    @Test("Antigravity CLI event flag and conversationId append runtime event and emit JSON stdout")
+    func antigravityEventFlagAndConversationIDAppendRuntimeEvent() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        var stdoutLines: [String] = []
+
+        let payload = Data(
+            #"{"conversationId":"2E914558-9675-43F3-9BAC-238D469A8583","terminationReason":"NO_TOOL_CALL","fullyIdle":true}"#
+                .utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "antigravity", "--event", "Stop"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: payload,
+            output: { stdoutLines.append($0) }
+        )
+
+        #expect(status == 0)
+        #expect(stdoutLines == ["{}"])
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.source == .antigravity)
+        #expect(event.kind == .antigravity)
+        #expect(event.phase == .stop)
+        #expect(event.executionState == .waiting)
+        #expect(event.providerSessionID == "2e914558-9675-43f3-9bac-238d469a8583")
+    }
+
+    @Test("Antigravity subagent hooks with parentConversationId are ignored")
+    func antigravitySubagentHooksWithParentConversationIDWriteNothing() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        var stdoutLines: [String] = []
+
+        let payload = Data(
+            #"{"conversationId":"11111111-2222-3333-4444-555555555555","parentConversationId":"2e914558-9675-43f3-9bac-238d469a8583","terminationReason":"NO_TOOL_CALL"}"#
+                .utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "antigravity", "--event", "Stop"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: payload,
+            output: { stdoutLines.append($0) }
+        )
+
+        #expect(status == 0)
+        #expect(stdoutLines == ["{}"])
+        #expect(try Data(contentsOf: temp.file).isEmpty)
+    }
+
+    @Test("Antigravity PostToolUse for write_file and edit_file surfaces Markdown touchedPath")
+    func antigravityPostToolUseSurfacesMarkdownTouchedPath() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let payload = Data(
+            #"{"conversationId":"2e914558-9675-43f3-9bac-238d469a8583","toolCall":{"name":"write_file","args":{"Path":"/Users/agent/plan.md"}}}"#
+                .utf8
+        )
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "antigravity", "--event", "PostToolUse"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: payload,
+            output: { _ in }
+        )
+
+        #expect(status == 0)
+        let event = try #require(try Self.readSingleEvent(from: temp.file))
+        #expect(event.source == .antigravity)
+        #expect(event.phase == .toolEnd)
+        #expect(event.touchedPath == "/Users/agent/plan.md")
+    }
+
     private static func hookPayload(
         _ hookEventName: String,
         notificationType: String? = nil,

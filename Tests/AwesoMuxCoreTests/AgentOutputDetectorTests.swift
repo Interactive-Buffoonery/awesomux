@@ -208,6 +208,24 @@ struct AgentOutputDetectorTests {
         )
     }
 
+    @Test(
+        "Antigravity approval cues do not change other providers",
+        arguments: [
+            AgentKind.shell, .generic, .claudeCode, .codex, .grok, .hermes, .antigravity,
+        ])
+    func antigravityApprovalCueIsProviderScoped(kind: AgentKind) {
+        let prompt = "Approve/reject  Your answer:"
+        let detection = detector.detectedOutput(in: prompt, assumingAgentContext: true, liveAgentKind: kind)
+        #expect((detection?.state == .needsAttention) == (kind == .antigravity))
+        #expect((detector.attentionCue(in: prompt, liveAgentKind: kind) != nil) == (kind == .antigravity))
+        let inferredCue = detector.attentionCue(in: prompt, liveAgentKind: kind, inferredAgentKind: .antigravity)
+        #expect((inferredCue != nil) == (kind == .shell || kind == .antigravity))
+        if kind != .shell && kind != .antigravity {
+            let staleBanner = "Google Antigravity\n" + prompt
+            #expect(detector.detectedOutput(in: staleBanner, assumingAgentContext: true, liveAgentKind: kind)?.state != .needsAttention)
+        }
+    }
+
     @Test("live Codex approval identity survives menu navigation")
     func codexCueIgnoresSelectedChoice() {
         let prompt =
@@ -327,6 +345,19 @@ struct AgentOutputDetectorTests {
         ("❯ codex", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .codex)),
         ("❯ opencode", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .openCode)),
         ("$ opencode", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .openCode)),
+        ("❯ agy", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .antigravity)),
+        (
+            "$ agy -r 2e914558-9675-43f3-9bac-238d469a8583", AgentKind.shell, false,
+            AgentOutputDetection(state: .waiting, agentKind: .antigravity)
+        ),
+        (
+            "Google Antigravity\nPress esc to interrupt generation.", AgentKind.shell, false,
+            AgentOutputDetection(state: .thinking, agentKind: .antigravity)
+        ),
+        (
+            "Google Antigravity\nrun_command\nApprove/reject  Your answer:", AgentKind.shell, false,
+            AgentOutputDetection(state: .needsAttention, agentKind: .antigravity)
+        ),
         ("Muse Code v1.2.3", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .generic)),
         ("❯ muse", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .generic)),
         ("✨ ❯ cursor-agent --resume", AgentKind.shell, false, AgentOutputDetection(state: .waiting, agentKind: .generic)),

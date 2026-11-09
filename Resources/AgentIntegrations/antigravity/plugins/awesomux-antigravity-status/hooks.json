@@ -1,0 +1,37 @@
+{
+  "awesomux-status": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook}; \"$AWESOMUX_AGENT_HOOK\" --provider antigravity --event SessionStart",
+        "timeout": 10
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook}; \"$AWESOMUX_AGENT_HOOK\" --provider antigravity --event PreInvocation",
+        "timeout": 10
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook}; \"$AWESOMUX_AGENT_HOOK\" --provider antigravity --event PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-awesoMuxAgentHook}; \"$AWESOMUX_AGENT_HOOK\" --provider antigravity --event Stop",
+        "timeout": 10
+      }
+    ]
+  }
+}

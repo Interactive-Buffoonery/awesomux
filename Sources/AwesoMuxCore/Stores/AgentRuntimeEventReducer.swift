@@ -849,7 +849,7 @@ struct AgentRuntimeEventReducer: Sendable {
         _ event: AgentRuntimeEvent,
         state: RuntimeEventState
     ) -> Bool {
-        guard event.source == .grok,
+        guard event.source == .grok || event.source == .antigravity,
             let parentSessionID = state.providerSessionID,
             let eventSessionID = normalizedProviderSessionID(event.providerSessionID)
         else {

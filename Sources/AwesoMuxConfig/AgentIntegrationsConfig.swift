@@ -14,6 +14,9 @@ public struct AgentIntegrationsConfig: Codable, Equatable, Sendable {
     @TOMLDefault<AgentIntegrationSetupDefaultProvider>
     public var grok: AgentIntegrationSetup
 
+    @TOMLDefault<AgentIntegrationSetupDefaultProvider>
+    public var antigravity: AgentIntegrationSetup
+
     public static let defaultValue = AgentIntegrationsConfig()
 
     public init(
@@ -21,13 +24,15 @@ public struct AgentIntegrationsConfig: Codable, Equatable, Sendable {
         codex: AgentIntegrationSetup = .defaultValue,
         openCode: AgentIntegrationSetup = .defaultValue,
         pi: AgentIntegrationSetup = .defaultValue,
-        grok: AgentIntegrationSetup = .defaultValue
+        grok: AgentIntegrationSetup = .defaultValue,
+        antigravity: AgentIntegrationSetup = .defaultValue
     ) {
         self.claudeCode = claudeCode
         self.codex = codex
         self.openCode = openCode
         self.pi = pi
         self.grok = grok
+        self.antigravity = antigravity
     }
 
     enum CodingKeys: String, CodingKey {
@@ -36,6 +41,7 @@ public struct AgentIntegrationsConfig: Codable, Equatable, Sendable {
         case openCode = "open_code"
         case pi
         case grok
+        case antigravity
     }
 }
 

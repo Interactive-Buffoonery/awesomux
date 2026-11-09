@@ -184,6 +184,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
             report = await codexStatus(setup: setup)
         case .grok:
             report = await grokStatus(setup: setup)
+        case .antigravity:
+            report = await antigravityStatus(setup: setup)
         }
         report.note = Self.mergedStatusNote(report.note, installManifestLoadWarning())
         return report
@@ -209,6 +211,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
                 await codexEnableOrInstall(setup: setup)
             case .grok:
                 await grokEnableOrInstall(setup: setup)
+            case .antigravity:
+                await antigravityEnableOrInstall(setup: setup)
             }
         }
     }
@@ -235,6 +239,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
                 await codexDisable(setup: setup)
             case .grok:
                 await grokDisable(setup: setup)
+            case .antigravity:
+                await antigravityDisable(setup: setup)
             }
         }
     }
@@ -251,6 +257,8 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
                 await codexUninstall(setup: setup)
             case .grok:
                 await grokUninstall(setup: setup)
+            case .antigravity:
+                await antigravityUninstall(setup: setup)
             }
         }
     }
@@ -390,6 +398,15 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
                 executablePath: executable,
                 configTargets: [],
                 commandLines: grokCommandLines(action, ref: ref)
+            )
+        case .antigravity:
+            let home = antigravityHome(setup: setup).path
+            return AgentPluginConfirmation(
+                action: action,
+                title: antigravityConfirmationTitle(action),
+                executablePath: executable,
+                configTargets: [home.appending("/config/config.json")],
+                commandLines: antigravityCommandLines(action, ref: ref)
             )
         }
     }

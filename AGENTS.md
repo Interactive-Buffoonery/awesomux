@@ -24,7 +24,9 @@ it with current code, ADRs, and GitHub; flag conflicts.
 
 - Preserve unrelated changes. Do not push to `main` without explicit approval.
 - Get direct human approval of the action and content before publishing issues,
-  pushing commits, opening PRs, or posting comments/replies.
+  pushing commits, opening PRs, or posting comments/replies. During review,
+  report approval violations only with affirmative evidence. Missing public
+  approval notes are not evidence; never require private approval records in PRs.
 - External contributors need issue assignment or an ownership handoff before
   pushing/updating its PR; maintainers `serabi` and `edequalsawesome` are exempt.
 - GitHub and synced Linear issues are public. Synced issue keys are fine;

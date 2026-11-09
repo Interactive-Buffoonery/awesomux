@@ -10,6 +10,7 @@ struct AgentPluginTemplateRendererTests {
         case rendersClaudeTreeWithBakedHelperPath
         case rendersCodexTreeWithBakedHelperPath
         case rendersGrokTreeWithBakedHelperPath
+        case rendersAntigravityTreeWithBakedHelperPath
     }
 
     @Test(arguments: ProviderTreesCase.allCases)
@@ -91,6 +92,33 @@ struct AgentPluginTemplateRendererTests {
                 let command = try Self.firstHookCommand(in: hookContents)
                 Self.expectResolutionLadder(command, bakedPath: helper.path)
                 #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider grok"))
+            }
+        case .rendersAntigravityTreeWithBakedHelperPath:
+            try Self.withTemporaryDirectory { support in
+                let renderer = Self.renderer(support: support)
+                let helper = AgentHookHelperPath(
+                    path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook",
+                    isDevelopmentBundle: false
+                )
+
+                let rendered = try renderer.render(
+                    provider: .antigravity,
+                    setup: AgentIntegrationSetup(enabled: true, configHome: "/Users/example/.gemini"),
+                    helperPath: helper
+                )
+
+                let marketplaceManifest = rendered.marketplaceRootURL
+                    .appending(path: ".claude-plugin/marketplace.json")
+                let pluginManifest = rendered.marketplaceRootURL
+                    .appending(path: "plugins/awesomux-antigravity-status/plugin.json")
+                #expect(FileManager.default.fileExists(atPath: marketplaceManifest.path))
+                #expect(FileManager.default.fileExists(atPath: pluginManifest.path))
+
+                let hookURL = try #require(rendered.hookConfigURLs.first)
+                let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
+                let command = try Self.firstHookCommand(in: hookContents)
+                Self.expectResolutionLadder(command, bakedPath: helper.path)
+                #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider antigravity --event "))
             }
         }
     }
@@ -297,9 +325,28 @@ struct AgentPluginTemplateRendererTests {
 
     private static func firstHookCommand(in raw: String) throws -> String {
         let data = Data(raw.utf8)
-        let decoded = try JSONDecoder().decode(HooksManifest.self, from: data)
-        let entry = try #require(decoded.hooks.values.first?.first)
-        return try #require(entry.hooks.first?.command)
+        if let decoded = try? JSONDecoder().decode(HooksManifest.self, from: data),
+            let entry = decoded.hooks.values.first?.first,
+            let command = entry.hooks.first?.command
+        {
+            return command
+        }
+        let antigravity = try JSONDecoder().decode(
+            [String: [String: [AntigravityHookEntry]]].self,
+            from: data
+        )
+        let eventEntries = try #require(antigravity.values.first?.values.first)
+        let firstEntry = try #require(eventEntries.first)
+        return try #require(firstEntry.command ?? firstEntry.hooks?.first?.command)
+    }
+
+    private struct AntigravityHookEntry: Decodable {
+        struct Command: Decodable {
+            let command: String
+        }
+
+        let command: String?
+        let hooks: [Command]?
     }
 
     private struct HooksManifest: Decodable {

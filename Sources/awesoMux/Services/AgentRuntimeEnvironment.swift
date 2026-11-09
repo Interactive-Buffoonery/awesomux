@@ -37,7 +37,7 @@ struct AgentRuntimeConsent: Equatable, Sendable {
             return enabledFileDropSources.contains(.openCode)
         case .pi:
             return enabledFileDropSources.contains(.pi)
-        case .claudeCode, .codex, .grok:
+        case .claudeCode, .codex, .grok, .antigravity:
             return true
         case .unknown:
             break
@@ -48,7 +48,7 @@ struct AgentRuntimeConsent: Equatable, Sendable {
             return enabledFileDropSources.contains(.openCode)
         case .pi?:
             return enabledFileDropSources.contains(.pi)
-        case .claudeCode?, .codex?, .grok?:
+        case .claudeCode?, .codex?, .grok?, .antigravity?:
             return true
         case .generic?, .hermes?, .shell?, nil:
             return true

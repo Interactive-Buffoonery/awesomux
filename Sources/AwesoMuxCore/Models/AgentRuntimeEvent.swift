@@ -123,7 +123,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             // dropping the whole event, since a real `.toolEnd` still carries a
             // load-bearing execution transition.
             let touchedPath: String?
-            if payload.source == .claudeCode,
+            if payload.source == .claudeCode || payload.source == .antigravity,
                 payload.phase == .toolEnd,
                 let rawPath = payload.touchedPath?.value
             {

@@ -1002,7 +1002,8 @@ extension GhosttySurfaceNSView {
         let cue =
             detection?.isLiveCodexQuestion != true
                 && (detection?.state == .needsAttention || terminalEventState.lastAcceptedAttentionCue != nil)
-            ? terminalEventState.agentOutputDetector.attentionCue(in: agentText, liveAgentKind: liveAgentKind) : nil
+            ? terminalEventState.agentOutputDetector.attentionCue(
+                in: agentText, liveAgentKind: liveAgentKind, inferredAgentKind: detection?.agentKind) : nil
         applyVisibleTextAgentOutput(detection, attentionCue: cue, now: now)
     }
 
