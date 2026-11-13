@@ -17,6 +17,7 @@ ordinary_commit = ordinary_commit.replace('                let revision = headRe
 watch = watch.replace('}.value', '}.value\n                WatcherProbe.completions += 1')
 chip_guard = view.split('                    for await lookup in group {', 1)[1].split('                        switch lookup', 1)[0].replace('else { break }', 'else { return false }')
 path_info = path_info.replace('    let branch: String?', '    var branch: String?').replace('    let gitBranch: String?', '    var gitBranch: String?')
+status_refresh = '    func refreshHeadGitStatus(' + view.split('    private func refreshHeadGitStatus(', 1)[1].split('    @MainActor\n    private func watchHead', 1)[0]
 formatter = (ROOT / 'Sources/awesoMux/Views/TerminalAccessibilityPathFormatter.swift').read_text().replace('import AwesoMuxCore\n', '')
 fixture = r'''
 struct TerminalSession: Sendable { var workingDirectory: String; var role = "watcher" }
@@ -62,11 +63,27 @@ final class ReadGate: @unchecked Sendable {
     }
 }
 extension DocumentFileWatcher { var fixtureIsArmed: Bool { source != nil } }
+struct HeadStatusKey: Equatable { var url: URL?; var revision: UInt64; var owner: Int }
+@MainActor enum StatusProbe {
+    static var hold = false
+    static var pending: CheckedContinuation<Void, Never>?
+}
+@MainActor struct GitStatusResolver {
+    static let shared = GitStatusResolver()
+    func status(repoRoot: String, branch: String) async -> String? {
+        if StatusProbe.hold {
+            await withCheckedContinuation { StatusProbe.pending = $0 }
+        }
+        return "status for " + branch
+    }
+}
 @MainActor final class WatchFixture {
     var model: PathInfo
     var headRevision: UInt64 = 0
     var headReadRevision: UInt64 = 0
     var hasResolved = true
+    var owner = 0
+    var headStatusKey: HeadStatusKey { HeadStatusKey(url: headWatchURL, revision: headRevision, owner: owner) }
     var headWatchURL: URL? { model.gitHeadURL }
     init(_ model: PathInfo) { self.model = model }
     func resolveOrdinarily(session: TerminalSession) async {
@@ -77,6 +94,7 @@ ORDINARY_COMMIT
 CHIP_GUARD
         return true
     }
+STATUS_REFRESH
 WATCH
 }
 @MainActor func wait(_ condition: () -> Bool) async {
@@ -208,6 +226,28 @@ func git(_ root: String, _ args: [String]) throws {
         await sameTask.value
         probe.stop()
         print("PASS: identical HEAD rewrites retain valid held chip completions")
+        let refillOwner = WatchFixture(resolve(root))
+        let refillTask = Task { await refillOwner.watchHead(url: refillOwner.model.gitHeadURL!, session: TerminalSession(workingDirectory: root)) }
+        try git(root, ["checkout", "-q", "old"])
+        await wait { refillOwner.model.gitBranch == "old" }
+        await refillOwner.refreshHeadGitStatus(key: refillOwner.headStatusKey)
+        precondition(refillOwner.model.gitStatus == "status for old", "watched branch did not refill local status")
+        precondition(refillOwner.model.pullRequest == nil && refillOwner.model.ciStatus == nil, "watch refresh must not start remote chip lookups")
+        StatusProbe.hold = true
+        let staleStatus = Task { await refillOwner.refreshHeadGitStatus(key: refillOwner.headStatusKey) }
+        await wait { StatusProbe.pending != nil }
+        try git(root, ["checkout", "-q", "next"])
+        await wait { refillOwner.model.gitBranch == "next" }
+        refillOwner.owner += 1
+        refillOwner.model.gitStatus = "new owner"
+        StatusProbe.hold = false
+        StatusProbe.pending?.resume()
+        StatusProbe.pending = nil
+        await staleStatus.value
+        precondition(refillOwner.model.gitStatus == "new owner", "old presentation status overwrote new owner")
+        refillTask.cancel()
+        await refillTask.value
+        print("PASS: local status refill, slow-status watch progress, stale owner rejection; no remote lookups")
         for path in [root, worktree] {
             let initial = resolve(path)
             let owner = WatchFixture(initial)
@@ -240,7 +280,7 @@ func git(_ root: String, _ args: [String]) throws {
     }
 }
 '''
-fixture = fixture.replace('WATCH', watch).replace('CHIP_GUARD', chip_guard).replace('ORDINARY_READ', ordinary_read).replace('ORDINARY_COMMIT', ordinary_commit)
+fixture = fixture.replace('STATUS_REFRESH', status_refresh).replace('WATCH', watch).replace('CHIP_GUARD', chip_guard).replace('ORDINARY_READ', ordinary_read).replace('ORDINARY_COMMIT', ordinary_commit)
 # Only view @State storage is replaced. PathInfo and watchHead execute production source.
 path_info = path_info.replace('    let project: String', '    var pullRequest: String? = "old PR"\n    var gitStatus: String? = "old status"\n    var ciStatus: String? = "old CI"\n    let project: String', 1)
 source = '\n'.join(['import Foundation', path_info, formatter,

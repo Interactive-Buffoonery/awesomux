@@ -152,6 +152,9 @@ struct TerminalPathBarView: View {
                 guard let url = headWatchURL else { return }
                 await watchHead(url: url, session: session)
             }
+            .task(id: headStatusKey) {
+                await refreshHeadGitStatus(key: headStatusKey)
+            }
             .task(id: resolveKey) {
                 let activePane = session.activePane
                 let activePaneID = activePane?.id
@@ -401,6 +404,28 @@ struct TerminalPathBarView: View {
     private struct HeadWatchKey: Equatable {
         var presentation: MenuDismissKey
         var url: URL?
+    }
+
+    private struct HeadStatusKey: Equatable {
+        var presentation: MenuDismissKey
+        var url: URL?
+        var revision: UInt64
+    }
+
+    private var headStatusKey: HeadStatusKey {
+        HeadStatusKey(presentation: menuDismissKey, url: headWatchURL, revision: headRevision)
+    }
+
+    @MainActor
+    private func refreshHeadGitStatus(key: HeadStatusKey) async {
+        guard key.url != nil, let repoRoot = model.validatedRepoRootPath else { return }
+        let branch = model.gitBranch
+        // Keep local status off the watch loop and leave network lookups on their existing triggers.
+        let status = await GitStatusResolver.shared.status(repoRoot: repoRoot, branch: branch ?? "")
+        guard !Task.isCancelled, key == headStatusKey,
+            model.validatedRepoRootPath == repoRoot, model.gitBranch == branch
+        else { return }
+        model.gitStatus = status
     }
 
     @MainActor
