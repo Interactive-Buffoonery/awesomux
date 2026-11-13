@@ -44,8 +44,8 @@ the helper, reports, fixtures, and evidence remain.
 | TL02 | Focus Pane 1/2 executes each challenge only in its intended pane; any sibling execution fails | Pane > Focus Pane 1/2; `Services/KeyboardShortcutCatalog.swift`, `Views/GhosttySurface/GhosttySurfaceInputBridge.swift`, `Views/GhosttySurface/GhosttySurfaceNSView.swift` |
 | TL03 | Exiting one shell removes that pane while sibling shell/job survives | native typed `exit`; `Views/GhosttySurface/GhosttySurfaceProcessExitHandler.swift`, `AwesoMuxCore/Stores/SessionStore.swift`, `Services/AmxBackend.swift` |
 | TL04 | Cancel busy-close preserves the same running controlled job | Pane > Close Workspace (last pane), Cancel; `App/AwesoMuxApp.swift`, `Services/DestructivePaneActionConfirmationPolicy.swift` |
-| TL06 | Ordinary app-menu quit/relaunch preserves daemon, shell, busy job, history and native AX terminal marker before input | App menu > Quit; daemon-backed work needs no confirmation; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
-| TL07 | App-only SIGKILL/relaunch preserves those same identities and contents | Exact copied app PID only; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
+| TL06 | Ordinary app-menu quit/relaunch preserves identities and recovers output emitted while the app is absent, before input | App menu > Quit; daemon-backed work needs no confirmation; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
+| TL07 | App-only SIGKILL/relaunch preserves those same identities and output catch-up | Exact copied app PID only; `App/AppDelegate.swift`, `Services/AmxBackend.swift` |
 | TL05 | Soft-close/reopen retains fresh marker text before input and leaves the same daemon/shell usable; paired window PNGs support separate visual inspection | Workspace > Close Workspace / Reopen Closed Workspace; `App/AwesoMuxApp.swift`, `AwesoMuxCore/Models/SessionSnapshot.swift`, `Services/AmxBackend.swift` |
 
 TL06 and TL07 run after TL04 while the same controlled foreground job is busy,
@@ -53,9 +53,23 @@ then TL05 releases it normally. Verbose isolated `amx list` binds the daemon PID
 and shell PID to the exact session. Each boundary compares process start and
 executable as well as PID, requires an advancing job heartbeat while the app is
 absent and after relaunch, and retains challenge/job marker lines in history.
-The relaunched terminal's AX value must contain the job marker before any new
-terminal input. AX value exposes full scrollback, so this rejects missing native
-terminal text but cannot distinguish a blank viewport with retained scrollback.
+After each app-absent continuity check, a one-shot fixture request makes the
+same job emit 12 short numbered lines. Each batch has a fresh nonce-bound
+prefix derived independently by the fixture and driver. The fixture flushes
+all lines before writing its identity-bound receipt, with monotonic start and
+completion times. The driver checks the nonce, scenario, job identity, count
+and interval, then rechecks absence of the old app PID and original daemon/shell/job births
+and executables before attempting relaunch. The launch helper separately rejects
+another running instance of the exclusive copied bundle. Each scenario is requested once.
+
+On the acceptance path the driver makes no backend list/history reads between
+emission and the relaunched AX assertion. The owned, foreground, focused terminal must
+contain the job marker and every emitted batch line exactly once, in global
+TL06-then-TL07 order, before history confirmation or terminal input. Missing,
+duplicated, embedded, unexpected or reordered `TL_OUTPUT_` lines fail the check.
+The same ordered blocks must then appear in backend history. AX value exposes
+full scrollback, so this rejects missing native terminal text but cannot
+distinguish a blank viewport with retained scrollback.
 Window PNGs remain human evidence. This does not prove viewport rendering,
 every scrollback byte, styled cells or cursor position.
 The quit wait permits the product's roughly 30-second ordered bridge drain.
@@ -63,6 +77,25 @@ An unexpected quit-risk warning is not accepted: daemon-backed work survives
 app quit. Each LaunchServices incarnation has a separate request and receipt. SIGKILL is
 app-only abrupt termination, not daemon death or a host reboot. No live profile
 or installed app is targeted.
+
+`outputBatches` records expected lines, original app PID, request/receipt paths,
+producer timing, post-emission process observations, the final app-absence
+observation time and relaunch-attempt time. These interval fields use Python
+`time.monotonic`, not wall time. `<scenario>-output-request.json` and
+`<scenario>-output-receipt.json` preserve exact request and raw receipt bytes
+outside the disposable fixture tree. `receiptEvidenceSource` distinguishes bytes
+collected by the poll, collected only during finalization, or absent (a null file).
+Collection source does not establish acceptance; only the scenario-specific
+`output-produced-while-absent` pass step records successful validation.
+`<scenario>-retained-text.json` retains the last AX snapshot even on failure
+(null if no snapshot was obtained). Only after a failed AX assertion may
+`<scenario>-after-failed-AX-history.txt` collect backend diagnostics; the failed
+assertion is never retried after that read. This verifies that bounded output
+written while the old app was absent is present exactly once, in order, in the
+focused terminal's AX text after relaunch;
+daemon ingestion before reattachment is not separately observed. It does not
+prove every historical byte, styled grid, foreground process-group membership
+or continuous observation of all processes.
 
 TL05 releases the foreground job normally, then generates a fresh challenge
 response before soft-close. Both that response and the earlier job marker must
