@@ -2364,7 +2364,7 @@
       "comment" : "Accessibility label for editing remote file context"
     },
     "Edit annotation" : {
-
+      "comment" : "Accessibility label for the annotation edit text area"
     },
     "Edit this file in any text editor; awesoMux reloads on save." : {
       "comment" : "Advanced settings hint."
@@ -3680,7 +3680,7 @@
 
     },
     "Note…" : {
-
+      "comment" : "Placeholder for editing an annotation note"
     },
     "Nothing to copy" : {
       "comment" : "Copy refusal for an empty sanitized prompt"
@@ -6562,7 +6562,7 @@
       "comment" : "Worktree Manager error title."
     },
     "Write a note about the whole document…" : {
-
+      "comment" : "Placeholder for the whole-document note editor"
     },
     "Write a prompt to copy for Codex…" : {
       "comment" : "Placeholder in the Codex clipboard composer"

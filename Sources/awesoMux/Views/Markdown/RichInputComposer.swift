@@ -208,7 +208,6 @@ struct RichInputComposerSheet: View {
             )
                 .buttonStyle(.borderedProminent)
                 .tint(Color.aw.mauve)
-                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!canSend)
         }
         .padding(16)
@@ -245,6 +244,7 @@ private struct RichInputTextView: NSViewRepresentable {
     let isCopy: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -255,7 +255,10 @@ private struct RichInputTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let textView = NSTextView()
+        let textView = AnnotationAcceptChordTextView()
+        textView.onAcceptChord = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onSend()
+        }
         textView.delegate = context.coordinator
         textView.isEditable = true
         textView.isSelectable = true
@@ -305,6 +308,8 @@ private struct RichInputTextView: NSViewRepresentable {
         // and bindings don't go stale across SwiftUI struct recreations.
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        textView.isEditable = isEnabled
+        textView.isSelectable = isEnabled
         if textView.string != text {
             textView.string = text
         }
@@ -338,6 +343,13 @@ private struct RichInputTextView: NSViewRepresentable {
                 // insertNewline: has no currentEvent, so an empty flag set falls
                 // through to the send path — the intended default for a bare
                 // "commit this field" instruction.
+                guard textView.isEditable, !textView.hasMarkedText() else { return false }
+                if let event = NSApp.currentEvent, event.type == .keyDown {
+                    let held = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([
+                        .capsLock, .function, .numericPad,
+                    ])
+                    guard !event.isARepeat, held.isDisjoint(with: [.command, .control]) else { return true }
+                }
                 let flags = NSApp.currentEvent?.modifierFlags ?? []
                 let outcome = RichInputStaging.returnKeyOutcome(
                     shift: flags.contains(.shift),
