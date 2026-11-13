@@ -11,7 +11,7 @@ named in the table:
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
-| Ghostty | `091beb99250bc4c1a255d3617b54630c115d0f27` | `Ghostty/LICENSE` |
+| Ghostty | `f28124c734bbcd0598a521623fa573a915e37157` | `Ghostty/LICENSE` |
 | zmx / amx | `ffa16fa3e14e6622eb6c07b5fe292396ce2ecdbd` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
@@ -37,6 +37,7 @@ named in the table:
 | SPIRV-Cross | 13.1.1 (`N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv`) | `SPIRV-Cross/LICENSE`, `SPIRV-Cross/KhronosFreeUse.txt` |
 | Wuffs | `7411f488fe2e2c205c3d3b3d28638b7356522930` (`N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`) | `Wuffs/LICENSE`, `Wuffs/LICENSE-APACHE`, `Wuffs/LICENSE-MIT` |
 | z2d | 0.13.2 / `8787d71bac42d9aab00428ccb37a4fd453418761` | `z2d/COPYING`, `z2d/LICENSE`, `z2d/SOURCE.txt` |
+| uucode | `1fb73433bba5d93366c57f23ff2e9d7939746500` | `uucode/LICENSE.md`, `uucode/LICENSE_unicode`, `uucode/LICENSE_Bjoern_Hoehrmann`, `uucode/SOURCE.txt` |
 | Zig compiler runtime | Compatible 0.17.x toolchain (exact artifact version stamped at build time; license matches 0.17.0) | `Zig/LICENSE` |
 
 When a dependency pin changes, refresh its corresponding files from that exact
@@ -90,7 +91,7 @@ The z2d row covers Zig rasterization code compiled into `ghostty_zcu.o`. Its
 MPL-2.0 terms and upstream notices are bundled unchanged. `z2d/SOURCE.txt` links
 the exact unmodified source and archive used by this pin.
 
-The ReleaseFast archive at the Ghostty pin above was rebuilt with Zig 0.17.0.
+The ReleaseFast archive at the Ghostty pin above was rebuilt with Zig 0.17.1.
 Its 277 members match the inventory recorded in the manifest. Bundled notices
 were checked against the pinned package sources and compiler license. This
 records archive contents and licensing; it does not establish runtime behavior.

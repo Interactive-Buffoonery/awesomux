@@ -4,28 +4,18 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `091beb99250bc4c1a255d3617b54630c115d0f27` (untagged `origin/main`, post-`v1.4.0`)
+- Current pin: `f28124c734bbcd0598a521623fa573a915e37157` (untagged `origin/main`, post-`v1.4.0`)
 - License: MIT
 
-> This pin includes upstream's [Kitty history cleanup](https://github.com/ghostty-org/ghostty/pull/14832)
-> and [color-scheme report fix](https://github.com/ghostty-org/ghostty/pull/14834).
-> awesoMux now uses upstream's history cleanup and retains its no-scrollback
-> resize hook and regression checks. Color-scheme reports are sent directly
-> during configuration changes, avoiding a write back to the I/O thread's own
-> mailbox. This pin also fixes stale scrollback pins, cursor style and hyperlinks
-> after history pruning, and malformed UTF-8 configuration handling. Shell
-> integration escapes directory names before writing terminal control sequences.
-> This revision adds DEC column operations, corrects VT formatter wrapping,
-> and rejects empty prefixed commands. It also updates embedded tmux control
-> handling and z2d rasterization to 0.13.2.
-> The public C header now declares pointer nullability. Swift callbacks,
-> pointer-field reads and clipboard fixtures follow that contract, guided by
-> upstream's MIT-licensed macOS Swift migration in 0e067ded703c4212248daf996f97c62f2f13114a.
-> Nullable userdata, constructors, target surfaces and preedit clearing remain
-> supported. The bundled Ghostty license is unchanged. The ReleaseFast build
-> passed 68 libxev tests and 400 Ghostty regression tests. Swift compilation,
-> preflight and runtime checks are recorded separately for the application
-> revision being validated.
+> This update repairs cursor and viewport pins during resize, preserves
+> scrollback when rows grow while columns shrink, and improves style-run
+> processing, CSI parsing and Kitty image handling. The new window-theme
+> action follows awesoMux's existing ignored application-action policy.
+> The embedded pointer contracts and all ten local extension insertion points
+> remain compatible. Local libxev patches and the separately owned zmx pin
+> are preserved. The ReleaseFast build with Zig 0.17.1 passed 68 libxev tests
+> and 400 native regressions. A fresh archive audit retained 277 members and
+> the recorded member digest. App preflight and runtime checks are separate.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work

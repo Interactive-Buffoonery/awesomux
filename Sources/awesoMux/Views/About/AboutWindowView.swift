@@ -240,6 +240,18 @@ struct AboutCredit: Identifiable {
                     resource: "LICENSE-APACHE", ext: nil)
             ]),
         AboutCredit(
+            name: "uucode",
+            attribution: String(
+                localized: "Unicode tables and grapheme handling — MIT and Unicode License V3",
+                comment: "About credit for uucode and its Unicode data"),
+            resource: "LICENSE", ext: "md", subdirectory: "uucode",
+            notice: (resource: "LICENSE_unicode", ext: nil),
+            additionalDocuments: [
+                AboutCreditDocument(
+                    label: String(localized: "Decoder Notice", comment: "Button opening the UTF-8 decoder notice"),
+                    resource: "LICENSE_Bjoern_Hoehrmann", ext: nil)
+            ]),
+        AboutCredit(
             name: "Highway",
             attribution: "SIMD operations — Apache-2.0 and BSD-3-Clause",
             resource: "LICENSE", ext: nil, subdirectory: "Highway",

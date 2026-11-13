@@ -2033,7 +2033,8 @@ final class GhosttyRuntime {
             GHOSTTY_ACTION_REDO,
             GHOSTTY_ACTION_CHECK_FOR_UPDATES,
             GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
-            GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
+            GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+            GHOSTTY_ACTION_SET_WINDOW_THEME:
             return true
         default:
             return false

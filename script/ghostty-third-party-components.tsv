@@ -1,5 +1,5 @@
 # Audited against GhosttyKit ReleaseFast at vendor/ghostty pin below.
-# ghostty_pin=091beb99250bc4c1a255d3617b54630c115d0f27
+# ghostty_pin=f28124c734bbcd0598a521623fa573a915e37157
 # zig_version_series=0.17
 # archive_member_count=277
 # archive_members_sha256=f52ec83b0da3b43ad0ee55c9eb1a20dd8249d8aaf0e7c49de764c5ee61b0e5b8
@@ -24,3 +24,4 @@ SPIRV-Cross	13.1.1 / N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv	spirv_cros
 Wuffs	7411f488fe2e2c205c3d3b3d28638b7356522930 / N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI	wuffs-v0.4.o	Wuffs/LICENSE|Wuffs/LICENSE-APACHE|Wuffs/LICENSE-MIT
 Zig compiler runtime	0.17.x compatible toolchain	compiler_rt.o	Zig/LICENSE
 z2d	0.13.2 / 8787d71bac42d9aab00428ccb37a4fd453418761	ghostty_zcu.o	z2d/COPYING|z2d/LICENSE|z2d/SOURCE.txt
+uucode	1fb73433bba5d93366c57f23ff2e9d7939746500	ghostty_zcu.o	uucode/LICENSE.md|uucode/LICENSE_unicode|uucode/LICENSE_Bjoern_Hoehrmann|uucode/SOURCE.txt

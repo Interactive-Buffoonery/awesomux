@@ -1,0 +1,8 @@
+uucode 1fb73433bba5d93366c57f23ff2e9d7939746500
+https://github.com/jacobsandlund/uucode/tree/1fb73433bba5d93366c57f23ff2e9d7939746500
+
+LICENSE.md is copied from the exact Ghostty-pinned package. The Unicode and
+Bjoern Hoehrmann notices are copied from the same upstream commit because
+the package archive omits its licenses directory. All texts are unchanged.
+Unicode tables and grapheme code are compiled into ghostty_zcu.o. The decoder
+notice is included with the complete package attribution.
