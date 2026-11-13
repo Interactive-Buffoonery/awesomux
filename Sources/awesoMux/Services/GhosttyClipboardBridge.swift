@@ -808,6 +808,7 @@ extension GhosttyRuntime {
                     text,
                     policy: policy,
                     confirm: confirm,
+                    location: location,
                     sourceDescription: sourceDescription,
                     parentWindow: parentWindow
                 ) else {
@@ -828,10 +829,10 @@ extension GhosttyRuntime {
     @MainActor
     private(set) static var isClipboardWriteAlertPresented = false
 
-    /// Text of the write currently showing its confirmation dialog, kept so
-    /// redraw-spam duplicates of it can be dropped without queueing.
+    /// Text and destination of the write showing its confirmation dialog, so
+    /// redraw-spam duplicates can be dropped without losing another clipboard's write.
     @MainActor
-    private static var activeClipboardWritePromptText: String?
+    private static var activeClipboardWritePrompt: ClipboardWriteIdentity?
 
     /// The single waiting slot behind the open confirmation dialog. Depth is
     /// deliberately one: a newer distinct write supersedes an older waiting
@@ -840,8 +841,13 @@ extension GhosttyRuntime {
     @MainActor
     private static var pendingClipboardWrite: PendingClipboardWrite?
 
-    private struct PendingClipboardWrite {
+    private struct ClipboardWriteIdentity: Equatable {
         let text: String
+        let location: ghostty_clipboard_e
+    }
+
+    private struct PendingClipboardWrite {
+        let identity: ClipboardWriteIdentity
         let continuation: CheckedContinuation<Bool, Never>
     }
 
@@ -857,6 +863,7 @@ extension GhosttyRuntime {
         _ text: String,
         policy: TerminalConfig.ClipboardWritePolicy,
         confirm: Bool,
+        location: ghostty_clipboard_e = GHOSTTY_CLIPBOARD_STANDARD,
         sourceDescription: String? = nil,
         parentWindow: NSWindow? = nil
     ) async -> Bool {
@@ -864,6 +871,7 @@ extension GhosttyRuntime {
         // configured to ask. Local copy actions also reach this callback, but
         // they use confirm=false and should preserve normal user copy behavior.
         guard confirm else { return true }
+        let identity = ClipboardWriteIdentity(text: text, location: location)
 
         switch policy {
         case .allow:
@@ -875,8 +883,9 @@ extension GhosttyRuntime {
                 // A TUI re-emitting OSC 52 on every redraw sends the same
                 // payload each time; dropping duplicates keeps redraw spam
                 // from re-prompting after the user answers once.
-                guard text != activeClipboardWritePromptText,
-                      text != pendingClipboardWrite?.text else {
+                guard identity != activeClipboardWritePrompt,
+                    identity != pendingClipboardWrite?.identity
+                else {
                     clipboardWriteLog.debug("OSC 52 clipboard write dropped: duplicate of a write already awaiting confirmation")
                     return false
                 }
@@ -886,7 +895,7 @@ extension GhosttyRuntime {
                     superseded.continuation.resume(returning: false)
                 }
                 let mayPresent = await withCheckedContinuation { continuation in
-                    pendingClipboardWrite = PendingClipboardWrite(text: text, continuation: continuation)
+                    pendingClipboardWrite = PendingClipboardWrite(identity: identity, continuation: continuation)
                 }
                 guard mayPresent else { return false }
                 // Resumed true: the closing dialog handed
@@ -897,7 +906,7 @@ extension GhosttyRuntime {
                 isClipboardWriteAlertPresented = true
             }
 
-            activeClipboardWritePromptText = text
+            activeClipboardWritePrompt = identity
             let generation = clipboardWriteGateGeneration
             defer {
                 if generation != clipboardWriteGateGeneration {
@@ -905,11 +914,11 @@ extension GhosttyRuntime {
                     // resumed any pending write and rebuilt the gate state.
                 } else if let next = pendingClipboardWrite {
                     pendingClipboardWrite = nil
-                    activeClipboardWritePromptText = next.text
+                    activeClipboardWritePrompt = next.identity
                     next.continuation.resume(returning: true)
                 } else {
                     isClipboardWriteAlertPresented = false
-                    activeClipboardWritePromptText = nil
+                    activeClipboardWritePrompt = nil
                 }
             }
             return await clipboardWriteConfirmationProvider(text, sourceDescription, parentWindow)
@@ -920,7 +929,7 @@ extension GhosttyRuntime {
     /// the waiting slot before firing the next one.
     @MainActor
     static var pendingClipboardWriteTextForTesting: String? {
-        pendingClipboardWrite?.text
+        pendingClipboardWrite?.identity.text
     }
 
     @MainActor
@@ -930,7 +939,7 @@ extension GhosttyRuntime {
         }
         clipboardWriteGateGeneration += 1
         isClipboardWriteAlertPresented = false
-        activeClipboardWritePromptText = nil
+        activeClipboardWritePrompt = nil
         if let pending = pendingClipboardWrite {
             pendingClipboardWrite = nil
             pending.continuation.resume(returning: false)
