@@ -202,12 +202,16 @@ struct BridgePreflightLifecycleTests {
         )
         #expect(fixture.surfaceCommands.values.isEmpty)
 
+        // Detach before completing the preflight: a nil fake surface otherwise lets layout retry.
+        window.contentView = nil
+        #expect(fixture.view.window == nil)
         await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
         await fixture.preflight.waitForCompletionCount(1)
         await fixture.surfaceCommands.waitForCount(1)
         await drainMainQueue()
 
         #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
+        #expect(await fixture.preflight.requestCount == 1)
     }
 
     @Test("repointing invalidates a suspended preflight generation")
@@ -232,11 +236,17 @@ struct BridgePreflightLifecycleTests {
         )
 
         await fixture.preflight.waitForRequestCount(2)
+        // Detach before completing the preflight: a nil fake surface otherwise lets layout retry.
+        window.contentView = nil
+        #expect(fixture.view.window == nil)
         await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
         await fixture.preflight.resumeRequest(1, returning: .degraded(.forwardFailed))
         await fixture.preflight.waitForCompletionCount(2)
+        await fixture.surfaceCommands.waitForCount(1)
+        await drainMainQueue()
 
         #expect(fixture.surfaceCommands.values == ["base-\(repointedPane.terminalSessionID.rawValue)"])
+        #expect(await fixture.preflight.requestCount == 2)
     }
 
     @Test("discarding a view invalidates its suspended preflight")
@@ -717,6 +727,7 @@ private actor SuspendedPreflight {
     }
 
     private var requests: [RequestState] = []
+    var requestCount: Int { requests.count }
     private var requestCountWaiters: [(count: Int, continuation: SignalResumer)] = []
     private var completionCount = 0
     private var completionCountWaiters: [(count: Int, continuation: SignalResumer)] = []
