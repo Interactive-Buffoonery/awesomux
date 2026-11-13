@@ -808,7 +808,7 @@ extension GhosttyRuntime {
                     text,
                     policy: policy,
                     confirm: confirm,
-                    location: location,
+                        location: location,
                     sourceDescription: sourceDescription,
                     parentWindow: parentWindow
                 ) else {
