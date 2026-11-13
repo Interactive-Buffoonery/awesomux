@@ -1088,6 +1088,7 @@ struct TerminalPathBarView: View {
         // Snapshot before the await: the model can re-resolve and the active pane
         // can change while git runs; the menu must open against the repo/branch
         // the user clicked on — or not at all.
+        let model = model
         guard let repoRoot = model.validatedRepoRootPath,
             let currentBranch = model.gitBranch
         else { return }
