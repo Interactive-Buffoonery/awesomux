@@ -17,12 +17,17 @@ struct PathBarChip: View {
     /// is intentionally NOT part of the label's width measurement: only the label
     /// (a branch name) caps + truncates; the hint is always short and stays whole.
     var hint: String?
+    var isLoading = false
     @State private var measuredLabelWidth: CGFloat?
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
+                .opacity(isLoading ? 0 : 1)
+                .overlay {
+                    if isLoading { StatusDot(.thinking).frame(width: 10, height: 10) }
+                }
                 .accessibilityHidden(true)
 
             Text(label)

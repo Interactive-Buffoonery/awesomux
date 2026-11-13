@@ -1,5 +1,27 @@
 import Foundation
 
+/// Only the current lookup may clear loading or open its menu.
+struct BranchMenuLoadState {
+    private var generation = 0
+    private var pending: Int?
+    var isLoading: Bool { pending != nil }
+
+    mutating func begin() -> Int? {
+        guard pending == nil else { return nil }
+        generation += 1
+        pending = generation
+        return generation
+    }
+
+    mutating func invalidate() { pending = nil }
+
+    mutating func finish(_ request: Int) -> Bool {
+        guard pending == request else { return false }
+        pending = nil
+        return true
+    }
+}
+
 // MARK: - Command runner
 
 /// Production runner: `git for-each-ref` via the shared `BoundedCommandRunner`.

@@ -57,11 +57,7 @@ struct TerminalPathBarView: View {
     /// Open-time SNAPSHOT of the branch menu's contents — see `toggleBranchMenu()`.
     @State private var branchesForMenu: [String]?
     @State private var currentBranchForMenu: String?
-    /// Invalidation token for an in-flight `toggleBranchMenu()` git lookup.
-    /// Bumped by the two `.onChange` handlers below on `content`, and once
-    /// synchronously before the lookup starts — see `toggleBranchMenu()` for
-    /// why a live re-read through `session` can't do this job instead.
-    @State private var branchMenuGeneration = 0
+    @State private var branchMenuLoad = BranchMenuLoadState()
     /// Escape-key monitor, active only while a foldout is presented — see the
     /// `.onChange(of: presentedMenu)` handler for why this exists instead of
     /// `.onExitCommand`, and the class itself for the deinit backstop that a
@@ -552,7 +548,7 @@ struct TerminalPathBarView: View {
             // A pane switch, workspace switch, or same-pane `cd` (all folded
             // into `menuDismissKey`, per its own doc comment) invalidates any
             // branch-menu lookup in flight against the OLD pane/repo.
-            branchMenuGeneration += 1
+            branchMenuLoad.invalidate()
         }
         .onChange(of: presentedMenu) { _, newValue in
             // Covers the menu-ABA case `toggleBranchMenu()`'s own guard can't
@@ -560,7 +556,7 @@ struct TerminalPathBarView: View {
             // path-bar menu change means the world the pending lookup was
             // snapshotted against no longer holds, so invalidate
             // unconditionally.
-            branchMenuGeneration += 1
+            branchMenuLoad.invalidate()
 
             // A local event monitor handles Escape whether keyboard focus is
             // in the terminal or on a path-bar button. It runs only while a
@@ -575,6 +571,7 @@ struct TerminalPathBarView: View {
             // Prompt teardown when the path bar unmounts with a menu open;
             // the monitor's `isolated deinit` is the backstop for teardowns
             // where SwiftUI skips this callback.
+            branchMenuLoad.invalidate()
             escapeMonitor.stop()
         }
     }
@@ -746,13 +743,14 @@ struct TerminalPathBarView: View {
 
             if let branch = model.branch {
                 Button {
-                    Task { await toggleBranchMenu() }
+                    toggleBranchMenu()
                 } label: {
                     PathBarChip(
                         icon: "arrow.triangle.branch",
                         label: branch,
                         tone: Color.aw.peach,
-                        hint: aheadBehindHint
+                        hint: aheadBehindHint,
+                        isLoading: branchMenuLoad.isLoading
                     )
                     .frame(minHeight: 24)
                     .contentShape(RoundedRectangle(cornerRadius: AwRadius.pill))
@@ -769,6 +767,12 @@ struct TerminalPathBarView: View {
                 // (`PathBarChip`) is plain visuals only.
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(branchChipAccessibilityLabel(branch: branch))
+                .accessibilityValue(
+                    Text(
+                        branchMenuLoad.isLoading
+                            ? String(localized: "Loading branches…", comment: "Branch chip status while the branch list is being read") : ""
+                    )
+                )
                 .accessibilityHint(
                     // A promise of an action that won't fire is a lie to
                     // VoiceOver users — only advertise the foldout when
@@ -1076,7 +1080,7 @@ struct TerminalPathBarView: View {
     }
 
     @MainActor
-    private func toggleBranchMenu() async {
+    private func toggleBranchMenu() {
         if presentedMenu == .branches {
             presentedMenu = nil
             return
@@ -1084,36 +1088,38 @@ struct TerminalPathBarView: View {
         // Snapshot before the await: the model can re-resolve and the active pane
         // can change while git runs; the menu must open against the repo/branch
         // the user clicked on — or not at all.
+        let model = model
         guard let repoRoot = model.validatedRepoRootPath,
             let currentBranch = model.gitBranch
         else { return }
-        branchMenuGeneration += 1
-        let generation = branchMenuGeneration
-        let branches = await BranchListResolver.shared.branches(repoRoot: repoRoot)
-        // Drop a stale completion. Four things can invalidate this lookup
-        // mid-flight: a pane switch, a workspace switch, a same-pane `cd`
-        // (all three bump the token via `.onChange(of: menuDismissKey)`), or
-        // the user opening/closing a menu during the await — the ABA case
-        // where `presentedMenu` goes nil → open → nil and back
-        // (`.onChange(of: presentedMenu)`). None of these can be read live
-        // off `session`: it's a value-type property captured with this view
-        // struct at `.task` start, so `session.activePane?.id` read here
-        // after the await is the SAME frozen snapshot compared against
-        // itself, never the live pane (the bridge-cwd poll's live-store-read
-        // comment above is the identical lesson) — hence the counter.
-        guard generation == branchMenuGeneration else { return }
-        // The pinned row shows the SANITIZED display branch (`model.branch`),
-        // never the raw `gitBranch` — a bidi-spoofed HEAD must not bypass the
-        // chip's own defense just because it's rendered from the menu instead.
-        currentBranchForMenu = model.branch
-        // nil stays nil: the menu distinguishes "git failed" from "one branch".
-        // `otherBranches` still dedupes against the RAW `currentBranch`: that
-        // must match `for-each-ref`'s byte-for-byte output, not the sanitized
-        // display string.
-        branchesForMenu = branches.map {
-            BranchListMenuModel.otherBranches(branches: $0, currentBranch: currentBranch)
+        guard let request = branchMenuLoad.begin() else { return }
+        Task {
+            let branches = await BranchListResolver.shared.branches(repoRoot: repoRoot)
+            // Drop a stale completion. These events invalidate the pending lookup
+            // mid-flight: a pane switch, a workspace switch, a same-pane `cd`
+            // (all three invalidate via `.onChange(of: menuDismissKey)`), or
+            // the user opening/closing a menu during the await — the ABA case
+            // where `presentedMenu` goes nil → open → nil and back
+            // (`.onChange(of: presentedMenu)`). None of these can be read live
+            // off `session`: it's a value-type property captured with this view
+            // struct at `.task` start, so `session.activePane?.id` read here
+            // after the await is the SAME frozen snapshot compared against
+            // itself, never the live pane (the bridge-cwd poll's live-store-read
+            // comment above is the identical lesson). Disappearance also invalidates.
+            guard branchMenuLoad.finish(request) else { return }
+            // The pinned row shows the SANITIZED display branch (`model.branch`),
+            // never the raw `gitBranch` — a bidi-spoofed HEAD must not bypass the
+            // chip's own defense just because it's rendered from the menu instead.
+            currentBranchForMenu = model.branch
+            // nil stays nil: the menu distinguishes "git failed" from "one branch".
+            // `otherBranches` still dedupes against the RAW `currentBranch`: that
+            // must match `for-each-ref`'s byte-for-byte output, not the sanitized
+            // display string.
+            branchesForMenu = branches.map {
+                BranchListMenuModel.otherBranches(branches: $0, currentBranch: currentBranch)
+            }
+            presentedMenu = .branches
         }
-        presentedMenu = .branches
     }
 
     private func appIcon(for ide: InstalledIDE) -> some View {
