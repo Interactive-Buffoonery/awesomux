@@ -17,6 +17,19 @@ extension GhosttyRuntime {
     private static let clipboardPreviewScalarLimit = 512
     private static let clipboardPreviewDisplayLimit = 160
 
+    private static let selectionPasteboard = NSPasteboard.withUniqueName()
+
+    private static func clipboardPasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
+        switch location {
+        case GHOSTTY_CLIPBOARD_STANDARD:
+            return .general
+        case GHOSTTY_CLIPBOARD_SELECTION:
+            return selectionPasteboard
+        default:
+            return nil
+        }
+    }
+
     // Diagnostics only. Every message here is payload-free (counts/policy, never
     // clipboard text) so it is safe to leave at a level Console captures —
     // these breadcrumbs are the only way a user debugging "my remote copy
@@ -81,7 +94,7 @@ extension GhosttyRuntime {
         mimesLen: Int,
         list: Bool
     ) -> ghostty_clipboard_read_result_e {
-        guard location == GHOSTTY_CLIPBOARD_STANDARD else {
+        guard location == GHOSTTY_CLIPBOARD_STANDARD || location == GHOSTTY_CLIPBOARD_SELECTION else {
             return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
         }
         guard let userdata else {
@@ -123,7 +136,10 @@ extension GhosttyRuntime {
                 .fromOpaque(userdata)
                 .takeUnretainedValue()
 
-            let pasteboardContent = TerminalPasteboardString.content(from: NSPasteboard.general)
+            guard let pasteboard = clipboardPasteboard(for: location) else {
+                return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
+            }
+            let pasteboardContent = TerminalPasteboardString.content(from: pasteboard)
 
             if RemoteHandoff.target(for: view.pane.executionPlan) != nil,
                 let pasteboardContent,
@@ -722,7 +738,7 @@ extension GhosttyRuntime {
         len: Int,
         confirm: Bool
     ) {
-        guard location == GHOSTTY_CLIPBOARD_STANDARD,
+        guard location == GHOSTTY_CLIPBOARD_STANDARD || location == GHOSTTY_CLIPBOARD_SELECTION,
               let userdata,
               let content,
               len > 0 else {
@@ -755,6 +771,7 @@ extension GhosttyRuntime {
                 .fromOpaque(userdata)
                 .takeUnretainedValue()
             let policy = view.runtime.clipboardWritePolicy
+            guard let pasteboard = clipboardPasteboard(for: location) else { return }
 
             // Deny is also enforced upstream: when the ghostty `clipboard-write`
             // override (set from this same policy) is `deny`, libghostty drops
@@ -797,7 +814,6 @@ extension GhosttyRuntime {
                     return
                 }
 
-                let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(text, forType: .string)
             }

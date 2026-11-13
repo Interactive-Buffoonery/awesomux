@@ -10,7 +10,9 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > This update fixes stale prompts after resize, preserves restored page
 > capacity, clears cloned padding rows correctly, and keeps replaced Kitty
 > images alive until transmission ends. It also changes macOS copy-on-select
-> defaults to the selection clipboard. The embedded API and local extension
+> defaults to the selection clipboard. awesoMux now routes selection reads and
+> writes through a process-private pasteboard, separate from the system clipboard.
+> The embedded API and local extension
 > insertion points remain compatible. Local libxev patches and the separately
 > owned zmx pin are preserved. The ReleaseFast build with Zig 0.17.1 passed
 > 68 libxev tests and 400 native regressions. A fresh archive audit retained
