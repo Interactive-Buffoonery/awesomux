@@ -695,6 +695,10 @@ required_license_files=(
   "Wuffs/LICENSE"
   "Wuffs/LICENSE-APACHE"
   "Wuffs/LICENSE-MIT"
+  "uucode/LICENSE.md"
+  "uucode/LICENSE_unicode"
+  "uucode/LICENSE_Bjoern_Hoehrmann"
+  "uucode/SOURCE.txt"
   "z2d/COPYING"
   "z2d/LICENSE"
   "z2d/SOURCE.txt"
@@ -709,6 +713,12 @@ for license_file in "${required_license_files[@]}"; do
   fi
   mkdir -p "$(dirname "$bundled_license")"
   cp "$source_license" "$bundled_license"
+done
+
+# Preserve the relative notice links in the unchanged upstream uucode license.
+for notice in LICENSE_unicode LICENSE_Bjoern_Hoehrmann; do
+  mkdir -p "$APP_RESOURCES/Licenses/uucode/licenses"
+  cp "$LICENSE_RESOURCES/uucode/$notice" "$APP_RESOURCES/Licenses/uucode/licenses/$notice"
 done
 
 for license_file in "${required_license_files[@]}"; do

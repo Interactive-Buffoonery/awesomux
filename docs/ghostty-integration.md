@@ -4,28 +4,20 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `091beb99250bc4c1a255d3617b54630c115d0f27` (untagged `origin/main`, post-`v1.4.0`)
+- Current pin: `f08437b7956abdefa0d6e0431c495303a7009069` (untagged `origin/main`, post-`v1.4.0`)
 - License: MIT
 
-> This pin includes upstream's [Kitty history cleanup](https://github.com/ghostty-org/ghostty/pull/14832)
-> and [color-scheme report fix](https://github.com/ghostty-org/ghostty/pull/14834).
-> awesoMux now uses upstream's history cleanup and retains its no-scrollback
-> resize hook and regression checks. Color-scheme reports are sent directly
-> during configuration changes, avoiding a write back to the I/O thread's own
-> mailbox. This pin also fixes stale scrollback pins, cursor style and hyperlinks
-> after history pruning, and malformed UTF-8 configuration handling. Shell
-> integration escapes directory names before writing terminal control sequences.
-> This revision adds DEC column operations, corrects VT formatter wrapping,
-> and rejects empty prefixed commands. It also updates embedded tmux control
-> handling and z2d rasterization to 0.13.2.
-> The public C header now declares pointer nullability. Swift callbacks,
-> pointer-field reads and clipboard fixtures follow that contract, guided by
-> upstream's MIT-licensed macOS Swift migration in 0e067ded703c4212248daf996f97c62f2f13114a.
-> Nullable userdata, constructors, target surfaces and preedit clearing remain
-> supported. The bundled Ghostty license is unchanged. The ReleaseFast build
-> passed 68 libxev tests and 400 Ghostty regression tests. Swift compilation,
-> preflight and runtime checks are recorded separately for the application
-> revision being validated.
+> This update fixes stale prompts after resize, preserves restored page
+> capacity, clears cloned padding rows correctly, and keeps replaced Kitty
+> images alive until transmission ends. It also changes macOS copy-on-select
+> defaults to the selection clipboard. awesoMux now routes selection reads and
+> writes through a process-private pasteboard, separate from the system clipboard.
+> The embedded API and local extension
+> insertion points remain compatible. Local libxev patches and the separately
+> owned zmx pin are preserved. The ReleaseFast build with Zig 0.17.1 passed
+> 68 libxev tests and 400 native regressions. A fresh archive audit retained
+> 277 members and the recorded member digest. App preflight and runtime checks
+> are separate.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -41,11 +33,11 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > synchronously and leave it resident — see the ceiling notes in
 > `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
 >
-> The pin requires Zig 0.17 and retains the static-link post-processor. Its current
-> archive post-processor leaves compiler-rt's `_memset` private-external, which
-> ld64 still rejects beside Ghostty's own override; our build script finishes
-> that one-symbol localization before publishing the archive. The zmx and
-> Ghostty builds select their declared Zig toolchains independently.
+> The pin requires Zig 0.17 and retains the static-link post-processor.
+> Upstream now verifies compiler-rt symbol localization and uses libSystem's
+> memory functions on Darwin. Our existing `_memset` localization guard is a
+> no-op when upstream has already localized the symbol. The zmx and Ghostty
+> builds select their declared Zig toolchains independently.
 
 The integration uses Ghostty's Darwin XCFramework output,
 `macos/GhosttyKit.xcframework`, produced under `.build/ghostty/` and linked from
