@@ -715,6 +715,12 @@ for license_file in "${required_license_files[@]}"; do
   cp "$source_license" "$bundled_license"
 done
 
+# Preserve the relative notice links in the unchanged upstream uucode license.
+for notice in LICENSE_unicode LICENSE_Bjoern_Hoehrmann; do
+  mkdir -p "$APP_RESOURCES/Licenses/uucode/licenses"
+  cp "$LICENSE_RESOURCES/uucode/$notice" "$APP_RESOURCES/Licenses/uucode/licenses/$notice"
+done
+
 for license_file in "${required_license_files[@]}"; do
   if [[ ! -f "$APP_RESOURCES/Licenses/$license_file" ]]; then
     echo "error: required bundled license is missing: Licenses/$license_file" >&2
