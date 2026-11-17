@@ -1,5 +1,5 @@
 {
-  "originHash" : "5a6a8553e4dba168dc615c8ae458676345fd7ceaa48ae3b1c67423df3d361548",
+  "originHash" : "0fbc67d7c5473df10f8a79da77caaeadb75bdfa5d588c5b6ab371bb33682551e",
   "pins" : [
     {
       "identity" : "awesomux-companion",
@@ -14,8 +14,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
-        "version" : "2.10.0"
+        "revision" : "ab7d71291238df6e0492143b120c9b696a35f603",
+        "version" : "2.10.1"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mattt/swift-toml.git",
       "state" : {
-        "revision" : "827506c90475e82d5a7f191f950fb3025cbdc0d6",
-        "version" : "2.0.0"
+        "revision" : "6bb8b940f8caa4106c517b5ccd26739cb03e43bd",
+        "version" : "2.1.1"
       }
     }
   ],
