@@ -18,6 +18,8 @@ public struct AwColors: Sendable {
         sapphire: "#74c7ec",
         blue: "#89b4fa",
         lavender: "#b4befe",
+        coral: "#f2a99c",
+        silver: "#dfe2ec",
         text: "#cdd6f4",
         subtext1: "#bac2de",
         subtext0: "#a6adc8",
@@ -44,6 +46,8 @@ public struct AwColors: Sendable {
         sapphire: "#209fb5",
         blue: "#1e66f5",
         lavender: "#7287fd",
+        coral: "#e8604c",
+        silver: "#9ca0b0",
         text: "#4c4f69",
         subtext1: "#5c5f77",
         subtext0: "#6c6f85",
@@ -73,6 +77,8 @@ public struct AwColors: Sendable {
         sapphire: "#9ee4ff",
         blue: "#b7ccff",
         lavender: "#d0d8ff",
+        coral: "#ffc6ba",
+        silver: "#f8f9fc",
         text: "#ffffff",
         subtext1: "#f2f5ff",
         subtext0: "#e8edff",
@@ -104,6 +110,8 @@ public struct AwColors: Sendable {
         sapphire: "#00627d",
         blue: "#084fbd",
         lavender: "#354fb5",
+        coral: "#a8361f",
+        silver: "#4c4f69",
         text: "#0a0a14",
         subtext1: "#15151f",
         subtext0: "#1e1e2e",
@@ -565,7 +573,7 @@ public struct AwColors: Sendable {
 /// fill (`Color.aw.tint`) and the contrast-tuned border (`Color.aw.tintBorder`),
 /// so the dot, rail, glow, and border can never drift to different hues.
 public enum AwTintAccent: Sendable, CaseIterable, Hashable {
-    case mauve, peach, green, teal, blue, pink, yellow, red, gray, sky, lavender
+    case mauve, peach, green, teal, blue, pink, yellow, red, gray, sky, lavender, coral, silver
 
     var paletteKey: KeyPath<AwPalette, String> {
         switch self {
@@ -580,6 +588,8 @@ public enum AwTintAccent: Sendable, CaseIterable, Hashable {
         case .gray: \.subtext0
         case .sky: \.sky
         case .lavender: \.lavender
+        case .coral: \.coral
+        case .silver: \.silver
         }
     }
 
@@ -599,6 +609,8 @@ public enum AwTintAccent: Sendable, CaseIterable, Hashable {
         case .gray: "#5c5f77"
         case .sky: "#0376a4"
         case .lavender: "#405cfc"
+        case .coral: "#b83e26"
+        case .silver: "#66697f"
         }
     }
 
@@ -615,6 +627,8 @@ public enum AwTintAccent: Sendable, CaseIterable, Hashable {
         case .gray: ("#373949", "#cbced8", "#464755", "#babcc5")
         case .sky: ("#314351", "#b4daed", "#394755", "#b3c9df")
         case .lavender: ("#3a3d55", "#ccd3f2", "#404255", "#bfc7e2")
+        case .coral: ("#48383f", "#e6cbcb", "#4b3e46", "#d8c2c1")
+        case .silver: ("#444451", "#d6d9e1", "#494a54", "#c4c7d2")
         }
     }
 }
@@ -631,6 +645,8 @@ struct AwPalette: Sendable {
     let sapphire: String
     let blue: String
     let lavender: String
+    let coral: String
+    let silver: String
     let text: String
     let subtext1: String
     let subtext0: String
