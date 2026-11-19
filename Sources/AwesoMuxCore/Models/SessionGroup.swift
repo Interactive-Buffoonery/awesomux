@@ -12,9 +12,12 @@ public enum WorkspaceGroupColor: String, CaseIterable, Codable, Hashable, Sendab
     case gray
     case sky
     case lavender
+    case coral
+    case silver
 
     public static let pickerCases: [WorkspaceGroupColor] = [
-        .mauve, .peach, .green, .teal, .blue, .pink, .yellow, .red, .gray,
+        .mauve, .lavender, .peach, .green, .teal, .sky, .blue, .pink, .yellow, .red, .coral, .gray,
+        .silver,
     ]
 
     public var displayName: String {
@@ -30,6 +33,8 @@ public enum WorkspaceGroupColor: String, CaseIterable, Codable, Hashable, Sendab
         case .gray: String(localized: "Gray", comment: "Workspace group tint color")
         case .sky: String(localized: "Sky", comment: "Workspace group tint color")
         case .lavender: String(localized: "Lavender", comment: "Workspace group tint color")
+        case .coral: String(localized: "Coral", comment: "Workspace group tint color")
+        case .silver: String(localized: "Silver", comment: "Workspace group tint color")
         }
     }
 }

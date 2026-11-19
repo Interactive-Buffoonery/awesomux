@@ -1771,6 +1771,17 @@
     "Copy your draft before closing." : {
       "comment" : "Document note editor recovery message when only copying is safe"
     },
+    "Coral" : {
+      "comment" : "Workspace group tint color",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coral"
+          }
+        }
+      }
+    },
     "Could Not Apply Preset" : {
       "comment" : "Alert title when applying a layout preset fails."
     },
@@ -5410,6 +5421,17 @@
     },
     "Sidebar search" : {
 
+    },
+    "Silver" : {
+      "comment" : "Workspace group tint color",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Silver"
+          }
+        }
+      }
     },
     "Skip" : {
       "comment" : "Welcome tour button dismissing the tour"
