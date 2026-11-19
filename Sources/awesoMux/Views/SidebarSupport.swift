@@ -96,6 +96,8 @@ struct ProjectTint {
         case .gray: .gray
         case .sky: .sky
         case .lavender: .lavender
+        case .coral: .coral
+        case .silver: .silver
         }
     }
 

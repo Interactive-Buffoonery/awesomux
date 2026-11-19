@@ -9,7 +9,7 @@ struct PaneColorCodableTests {
         "bad colors degrade to nil without losing the snapshot",
         arguments: [
             (true, #"{"kind":"theme","name":"x"}"#),
-            (true, #"{"kind":"palette","name":"coral"}"#),
+            (true, #"{"kind":"palette","name":"ultraviolet"}"#),
             (true, #""ultraviolet""#),
             (false, #""ultraviolet""#),
             (false, #"{"unexpected":"shape"}"#),
