@@ -27,7 +27,9 @@ final class PrimaryPaneTree {
 
     func measure(_ mount: Mount, size: CGSize) {
         guard self.mount == mount else { return }
-        self.size = Self.validSize(size)
+        let nextSize = Self.validSize(size)
+        guard self.size != nextSize else { return }
+        self.size = nextSize
     }
 
     func detach(_ mount: Mount) {

@@ -4438,6 +4438,9 @@
         }
       }
     },
+    "Redistribute space across the workspace’s split panes" : {
+
+    },
     "Refresh" : {
       "comment" : "Refresh Worktree Manager action.\nRefresh project transcript metadata\nSend-bar button title on a branch changes tab that re-runs the comparison\nSend-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
     },

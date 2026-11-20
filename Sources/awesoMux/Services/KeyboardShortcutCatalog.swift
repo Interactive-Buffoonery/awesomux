@@ -299,7 +299,7 @@ enum KeyboardShortcutCatalog {
 
     static let balanceSplits = KeyBinding(
         id: "balanceSplits",
-        action: "Balance Splits",
+        action: String(localized: "Balance Splits"),
         key: "b",
         modifiers: [.command, .option],
         keyDisplay: "B"
@@ -707,7 +707,8 @@ enum KeyboardShortcutCatalog {
                 entries: [
                     KeyboardShortcutEntry(splitRight, detail: "Create a vertical split"),
                     KeyboardShortcutEntry(splitDown, detail: "Create a horizontal split"),
-                    KeyboardShortcutEntry(balanceSplits, detail: "Redistribute space across the workspace’s split panes"),
+                    KeyboardShortcutEntry(
+                        balanceSplits, detail: String(localized: "Redistribute space across the workspace’s split panes")),
                     KeyboardShortcutEntry(renamePane, detail: "Pin a custom active pane title"),
                     KeyboardShortcutEntry(closePane, detail: "Close the active pane; closes the workspace when it's the last pane"),
                     KeyboardShortcutEntry(find, detail: "Search terminal scrollback"),

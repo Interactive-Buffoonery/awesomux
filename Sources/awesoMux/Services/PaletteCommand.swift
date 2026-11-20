@@ -492,7 +492,7 @@ enum PaletteCommandRegistry {
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.balanceSplits.id,
-                title: "Balance Splits",
+                title: String(localized: "Balance Splits"),
                 subtitle: nil,
                 keywords: ["equal", "size", "resize", "pane", "layout"],
                 shortcut: KeyboardShortcutCatalog.balanceSplits,
