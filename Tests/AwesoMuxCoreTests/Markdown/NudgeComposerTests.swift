@@ -4,6 +4,18 @@ import Testing
 
 @Suite("NudgeComposer")
 struct NudgeComposerTests {
+    @Test
+    func bundledClaudeSkillContainsCanonicalConvention() throws {
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let skill = repository.appending(
+            path: "Resources/AgentIntegrations/claude_code/plugins/awesomux-runtime-status/skills/awesomux-documents/SKILL.md")
+        let body = try Data(contentsOf: skill)
+        let convention = Data(NudgeComposer.commentConventionSummary.utf8)
+        #expect(!convention.isEmpty)
+        #expect(body.range(of: convention) != nil)
+    }
+
     @Test(arguments: [
         ("notes; touch /tmp/pwned #.md", "'notes; touch /tmp/pwned #.md'"),
         ("a'b", "'a'\\''b'"),
