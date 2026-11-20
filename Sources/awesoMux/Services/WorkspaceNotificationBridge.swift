@@ -22,6 +22,8 @@ final class WorkspaceNotificationBridge {
     /// is async, so without this a burst of group mutations can each start a
     /// round trip and stack multiple explanation modals.
     private(set) var isAuthorizationRequestInFlight = false
+    /// Allow clicks that arrived while an automatic lookup or prompt was running.
+    private var userAuthorizationCompletions: [@MainActor (Bool) -> Void] = []
 
     /// Events that arrived while authorization was still undetermined. They
     /// wait for the one round trip below instead of each starting their own —
@@ -138,15 +140,17 @@ final class WorkspaceNotificationBridge {
                 default: false
                 }
             flushPendingAuthorizationEvents(isAuthorized: isAuthorized)
+            finishUserAuthorizationRequests(isAuthorized: isAuthorized)
             return
         }
+        let userAsked = !userAuthorizationCompletions.isEmpty
         // The wizard can open during the async status fetch.
-        guard !defersAutomaticAuthorization() else {
+        guard userAsked || !defersAutomaticAuthorization() else {
             isAuthorizationRequestInFlight = false
             return
         }
 
-        presentAuthorizationExplanation()
+        if !userAsked { presentAuthorizationExplanation() }
         requestAuthorization { [weak self] granted in
             self?.handlePrimeRequestResult(granted: granted)
         }
@@ -158,16 +162,24 @@ final class WorkspaceNotificationBridge {
     func handlePrimeRequestResult(granted: Bool) {
         isAuthorizationRequestInFlight = false
         flushPendingAuthorizationEvents(isAuthorized: granted)
+        finishUserAuthorizationRequests(isAuthorized: granted)
+    }
+
+    private func finishUserAuthorizationRequests(isAuthorized: Bool) {
+        let completions = userAuthorizationCompletions
+        userAuthorizationCompletions.removeAll()
+        for completion in completions { completion(isAuthorized) }
     }
 
     /// The setup wizard's Allow button. The user asked, so no explanation
     /// alert first — the system prompt is the whole interaction.
+    /// A click during an automatic lookup waits for it and is answered there.
     func requestAuthorizationFromUser(completion: @escaping @MainActor (Bool) -> Void) {
+        userAuthorizationCompletions.append(completion)
         guard !isAuthorizationRequestInFlight else { return }
         isAuthorizationRequestInFlight = true
         requestAuthorization { [weak self] granted in
             self?.handlePrimeRequestResult(granted: granted)
-            completion(granted)
         }
     }
 

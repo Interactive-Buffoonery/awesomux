@@ -627,7 +627,9 @@ private struct SetupWizardAgentRow: View {
                 }
             } detail: {
                 if isEnabled {
-                    detailText(state.failureSummary ?? state.guidance ?? state.statusDetail)
+                    detailText(
+                        agents.pluginInstallFailures[provider] ?? state.failureSummary ?? state.guidance
+                            ?? state.statusDetail)
                 }
             }
             .confirmationDialog(
@@ -735,6 +737,10 @@ final class SetupWizardAgentsModel {
         probeServices: { _ in AgentIntegrationProbeService() })
     private var pluginTasks: [AgentPluginProvider: (id: UUID, task: Task<Void, Never>, isProbe: Bool)] = [:]
     private(set) var installErrors: [AgentIntegrationInstallProvider: String] = [:]
+    /// Kept apart from the probe status: the entry probe clears the view
+    /// model's failure, which would hide an install that failed after dismiss.
+    private(set) var pluginInstallFailures: [AgentPluginProvider: String] = [:]
+    @ObservationIgnored private var isShowingAgents = false
 
     init(store: AppSettingsStore) {
         self.store = store
@@ -765,6 +771,7 @@ final class SetupWizardAgentsModel {
         let committed = integrationViewModel.normalizedSetup(setup)
         store.agentIntegrations.update { $0[keyPath: Self.keyPath(display)] = committed }
         if let provider = display.pluginProvider {
+            pluginInstallFailures[provider] = nil
             // Enabling is consent for read-only probes; a disabled probe clears status.
             probe(provider)
         } else if let provider = display.installable {
@@ -792,8 +799,10 @@ final class SetupWizardAgentsModel {
     }
 
     func installPlugin(_ provider: AgentPluginProvider) {
-        runPluginTask(provider, isProbe: false) { model, target, setup in
+        pluginInstallFailures[provider] = nil
+        runPluginTask(provider, isProbe: false) { [weak self] model, target, setup in
             await model.perform(action: .enableOrInstall, target: target, setup: setup)
+            self?.pluginInstallFailures[provider] = model.cardState(target: target, setup: setup).failureSummary
         }
     }
 
@@ -817,8 +826,14 @@ final class SetupWizardAgentsModel {
         let id = UUID()
         let task = Task { @MainActor [weak self] in
             await operation(model, target, setup)
-            if self?.pluginTasks[provider]?.id == id {
-                self?.pluginTasks[provider] = nil
+            guard let self else { return }
+            if pluginTasks[provider]?.id == id {
+                pluginTasks[provider] = nil
+            }
+            // A probe started while this cancelled one was draining saw the
+            // target as still probing and quit, so it never published.
+            if isProbe, Task.isCancelled, isShowingAgents {
+                probe(provider)
             }
         }
         pluginTasks[provider] = (id, task, isProbe)
@@ -845,6 +860,7 @@ final class SetupWizardAgentsModel {
 
     /// Forced: an unchanged setup says nothing about unchanged files.
     func refreshAll() {
+        isShowingAgents = true
         for provider in AgentPluginProvider.allCases where setup(for: AgentIntegrationDisplayProvider(provider)).enabled {
             probe(provider)
         }
@@ -857,6 +873,7 @@ final class SetupWizardAgentsModel {
     /// Probes only. An install's CLI runs to completion anyway, so it keeps
     /// running and publishes its result for the next time Agents is shown.
     func cancelPendingWork() {
+        isShowingAgents = false
         for (provider, entry) in pluginTasks where entry.isProbe {
             entry.task.cancel()
             pluginTasks[provider] = nil

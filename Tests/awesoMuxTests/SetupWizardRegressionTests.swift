@@ -26,6 +26,17 @@ struct SetupWizardRegressionTests {
         #expect(!bridge.isAuthorizationRequestInFlight)
     }
 
+    /// Failure mode: relaunching after a first launch that never dismissed the
+    /// wizard sees libghostty's template config and shows Welcome.
+    @Test func ghosttyConfigAnswerSurvivesTemplateOnRelaunch() throws {
+        let suite = "setup-wizard-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(!FirstRunTourPolicy.hasGhosttyConfig(defaults: defaults, detectedNow: false))
+        #expect(!FirstRunTourPolicy.hasGhosttyConfig(defaults: defaults, detectedNow: true))
+    }
+
     /// Failure mode: a custom terminal background previews a catalog color.
     @Test func customBackgroundPreviewsSavedColor() throws {
         let directory = FileManager.default.temporaryDirectory

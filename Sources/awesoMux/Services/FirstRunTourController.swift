@@ -75,6 +75,17 @@ enum FirstRunTourPolicy {
             hasPriorInstallEvidence(loadSource: loadSource),
             forKey: SettingsKey.hasSeenFirstRunTour)
     }
+
+    /// libghostty writes a template `config.ghostty` when none exists, so only
+    /// the first launch's read is honest. Recorded once and reused, so a first
+    /// launch quit before the wizard was dismissed resumes without Welcome.
+    static func hasGhosttyConfig(defaults: UserDefaults = .standard, detectedNow: Bool) -> Bool {
+        if let recorded = defaults.object(forKey: SettingsKey.hadGhosttyConfigAtFirstLaunch) as? Bool {
+            return recorded
+        }
+        defaults.set(detectedNow, forKey: SettingsKey.hadGhosttyConfigAtFirstLaunch)
+        return detectedNow
+    }
 }
 
 /// Floating-panel presenter for the setup wizard, mirroring

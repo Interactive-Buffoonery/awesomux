@@ -410,13 +410,14 @@ struct AwesoMuxApp: App {
             eventRecorder: diagnosticEvents
         )
         _diagnosticsModel = State(initialValue: diagnosticsModel)
-        // ponytail: one launch-time read; a config created later counts from
-        // the next launch.
+        // ponytail: recorded on first launch only; a config created later
+        // never brings Welcome back.
         let ghosttyEnvironment = GhosttyConfigEnvironment.snapshot()
         _firstRunTourController = State(
             initialValue: FirstRunTourController(
-                hasGhosttyConfig: ghosttyEnvironment.userXDGConfigExists
-                    || ghosttyEnvironment.userAppSupportConfigExists))
+                hasGhosttyConfig: FirstRunTourPolicy.hasGhosttyConfig(
+                    detectedNow: ghosttyEnvironment.userXDGConfigExists
+                        || ghosttyEnvironment.userAppSupportConfigExists)))
         let ghosttyRuntime = GhosttyRuntime(
             terminalAppearanceProvider: {
                 let appearance = appSettingsStore.appearance.value
