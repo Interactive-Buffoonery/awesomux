@@ -125,6 +125,7 @@ struct PaletteAppActions {
     let reopenRecent: @MainActor (RecentlyClosedWorkspace) -> Void
     let splitRight: @MainActor () -> Void
     let splitDown: @MainActor () -> Void
+    let balanceSplits: @MainActor () -> Void
     let closePane: @MainActor () -> Void
     let restartShell: @MainActor () -> Void
     let find: @MainActor () -> Void
@@ -210,6 +211,7 @@ struct PaletteAppActions {
             reopenRecent: { _ in },
             splitRight: action,
             splitDown: action,
+            balanceSplits: action,
             closePane: action,
             restartShell: action,
             find: action,
@@ -276,6 +278,7 @@ struct PaletteCommandAvailability {
     var isSidebarHidden = false
     var isSidebarCommandTargetAvailable = true
     var isWorktreeManagerAvailable = false
+    var canBalanceSplits = false
 }
 
 @MainActor
@@ -486,6 +489,16 @@ enum PaletteCommandRegistry {
                 isEnabled: hasSelectedSession,
                 selectionScope: .pane,
                 run: actions.splitDown
+            ),
+            PaletteCommand(
+                id: KeyboardShortcutCatalog.balanceSplits.id,
+                title: String(localized: "Balance Splits"),
+                subtitle: nil,
+                keywords: ["equal", "size", "resize", "pane", "layout"],
+                shortcut: KeyboardShortcutCatalog.balanceSplits,
+                isEnabled: availability.canBalanceSplits,
+                selectionScope: .workspace,
+                run: actions.balanceSplits
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.closePane.id,

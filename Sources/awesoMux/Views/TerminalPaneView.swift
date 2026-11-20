@@ -30,6 +30,7 @@ struct TerminalPaneView: View {
     /// secondary hosts with their own header chrome (floating/companion
     /// panels) pass false or they'd double the header's hairline.
     var abutsWindowTop: Bool = true
+    private let primaryPaneTree: PrimaryPaneTree?
     private var dragCoordinator: PaneDragCoordinator { ghosttyRuntime.paneDragCoordinator }
 
     private struct PaneTreeIdentity: Equatable {
@@ -42,17 +43,22 @@ struct TerminalPaneView: View {
         sessionStore: SessionStore,
         ghosttyRuntime: GhosttyRuntime,
         onManagedSSHWorkspaceOffer: ((TerminalSession.ID, TerminalPane.ID) -> Void)? = nil,
-        abutsWindowTop: Bool = true
+        abutsWindowTop: Bool = true,
+        primaryPaneTree: PrimaryPaneTree? = nil
     ) {
         self.session = session
         self.sessionStore = sessionStore
         self.ghosttyRuntime = ghosttyRuntime
         self.onManagedSSHWorkspaceOffer = onManagedSSHWorkspaceOffer
         self.abutsWindowTop = abutsWindowTop
+        self.primaryPaneTree = primaryPaneTree
     }
 
     var body: some View {
         if ghosttyRuntime.isReady {
+            let primaryContext = primaryPaneTree.map {
+                PrimaryPaneTreeContext(tree: $0, store: sessionStore, runtime: ghosttyRuntime, sessionID: session.id)
+            }
             TerminalPaneLayoutView(
                 session: session,
                 layout: session.layout,
@@ -62,6 +68,13 @@ struct TerminalPaneView: View {
                 suppressTopFocusAccentForActivePane: false,
                 abutsWindowTop: abutsWindowTop
             )
+            .environment(\.primaryPaneTreeContext, primaryContext)
+            .background {
+                if let primaryContext {
+                    PrimaryPaneTreeMeasurement(context: primaryContext)
+                        .id(primaryContext.key)
+                }
+            }
             .background(Color.aw.surface.terminal)
             // Injected here rather than at one app root: the floating panel and
             // pop-up terminal host their own detached SwiftUI trees, and every

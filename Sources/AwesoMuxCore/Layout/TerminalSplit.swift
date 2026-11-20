@@ -1,6 +1,8 @@
 import Foundation
 
 public struct TerminalSplit: Identifiable, Codable, Hashable, Sendable {
+    static let fractionRange = 0.15...0.85
+
     public let id: UUID
     public var orientation: TerminalSplitOrientation
     public var first: TerminalPaneLayout
@@ -187,6 +189,6 @@ private extension Double {
             return 0.5
         }
 
-        return min(max(self, 0.15), 0.85)
+        return min(max(self, TerminalSplit.fractionRange.lowerBound), TerminalSplit.fractionRange.upperBound)
     }
 }

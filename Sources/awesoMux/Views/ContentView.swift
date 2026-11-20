@@ -66,6 +66,7 @@ struct ContentView: View {
     static let terminalMinimumWidth: CGFloat = 480
 
     @Bindable var sessionStore: SessionStore
+    let primaryPaneTree: PrimaryPaneTree
     @Bindable var ghosttyRuntime: GhosttyRuntime
     @Bindable var floatingPanelController: TerminalPanelController
     let onCloseWorkspace: (TerminalSession) -> Void
@@ -439,6 +440,7 @@ struct ContentView: View {
                 detail: {
                     SessionDetailView(
                         session: sessionStore.selectedSession,
+                        primaryPaneTree: primaryPaneTree,
                         sessionStore: sessionStore,
                         ghosttyRuntime: ghosttyRuntime,
                         onRenameWorkspace: onRenameWorkspace,

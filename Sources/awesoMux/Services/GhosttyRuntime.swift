@@ -345,7 +345,12 @@ final class GhosttyRuntime {
     @ObservationIgnored
     var createSurfaceOverride: ((NSView, String?, [String: String], String?) -> ghostty_surface_t?)?
 
-    private(set) var readiness: Readiness = .uninitialized
+    @ObservationIgnored private(set) var readinessRevision: UInt64 = 0
+    private(set) var readiness: Readiness = .uninitialized {
+        didSet {
+            if readiness != oldValue { readinessRevision &+= 1 }
+        }
+    }
     private(set) var errorMessage: String?
 
     /// The resolved terminal background color, read back from the finalized

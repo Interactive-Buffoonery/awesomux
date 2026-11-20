@@ -258,6 +258,7 @@ struct AwesoMuxApp: App {
     /// (INT-819). Any selection change from another path invalidates it.
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
+    @State private var primaryPaneTree = PrimaryPaneTree()
     @State private var branchChangesCoordinator = BranchChangesCoordinator()
     @State private var pullRequestDocumentGeneration: UUID?
     @State private var pullRequestDocumentTask: Task<Void, Never>?
@@ -460,6 +461,7 @@ struct AwesoMuxApp: App {
             let hasBlockingRecoveryWarning = recoveryWarning?.preventsInitialSave == true
             let rootContent = ContentView(
                 sessionStore: sessionStore,
+                primaryPaneTree: primaryPaneTree,
                 ghosttyRuntime: ghosttyRuntime,
                 floatingPanelController: floatingPanelController,
                 onCloseWorkspace: closeWorkspace,
@@ -1470,6 +1472,12 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.splitDown))
                 .disabled(sessionStore.selectedSession == nil)
+
+                Button("Balance Splits") { [mount = balanceSplitsTarget?.mount] in
+                    performBalanceSplits(expectedMount: mount)
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.balanceSplits))
+                .disabled(balanceSplitsTarget == nil)
 
                 Divider()
 
@@ -3980,19 +3988,21 @@ struct AwesoMuxApp: App {
 
     private func showKeyboardCheatsheet() {
         guard !isAnySheetPresented else { return }
+        let balanceMount = balanceSplitsMount
         keyboardCheatsheetController.show(
             relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
-            canRunShortcut: canRunKeyboardCheatsheetShortcut,
-            runShortcut: runKeyboardCheatsheetShortcut
+            canRunShortcut: { canRunKeyboardCheatsheetShortcut(id: $0, balanceMount: balanceMount) },
+            runShortcut: { runKeyboardCheatsheetShortcut(id: $0, balanceMount: balanceMount) }
         )
     }
 
     private func toggleKeyboardCheatsheet() {
         guard !isAnySheetPresented else { return }
+        let balanceMount = balanceSplitsMount
         keyboardCheatsheetController.toggle(
             relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
-            canRunShortcut: canRunKeyboardCheatsheetShortcut,
-            runShortcut: runKeyboardCheatsheetShortcut
+            canRunShortcut: { canRunKeyboardCheatsheetShortcut(id: $0, balanceMount: balanceMount) },
+            runShortcut: { runKeyboardCheatsheetShortcut(id: $0, balanceMount: balanceMount) }
         )
     }
 
@@ -4754,7 +4764,56 @@ struct AwesoMuxApp: App {
         requestTerminalFocus(sessionID: sessionID, paneID: paneID)
     }
 
+    private var balanceSplitsMount: PrimaryPaneTree.Mount? {
+        guard ghosttyRuntime.isReady,
+            let session = sessionStore.selectedSession,
+            let mount = primaryPaneTree.mount,
+            mount.key == PrimaryPaneTreeContext.key(store: sessionStore, runtime: ghosttyRuntime, sessionID: session.id)
+        else { return nil }
+        return mount
+    }
+
+    private var balanceSplitsTarget: (mount: PrimaryPaneTree.Mount, size: CGSize)? {
+        guard !isAnySheetPresented,
+            let session = sessionStore.selectedSession, case .split = session.layout,
+            let mount = balanceSplitsMount,
+            let size = primaryPaneTree.balanceSize(for: mount)
+        else { return nil }
+        return (mount, size)
+    }
+
+    @discardableResult
+    private func performBalanceSplits(expectedMount: PrimaryPaneTree.Mount?) -> Bool {
+        if let target = balanceSplitsTarget, target.mount == expectedMount,
+            sessionStore.balanceSplits(in: target.mount.key.sessionID, size: target.size)
+        {
+            return true
+        }
+        signalBalanceSplitsUnavailable()
+        return false
+    }
+
+    private func signalBalanceSplitsUnavailable() {
+        NSSound.beep()
+        let announcement = String(
+            localized: "The current pane splits could not be balanced.",
+            comment: "Accessibility announcement when Balance Splits is unavailable or the workspace is too small."
+        )
+        let toastID = UUID()
+        quickRunToast = QuickRunToast(
+            id: toastID,
+            command: String(localized: "Balance Splits"),
+            output: announcement,
+            state: .notice(kicker: String(localized: "Unavailable"))
+        )
+        scheduleQuickRunToastDismissal(id: toastID)
+        DispatchQueue.main.async {
+            postAccessibilityAnnouncement(announcement)
+        }
+    }
+
     private func makeCommandPalettePresenter() -> PalettePresenter {
+        let balanceMount = balanceSplitsTarget?.mount
         let sessionTitles = sessionStore.sidebarResolvedTitles()
         let workspaceTarget = sessionStore.selectedSession.map { session in
             PaletteWorkspaceActionTarget(
@@ -4783,7 +4842,7 @@ struct AwesoMuxApp: App {
                 return true
             },
             runCommand: { invocation in
-                runPaletteCommand(invocation)
+                runPaletteCommand(invocation, balanceMount: balanceMount)
             },
             runQuickRun: { invocation, surface in
                 runQuickRun(invocation, surface: surface)
@@ -4791,7 +4850,9 @@ struct AwesoMuxApp: App {
         )
     }
 
-    private func runPaletteCommand(_ invocation: PaletteCommandInvocation) -> Bool {
+    private func runPaletteCommand(
+        _ invocation: PaletteCommandInvocation, balanceMount: PrimaryPaneTree.Mount?
+    ) -> Bool {
         // Every selection-sensitive command, including the special workspace
         // cases below, must fail closed before it can act on its snapshot.
         guard
@@ -4802,8 +4863,16 @@ struct AwesoMuxApp: App {
                 isSinglePane: sessionStore.selectedSession?.layout.isSinglePane
             )
         else {
-            signalPaletteTargetUnavailable()
+            if invocation.commandID == KeyboardShortcutCatalog.balanceSplits.id {
+                signalBalanceSplitsUnavailable()
+            } else {
+                signalPaletteTargetUnavailable()
+            }
             return false
+        }
+
+        if invocation.commandID == KeyboardShortcutCatalog.balanceSplits.id {
+            return performBalanceSplits(expectedMount: balanceMount)
         }
 
         if let target = invocation.workspaceTarget {
@@ -4890,7 +4959,13 @@ struct AwesoMuxApp: App {
         return true
     }
 
-    private func canRunKeyboardCheatsheetShortcut(id commandID: KeyboardShortcutEntry.ID) -> Bool {
+    private func canRunKeyboardCheatsheetShortcut(
+        id commandID: KeyboardShortcutEntry.ID, balanceMount: PrimaryPaneTree.Mount?
+    ) -> Bool {
+        if commandID == KeyboardShortcutCatalog.balanceSplits.id {
+            guard let target = balanceSplitsTarget else { return false }
+            return target.mount == balanceMount
+        }
         let commands = currentRegistryPaletteCommands()
         guard let command = PaletteCommandRegistry.command(id: commandID, in: commands) else {
             return false
@@ -4898,8 +4973,13 @@ struct AwesoMuxApp: App {
         return command.isEnabled
     }
 
-    private func runKeyboardCheatsheetShortcut(id commandID: KeyboardShortcutEntry.ID) -> Bool {
-        runPaletteCommand(id: commandID)
+    private func runKeyboardCheatsheetShortcut(
+        id commandID: KeyboardShortcutEntry.ID, balanceMount: PrimaryPaneTree.Mount?
+    ) -> Bool {
+        if commandID == KeyboardShortcutCatalog.balanceSplits.id {
+            return performBalanceSplits(expectedMount: balanceMount)
+        }
+        return runPaletteCommand(id: commandID)
     }
 
     private func runQuickRun(
@@ -5296,7 +5376,8 @@ struct AwesoMuxApp: App {
                 isOpenInIDEEnabled: appSettingsStore.workspaces.value.openInIDEEnabled,
                 isSidebarHidden: isSidebarPersistentlyHidden,
                 isSidebarCommandTargetAvailable: sidebarCommandTargetAvailability.isAvailable,
-                isWorktreeManagerAvailable: worktreeManagerModel != nil && !isAnySheetPresented
+                isWorktreeManagerAvailable: worktreeManagerModel != nil && !isAnySheetPresented,
+                canBalanceSplits: balanceSplitsTarget != nil
             ),
             actions: paletteActions,
             selectedWorkspaceTitle: presentedWorkspaceTitle,
@@ -5408,6 +5489,9 @@ struct AwesoMuxApp: App {
             },
             splitDown: {
                 splitActivePane(orientation: .horizontal)
+            },
+            balanceSplits: { [mount = balanceSplitsTarget?.mount] in
+                performBalanceSplits(expectedMount: mount)
             },
             closePane: closeActivePane,
             restartShell: restartActiveShell,

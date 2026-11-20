@@ -13,6 +13,16 @@ struct TerminalSplitLayoutView: View {
     let suppressTopFocusAccentForActivePane: Bool
     // See TerminalPaneLayoutView.abutsWindowTop (#82).
     var abutsWindowTop: Bool = false
+    private struct PrimaryDrag {
+        let token: UUID
+        let mount: PrimaryPaneTree.Mount
+        let splitID: TerminalSplit.ID
+        let startFraction: Double
+        var fraction: Double
+    }
+
+    @Environment(\.primaryPaneTreeContext) private var primaryContext
+    @State private var primaryDrag: PrimaryDrag?
     @State private var dragStartFraction: Double?
     @State private var dragFraction: Double?
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
@@ -20,7 +30,7 @@ struct TerminalSplitLayoutView: View {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let fraction = dragFraction ?? split.firstFraction
+            let fraction = displayedFraction
 
             // When the active pane sits directly below a horizontal-split
             // divider, the divider absorbs the focus highlight — one line,
@@ -60,6 +70,7 @@ struct TerminalSplitLayoutView: View {
                         .frame(width: max(0, size.width * fraction - SplitDivider.layoutThickness / 2))
 
                     verticalDividerColumn(size: size)
+                        .zIndex(dividerZIndex)
 
                     secondLayout
                         .frame(width: max(0, size.width * (1 - fraction) - SplitDivider.layoutThickness / 2))
@@ -70,21 +81,8 @@ struct TerminalSplitLayoutView: View {
                     firstLayout
                         .frame(height: max(0, size.height * fraction - SplitDivider.layoutThickness / 2))
 
-                    SplitDivider(
-                        orientation: .horizontal,
-                        currentFraction: fraction,
-                        focusAccentState: dividerFocusState
-                    ) { translation in
-                        resize(using: translation.height, availableLength: size.height)
-                    } onEnded: {
-                        commitResize()
-                    } onAdjust: { delta in
-                        sessionStore.resizeSplit(
-                            id: split.id,
-                            firstFraction: split.firstFraction + delta,
-                            in: session.id
-                        )
-                    }
+                    divider(availableLength: size.height, focusAccentState: dividerFocusState)
+                        .zIndex(dividerZIndex)
 
                     layoutView(
                         split.second,
@@ -115,21 +113,7 @@ struct TerminalSplitLayoutView: View {
     /// the edge line reads as one continuous stroke across panes and divider.
     @ViewBuilder
     private func verticalDividerColumn(size: CGSize) -> some View {
-        let divider = SplitDivider(
-            orientation: .vertical,
-            currentFraction: dragFraction ?? split.firstFraction,
-            focusAccentState: nil
-        ) { translation in
-            resize(using: translation.width, availableLength: size.width)
-        } onEnded: {
-            commitResize()
-        } onAdjust: { delta in
-            sessionStore.resizeSplit(
-                id: split.id,
-                firstFraction: split.firstFraction + delta,
-                in: session.id
-            )
-        }
+        let divider = divider(availableLength: size.width, focusAccentState: nil)
         if abutsWindowTop {
             VStack(spacing: 0) {
                 // Continue the tab-edge line across the divider column; the
@@ -165,6 +149,102 @@ struct TerminalSplitLayoutView: View {
                 ?? self.suppressTopFocusAccentForActivePane,
             abutsWindowTop: abutsWindowTop ?? self.abutsWindowTop
         )
+    }
+
+    // Keep the AppKit grab area (which extends past the one-point footprint)
+    // in front of both adjacent panes for hit testing.
+    private var dividerZIndex: Double { primaryContext == nil ? 0 : 1 }
+
+    private var displayedFraction: Double {
+        if let primaryContext, let primaryDrag, primaryDrag.splitID == split.id,
+            primaryContext.currentMount == primaryDrag.mount,
+            primaryContext.tree.ownsDrag(primaryDrag.token, splitID: split.id, mount: primaryDrag.mount)
+        {
+            return primaryDrag.fraction
+        }
+        return dragFraction ?? split.firstFraction
+    }
+
+    private func divider(availableLength: CGFloat, focusAccentState: AwState?) -> some View {
+        let primaryInput = primaryContext.map { context in
+            let mount = context.currentMount
+            return PrimarySplitDividerInput(
+                mount: mount,
+                splitID: split.id,
+                begin: { token in
+                    beginPrimaryDrag(token, mount: mount, context: context, availableLength: availableLength)
+                },
+                change: { token, translation in
+                    changePrimaryDrag(token, translation: translation, availableLength: availableLength, context: context)
+                },
+                end: { token, commit in
+                    endPrimaryDrag(token, commit: commit, mount: mount, context: context)
+                }
+            )
+        }
+        return SplitDivider(
+            orientation: split.orientation,
+            currentFraction: displayedFraction,
+            focusAccentState: focusAccentState,
+            primaryInput: primaryInput
+        ) { translation in
+            resize(using: split.orientation == .vertical ? translation.width : translation.height, availableLength: availableLength)
+        } onEnded: {
+            commitResize()
+        } onAdjust: { delta in
+            sessionStore.resizeSplit(
+                id: split.id,
+                firstFraction: split.firstFraction + delta,
+                in: session.id
+            )
+        }
+    }
+
+    private func beginPrimaryDrag(
+        _ token: UUID, mount: PrimaryPaneTree.Mount?, context: PrimaryPaneTreeContext, availableLength: CGFloat
+    ) -> Bool {
+        guard availableLength.isFinite, availableLength > SplitDivider.layoutThickness,
+            let mount, context.currentMount == mount,
+            let currentSplit = sessionStore.session(id: session.id)?.layout.split(id: split.id),
+            currentSplit.orientation == split.orientation,
+            context.tree.beginDrag(token, splitID: split.id, mount: mount)
+        else { return false }
+        primaryDrag = PrimaryDrag(
+            token: token, mount: mount, splitID: split.id,
+            startFraction: currentSplit.firstFraction, fraction: currentSplit.firstFraction
+        )
+        return true
+    }
+
+    private func changePrimaryDrag(
+        _ token: UUID, translation: CGSize, availableLength: CGFloat, context: PrimaryPaneTreeContext
+    ) -> Bool {
+        guard var drag = primaryDrag, drag.token == token else { return false }
+        let distance = split.orientation == .vertical ? translation.width : translation.height
+        guard availableLength.isFinite, availableLength > SplitDivider.layoutThickness,
+            context.currentMount == drag.mount,
+            context.tree.ownsDrag(token, splitID: split.id, mount: drag.mount),
+            sessionStore.session(id: session.id)?.layout.split(id: split.id)?.orientation == split.orientation
+        else { return false }
+        drag.fraction = (drag.startFraction + Double(distance / availableLength)).clampedSplitFraction
+        primaryDrag = drag
+        return true
+    }
+
+    private func endPrimaryDrag(
+        _ token: UUID, commit: Bool, mount: PrimaryPaneTree.Mount?, context: PrimaryPaneTreeContext
+    ) {
+        guard let mount else { return }
+        defer { context.tree.endDrag(token, splitID: split.id, mount: mount) }
+        guard let drag = primaryDrag, drag.token == token, drag.mount == mount, drag.splitID == split.id else { return }
+        if commit, context.currentMount == drag.mount,
+            context.tree.ownsDrag(token, splitID: split.id, mount: drag.mount),
+            let currentSplit = sessionStore.session(id: session.id)?.layout.split(id: split.id),
+            currentSplit.orientation == split.orientation, currentSplit.firstFraction != drag.fraction
+        {
+            sessionStore.resizeSplit(id: split.id, firstFraction: drag.fraction, in: session.id)
+        }
+        primaryDrag = nil
     }
 
     private func resize(using translation: CGFloat, availableLength: CGFloat) {
@@ -231,6 +311,7 @@ private struct SplitDivider: View {
     let orientation: TerminalSplitOrientation
     let currentFraction: Double
     let focusAccentState: AwState?
+    let primaryInput: PrimarySplitDividerInput?
     let onDrag: (CGSize) -> Void
     let onEnded: () -> Void
     let onAdjust: (Double) -> Void
@@ -265,21 +346,7 @@ private struct SplitDivider: View {
                 // not participate in layout, so the parent HStack/VStack
                 // still allocates only `layoutThickness` for the divider —
                 // matching what the surrounding panes subtract.
-                Color.clear
-                    .frame(
-                        width: orientation == .vertical ? Self.hitTargetThickness : nil,
-                        height: orientation == .horizontal ? Self.hitTargetThickness : nil
-                    )
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                onDrag(value.translation)
-                            }
-                            .onEnded { _ in
-                                onEnded()
-                            }
-                    )
+                hitTarget
                     .onHover { hovering in
                         // Guard against redundant callbacks — SwiftUI can
                         // re-fire `.onHover` with the same value on
@@ -353,6 +420,27 @@ private struct SplitDivider: View {
                     break
                 }
             }
+    }
+
+    @ViewBuilder
+    private var hitTarget: some View {
+        let target = Color.clear
+            .frame(
+                width: orientation == .vertical ? Self.hitTargetThickness : nil,
+                height: orientation == .horizontal ? Self.hitTargetThickness : nil
+            )
+            .contentShape(Rectangle())
+        if let primaryInput {
+            target.overlay {
+                PrimarySplitDividerDrag(input: primaryInput)
+            }
+        } else {
+            target.gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { onDrag($0.translation) }
+                    .onEnded { _ in onEnded() }
+            )
+        }
     }
 
     // Keyboard focus is treated as equivalent to mouse hover for the
