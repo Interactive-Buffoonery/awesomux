@@ -8,19 +8,23 @@ public struct TerminalSplit: Identifiable, Codable, Hashable, Sendable {
     public var first: TerminalPaneLayout
     public var second: TerminalPaneLayout
     public private(set) var firstFraction: Double
+    var preservesFraction: Bool
 
     public init(
         id: UUID = UUID(),
         orientation: TerminalSplitOrientation,
         first: TerminalPaneLayout,
         second: TerminalPaneLayout,
-        firstFraction: Double = 0.5
+        firstFraction: Double = 0.5,
+        preservesFraction: Bool? = nil
     ) {
         self.id = id
         self.orientation = orientation
         self.first = first
         self.second = second
         self.firstFraction = firstFraction.clampedSplitFraction
+        // Older layouts only recorded ratios. Keep non-default sizes as supplied.
+        self.preservesFraction = preservesFraction ?? (self.firstFraction != 0.5)
     }
 }
 public extension TerminalSplit {
@@ -33,14 +37,16 @@ public extension TerminalSplit {
     func rebuilding(
         first: TerminalPaneLayout? = nil,
         second: TerminalPaneLayout? = nil,
-        firstFraction: Double? = nil
+        firstFraction: Double? = nil,
+        preservesFraction: Bool? = nil
     ) -> TerminalSplit {
         TerminalSplit(
             id: id,
             orientation: orientation,
             first: first ?? self.first,
             second: second ?? self.second,
-            firstFraction: firstFraction ?? self.firstFraction
+            firstFraction: firstFraction ?? self.firstFraction,
+            preservesFraction: preservesFraction ?? self.preservesFraction
         )
     }
 }
@@ -52,6 +58,7 @@ extension TerminalSplit {
         case first
         case second
         case firstFraction
+        case preservesFraction
     }
 
     /// Maximum number of ancestor split levels tolerated before a decode is
@@ -131,7 +138,8 @@ extension TerminalSplit {
             orientation: try container.decode(TerminalSplitOrientation.self, forKey: .orientation),
             first: first,
             second: second,
-            firstFraction: try container.decodeIfPresent(Double.self, forKey: .firstFraction) ?? 0.5
+            firstFraction: try container.decodeIfPresent(Double.self, forKey: .firstFraction) ?? 0.5,
+            preservesFraction: try container.decodeIfPresent(Bool.self, forKey: .preservesFraction)
         )
     }
 }
@@ -190,5 +198,13 @@ private extension Double {
         }
 
         return min(max(self, TerminalSplit.fractionRange.lowerBound), TerminalSplit.fractionRange.upperBound)
+    }
+}
+
+extension TerminalSplit {
+    func manuallyResized(to fraction: Double) -> TerminalSplit {
+        let clamped = fraction.clampedSplitFraction
+        guard clamped != firstFraction else { return self }
+        return rebuilding(firstFraction: clamped, preservesFraction: true)
     }
 }

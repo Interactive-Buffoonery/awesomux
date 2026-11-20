@@ -572,12 +572,13 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             )
             return .split(
                 TerminalSplit(
-                id: UUID(),
-                orientation: split.orientation,
-                first: first,
-                second: second,
-                firstFraction: split.firstFraction
-            ))
+                    id: UUID(),
+                    orientation: split.orientation,
+                    first: first,
+                    second: second,
+                    firstFraction: split.firstFraction,
+                    preservesFraction: split.preservesFraction
+                ))
         case .documentGroup(let group):
             // Remint the group's and every tab's own ID so a reopened workspace
             // doesn't alias the original. Tab IDs are NOT TerminalPane.IDs, so

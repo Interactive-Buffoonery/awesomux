@@ -719,7 +719,8 @@ struct SessionRestoreReducer: Sendable {
                         orientation: split.orientation,
                         first: first.layout,
                         second: second.layout,
-                        firstFraction: split.firstFraction
+                        firstFraction: split.firstFraction,
+                        preservesFraction: split.preservesFraction
                     )
                 ),
                 idReassignments
