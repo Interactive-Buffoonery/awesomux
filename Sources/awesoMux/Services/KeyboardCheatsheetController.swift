@@ -177,13 +177,13 @@ final class KeyboardCheatsheetController {
 
     @discardableResult
     private func runShortcut(id commandID: KeyboardShortcutEntry.ID) -> Bool {
-        guard canRunShortcut?(commandID) == true else {
+        guard canRunShortcut?(commandID) == true, let runner = runShortcut else {
             return false
         }
 
         dismiss()
-        DispatchQueue.main.async { [weak self] in
-            _ = self?.runShortcut?(commandID)
+        DispatchQueue.main.async {
+            _ = runner(commandID)
         }
         return true
     }

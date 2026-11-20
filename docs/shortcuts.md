@@ -54,6 +54,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | --- | --- | --- |
 | ⌘D | Split Right | Disabled if no session selected |
 | ⇧⌘D | Split Down | Disabled if no session selected |
+| ⌘⌥B | Balance Splits | Requires a visible workspace with splits and no active divider drag |
 | ⌥⌘R | Rename Pane… | Requires multiple panes |
 | ⌘F | Find in Pane | |
 | ⇧⌘F | Show Scrollback | Opens the active pane's scrollback dump sheet |

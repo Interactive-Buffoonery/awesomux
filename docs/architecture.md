@@ -194,6 +194,16 @@ Older sketch docs assumed UserDefaults for v0; **the shipped direction is JSON o
 
 Splits live **inside** a session. `Command-D` creates **Split Right** and `Command-Shift-D` creates **Split Down**; each pane owns its own Ghostty surface and inherits cwd from the active pane when created (see keyboard catalog / session APIs in code). Sidebar rows stay **sessions**, not per-pane rows.
 
+Balance Splits distributes the space left after dividers equally across each
+contiguous run of same-axis splits. A perpendicular subtree occupies one lane
+in its parent run and balances inside its own rectangle. The existing fraction
+limits can prevent exact equality. Each split clamps its equal-size target to
+the allowed range, and its children recalculate their targets for the space they
+receive. If rounding lands on a minimum, the allocator can move the divider
+farther inward to give the children enough space. The same bounds produce the
+same ratios. When the allocation fails a size check, the existing ratios stay
+in place.
+
 ## Typed workspace-pane model
 
 The layout tree (`TerminalPaneLayout`) is a **closed** taxonomy of leaf kinds —

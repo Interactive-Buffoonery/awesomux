@@ -6,6 +6,7 @@ import SwiftUI
 
 struct SessionDetailView: View {
     let session: TerminalSession?
+    let primaryPaneTree: PrimaryPaneTree
     let sessionStore: SessionStore
     let ghosttyRuntime: GhosttyRuntime
     let onRenameWorkspace: (TerminalSession) -> Void
@@ -84,7 +85,8 @@ struct SessionDetailView: View {
                             session: session,
                             sessionStore: sessionStore,
                             ghosttyRuntime: ghosttyRuntime,
-                            onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer
+                            onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer,
+                            primaryPaneTree: primaryPaneTree
                         )
                         .overlay(alignment: .top) {
                             VStack(spacing: 8) {

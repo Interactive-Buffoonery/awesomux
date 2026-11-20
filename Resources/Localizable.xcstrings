@@ -1066,6 +1066,9 @@
     "Background sessions. Pin a session to exempt it from auto-cleanup, or end it when you no longer need it." : {
       "comment" : "Session Manager panel accessibility hint."
     },
+    "Balance Splits" : {
+
+    },
     "Banner and sound delivery requires macOS notification permission." : {
       "comment" : "Notification settings subtitle."
     },
@@ -5769,6 +5772,9 @@
     },
     "The current directory cannot be used to launch an agent setup. Choose an accessible directory owned by your user." : {
       "comment" : "Agent setup launch rejected by the shared startup directory safety check"
+    },
+    "The current pane splits could not be balanced." : {
+      "comment" : "Accessibility announcement when Balance Splits is unavailable or the workspace is too small."
     },
     "The current workspace group is no longer available." : {
       "comment" : "Worktree Manager open failure when its target group disappeared.\nWorktree creation target group failure."

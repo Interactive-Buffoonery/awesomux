@@ -618,6 +618,9 @@ public final class SessionStore {
         _groups
     }
 
+    /// Advances even if successive selection changes coalesce into one view update.
+    @ObservationIgnored public private(set) var selectionRevision: UInt64 = 0
+
     // Same-value writes must keep notifying observers: clicking the already-
     // selected sidebar tile re-assigns the same ID, and that publication re-runs
     // the surface mount whose focus reclaim hands the terminal first responder
@@ -632,6 +635,7 @@ public final class SessionStore {
             let changed = storedSelectedSessionID != newValue
             withMutation(keyPath: \.selectedSessionID) {
                 storedSelectedSessionID = newValue
+                if changed { selectionRevision &+= 1 }
             }
             guard changed, !isReplacingState else { return }
             // No `refreshAttentionSticky()` here on purpose: it is the first
@@ -2131,6 +2135,18 @@ public final class SessionStore {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
+    }
+
+    /// Returns true for a feasible layout, including a layout already balanced at this size.
+    public func balanceSplits(in sessionID: TerminalSession.ID, size: CGSize) -> Bool {
+        guard let position = position(for: sessionID) else { return false }
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        guard let result = session.layout.balancingSplits(in: size) else { return false }
+        if result.changed {
+            session.layout = result.layout
+            _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        }
+        return true
     }
 
     public func resizeActiveSplit(by delta: Double, in sessionID: TerminalSession.ID? = nil) {
