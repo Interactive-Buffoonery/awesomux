@@ -34,8 +34,7 @@ struct TerminalPathBarView: View {
     /// The workspace's CURRENT titles, snapshotted by the enclosing
     /// `LiveTitleScope`. A display-only OSC title write updates store storage
     /// without publishing `groups` (issue #311), so `session` here can carry a
-    /// title minutes old — and this bar's title inputs are the ONLY signal that
-    /// an in-place `git checkout` reaches the branch chip (INT-523).
+    /// title minutes old. Live HEAD watching separately keeps the branch current.
     var liveTitles: LiveTitles = .unavailable
     @Binding var presentedMenu: PathBarMenu?
 
@@ -45,6 +44,8 @@ struct TerminalPathBarView: View {
     @State private var revealURLForOpenMenu: URL?
     @State private var copyPathForOpenMenu: String?
     @State private var hasResolved = false
+    @State private var headRevision: UInt64 = 0
+    @State private var headReadRevision: UInt64 = 0
     /// The active pane the current `model` was built for. Used to re-seed the cheap
     /// preview on a pane SWITCH (vs same-pane title churn), so a switch never paints
     /// the previous pane's stale path/branch/chips while `make()` resolves.
@@ -80,13 +81,8 @@ struct TerminalPathBarView: View {
             // never run on the render path (it would beachball under a chatty
             // PTY on a slow/network volume), so it runs in a detached task keyed
             // on `resolveKey` (cwd + title + pane + remote + window active state).
-            // An in-place `git checkout` in the focused pane (cwd unchanged) is
-            // caught via the title change the new branch makes to the prompt — but
-            // because a chatty agent TUI churns the title many Hz, the make() walk
-            // is debounced to the title's settle (see the `.task` body and
-            // TerminalPathBarResolvePolicy / INT-523), not run on every title tick.
-            // Re-resolving on window-active also catches a checkout made while we
-            // were in the background. Live HEAD watching remains a tracked follow-up.
+            // Local HEAD changes have their own title-independent vnode watch.
+            // Title-only walks remain debounced to avoid agent spinner churn.
             // Remote OSC 7 survives in the daemon inventory even when the local
             // Ghostty surface refuses its host. Never query the local ssh cwd
             // while remote presentation is active: writing it clears the badge.
@@ -151,6 +147,13 @@ struct TerminalPathBarView: View {
                     }
                     try? await Task.sleep(for: .seconds(4))
                 }
+            }
+            .task(id: HeadWatchKey(presentation: menuDismissKey, url: headWatchURL)) {
+                guard let url = headWatchURL else { return }
+                await watchHead(url: url, session: session)
+            }
+            .task(id: headStatusKey) {
+                await refreshHeadGitStatus(key: headStatusKey)
             }
             .task(id: resolveKey) {
                 let activePane = session.activePane
@@ -245,10 +248,17 @@ struct TerminalPathBarView: View {
                 // cwd/pane changes) therefore each run one full walk — bounded and rare
                 // versus the title churn this gates, so not worth threading a
                 // cancellation checkpoint into the synchronous walk.
-                let resolved = await Task.detached(priority: .utility) {
-                    TerminalPathBarModel.make(session: session)
-                }.value
-                guard !Task.isCancelled else { return }
+                var resolved: TerminalPathBarModel
+                while true {
+                    let revision = headReadRevision
+                    resolved = await Task.detached(priority: .utility) {
+                        TerminalPathBarModel.make(session: session)
+                    }.value
+                    guard !Task.isCancelled else { return }
+                    // Retry only when a HEAD event or another committed read superseded us.
+                    if revision == headReadRevision { break }
+                }
+                headReadRevision &+= 1
 
                 // Advance the classifier baseline ONLY now that the walk has committed
                 // (past the cancellation gate) — never before the await. If a title
@@ -270,7 +280,13 @@ struct TerminalPathBarView: View {
                 let previousCIStatus = model.ciStatus
                 let previousRepoRoot = model.repoRootPath
                 let previousBranch = model.gitBranch
+                if model.repoRootPath != resolved.repoRootPath
+                    || model.gitBranch != resolved.gitBranch || model.branch != resolved.branch
+                {
+                    headRevision &+= 1
+                }
                 model = resolved
+                let revision = headRevision
                 if resolved.repoRootPath == previousRepoRoot,
                     resolved.gitBranch == previousBranch
                 {
@@ -338,7 +354,9 @@ struct TerminalPathBarView: View {
                         }
                     }
                     for await lookup in group {
-                        guard !Task.isCancelled else { break }
+                        guard !Task.isCancelled, revision == headRevision,
+                            model.repoRootPath == repoRoot, model.gitBranch == resolved.gitBranch
+                        else { break }
                         switch lookup {
                         case .gitStatus(let gitStatus):
                             model.gitStatus = gitStatus
@@ -373,14 +391,92 @@ struct TerminalPathBarView: View {
         return liveTitles.paneTitle(for: pane)
     }
 
+    /// The resolved cwd/pane must still own this model before a watch can start.
+    private var headWatchURL: URL? {
+        guard model.remoteHost == nil,
+            session.activePane?.remotePresentationHost == nil,
+            lastResolveInputs?.activePaneID == session.activePane?.id,
+            lastResolveInputs?.workingDirectory == (session.activePane?.workingDirectory ?? session.workingDirectory)
+        else { return nil }
+        return model.gitHeadURL
+    }
+
+    private struct HeadWatchKey: Equatable {
+        var presentation: MenuDismissKey
+        var url: URL?
+    }
+
+    private struct HeadStatusKey: Equatable {
+        var presentation: MenuDismissKey
+        var url: URL?
+        var revision: UInt64
+    }
+
+    private var headStatusKey: HeadStatusKey {
+        HeadStatusKey(presentation: menuDismissKey, url: headWatchURL, revision: headRevision)
+    }
+
+    @MainActor
+    private func refreshHeadGitStatus(key: HeadStatusKey) async {
+        guard key.url != nil, let repoRoot = model.validatedRepoRootPath else { return }
+        let branch = model.gitBranch
+        // Keep local status off the watch loop and leave network lookups on their existing triggers.
+        let status = await GitStatusResolver.shared.status(repoRoot: repoRoot, branch: branch ?? "")
+        guard !Task.isCancelled, key == headStatusKey,
+            model.validatedRepoRootPath == repoRoot, model.gitBranch == branch
+        else { return }
+        model.gitStatus = status
+    }
+
+    @MainActor
+    private func watchHead(url: URL, session: TerminalSession) async {
+        let events = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let watcher = DocumentFileWatcher(url: url) {
+            if case .terminated = events.continuation.yield(()) { return }
+            self.headReadRevision &+= 1
+        }
+        watcher.start()
+        defer {
+            watcher.stop()
+            events.continuation.finish()
+        }
+        await withTaskCancellationHandler {
+            // Reconcile the read/arm gap, including a checkout before mounting.
+            events.continuation.yield(())
+            for await _ in events.stream {
+                let revision = headReadRevision
+                let resolved = await Task.detached(priority: .utility) {
+                    TerminalPathBarModel.make(session: session)
+                }.value
+                guard !Task.isCancelled else { return }
+                guard revision == headReadRevision, headWatchURL == url,
+                    resolved.gitHeadURL == url, model.repoRootPath == resolved.repoRootPath
+                else { continue }
+                // Even an unchanged branch supersedes older filesystem observations.
+                headReadRevision &+= 1
+                if model.gitBranch != resolved.gitBranch || model.branch != resolved.branch {
+                    // Only a branch change invalidates ordinary model/chip work.
+                    headRevision &+= 1
+                    model.branch = resolved.branch
+                    model.gitBranch = resolved.gitBranch
+                    model.pullRequest = nil
+                    model.gitStatus = nil
+                    model.ciStatus = nil
+                }
+            }
+        } onCancel: {
+            // Finishing synchronously suppresses old callbacks during a slow read.
+            events.continuation.finish()
+            Task { @MainActor in watcher.stop() }
+        }
+    }
+
     private var resolveKey: ResolveKey {
         let pane = session.activePane
         // Live titles, not the struct's. A display-only OSC title write doesn't
-        // publish `groups`, so `session` here can carry a title minutes old —
-        // and this key's title inputs are the ONLY signal that an in-place
-        // `git checkout` (cwd unchanged, prompt title changed) reaches the
-        // branch chip (INT-523). The settle debounce in the resolve task still
-        // absorbs the churn; what must not happen is never hearing it at all.
+        // publish `groups`, so `session` here can carry a title minutes old.
+        // Title-driven resolution remains a fallback and updates display inputs;
+        // the independent HEAD watch catches checkouts during continuous churn.
         return ResolveKey(
             activePaneID: pane?.id,
             workingDirectory: pane?.workingDirectory ?? session.workingDirectory,
@@ -1213,10 +1309,8 @@ extension TerminalPathBarView: Equatable {
     /// **Getting this list wrong freezes the bar silently.** Two fields carry the
     /// change's own risk:
     ///
-    /// - `activePaneTitle` is the ONLY route by which an in-place `git checkout`
-    ///   (cwd unchanged, prompt-embedded title changed) reaches the branch chip
-    ///   (INT-523). Drop it and the chip shows the pre-checkout branch until
-    ///   something else moves.
+    /// - `activePaneTitle` keeps the title-driven fallback reactive alongside
+    ///   live HEAD watching (INT-523) and refreshes displayed title inputs.
     /// - It is deliberately the ACTIVE pane's title alone. Folding every pane
     ///   would put this bar's ~30-node accessibility-heavy tree back on a
     ///   BACKGROUND pane's spinner, which is the cost this gate removes

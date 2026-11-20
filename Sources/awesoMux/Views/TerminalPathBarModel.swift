@@ -20,6 +20,8 @@ struct TerminalPathBarModel: Equatable, Sendable {
     /// HEAD / non-branch ref. Drives the `gh` PR lookup + its cache key; distinct
     /// from the display `branch`, which may be shortened or a short SHA.
     var gitBranch: String?
+    /// Validated per-worktree HEAD, also used by the local vnode watcher.
+    var gitHeadURL: URL? = nil
     /// The open PR for `gitBranch`, filled in by a second async pass after the
     /// fast local resolution (see `TerminalPathBarView`). Nil until resolved.
     var pullRequest: PullRequestInfo?
@@ -170,6 +172,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             repoRootPath: pathInfo.repoRootPath,
             validatedRepoRootPath: pathInfo.validatedRepoRootPath,
             gitBranch: pathInfo.gitBranch,
+            gitHeadURL: pathInfo.gitHeadURL,
             pullRequest: nil,
             gitStatus: nil,
             ciStatus: nil,
@@ -233,6 +236,7 @@ private struct PathInfo {
     let repoRootPath: String?
     let validatedRepoRootPath: String?
     let gitBranch: String?
+    let gitHeadURL: URL?
 
     /// No-I/O preview: pure string derivation of project + display path.
     init(previewing rawWorkingDirectory: String, homeDirectory: URL) {
@@ -259,6 +263,7 @@ private struct PathInfo {
         repoRootPath = nil
         validatedRepoRootPath = nil
         gitBranch = nil
+        gitHeadURL = nil
     }
 
     init(
@@ -319,6 +324,7 @@ private struct PathInfo {
                 fileManager: fileManager
             )
             validatedRepoRootPath = gitDirectoryURL == nil ? nil : repoRootURL.path
+            gitHeadURL = gitDirectoryURL?.appendingPathComponent("HEAD")
             let head =
                 gitDirectoryURL
                 .map { Self.headInfo(gitDirectoryURL: $0, fileManager: fileManager) }
@@ -331,6 +337,7 @@ private struct PathInfo {
             repoRootPath = nil
             validatedRepoRootPath = nil
             gitBranch = nil
+            gitHeadURL = nil
         } else {
             rawProject = effectiveURL.lastPathComponent
             rawDisplayPath = Self.collapseHome(effectiveURL.path, homeDirectory: home)
@@ -338,6 +345,7 @@ private struct PathInfo {
             repoRootPath = nil
             validatedRepoRootPath = nil
             gitBranch = nil
+            gitHeadURL = nil
         }
 
         project =
