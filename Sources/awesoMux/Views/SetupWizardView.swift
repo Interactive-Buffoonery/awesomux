@@ -212,13 +212,6 @@ private struct SetupWizardWelcomeStep: View {
         store.appearance.value.terminalBackgroundMode
     }
 
-    private var keepsGhostty: Binding<AppearanceConfig.TerminalBackgroundMode> {
-        Binding(
-            get: { mode == .ghostty ? .ghostty : .catppuccinTheme },
-            set: { newMode in store.appearance.update { $0.terminalBackgroundMode = newMode } }
-        )
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             DaveMark().daveMarkGap()
@@ -242,7 +235,9 @@ private struct SetupWizardWelcomeStep: View {
                                     localized: "Use an awesoMux theme",
                                     comment: "Setup wizard option that uses an awesoMux terminal theme")),
                         ],
-                        selection: keepsGhostty,
+                        // A custom background matches neither option, so
+                        // neither shows selected until the user picks one.
+                        selection: store.appearance.binding(\.terminalBackgroundMode),
                         expandsToFill: true)
                     TerminalBackgroundPreview(
                         backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: nil),
@@ -738,7 +733,7 @@ final class SetupWizardAgentsModel {
     private let cardModel = AgentIntegrationSettingsCardModel(
         viewModel: AgentIntegrationSettingsViewModel(),
         probeServices: { _ in AgentIntegrationProbeService() })
-    private var pluginTasks: [AgentPluginProvider: (id: UUID, task: Task<Void, Never>)] = [:]
+    private var pluginTasks: [AgentPluginProvider: (id: UUID, task: Task<Void, Never>, isProbe: Bool)] = [:]
     private(set) var installErrors: [AgentIntegrationInstallProvider: String] = [:]
 
     init(store: AppSettingsStore) {
@@ -797,19 +792,20 @@ final class SetupWizardAgentsModel {
     }
 
     func installPlugin(_ provider: AgentPluginProvider) {
-        runPluginTask(provider) { model, target, setup in
+        runPluginTask(provider, isProbe: false) { model, target, setup in
             await model.perform(action: .enableOrInstall, target: target, setup: setup)
         }
     }
 
     private func probe(_ provider: AgentPluginProvider) {
-        runPluginTask(provider) { model, target, setup in
+        runPluginTask(provider, isProbe: true) { model, target, setup in
             await model.refreshStatus(target: target, setup: setup)
         }
     }
 
     private func runPluginTask(
         _ provider: AgentPluginProvider,
+        isProbe: Bool,
         operation:
             @escaping @MainActor (AgentPluginSettingsViewModel, AgentPluginTarget, AgentIntegrationSetup) async
             -> Void
@@ -825,7 +821,7 @@ final class SetupWizardAgentsModel {
                 self?.pluginTasks[provider] = nil
             }
         }
-        pluginTasks[provider] = (id, task)
+        pluginTasks[provider] = (id, task, isProbe)
     }
 
     // MARK: File-drop integrations
@@ -858,11 +854,13 @@ final class SetupWizardAgentsModel {
         cardModel.refreshAll(setupsByProvider: setups, forcing: true)
     }
 
+    /// Probes only. An install's CLI runs to completion anyway, so it keeps
+    /// running and publishes its result for the next time Agents is shown.
     func cancelPendingWork() {
-        for entry in pluginTasks.values {
+        for (provider, entry) in pluginTasks where entry.isProbe {
             entry.task.cancel()
+            pluginTasks[provider] = nil
         }
-        pluginTasks = [:]
         cardModel.cancelPendingWork()
     }
 }
@@ -870,13 +868,14 @@ final class SetupWizardAgentsModel {
 // MARK: - Shared pieces
 
 @MainActor
-private enum SetupWizardCopy {
+enum SetupWizardCopy {
     static var welcomeTitle: String {
         String(localized: "Welcome to awesoMux", comment: "Setup wizard heading on its first step")
     }
 
     static func themeBackground(store: AppSettingsStore, colorScheme: ColorScheme?) -> String {
         let appearance = store.appearance.value
+        if appearance.terminalBackgroundMode == .custom { return appearance.terminalBackgroundColor }
         let effective: TerminalAppearancePreferences.EffectiveTheme =
             switch appearance.theme {
             case .light: .light

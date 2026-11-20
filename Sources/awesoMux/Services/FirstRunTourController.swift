@@ -101,8 +101,8 @@ final class FirstRunTourController {
     private(set) var agents: SetupWizardAgentsModel?
 
     private(set) var isVisible = false
-    private(set) var steps = SetupWizardStep.allCases
-    private(set) var hasGhosttyConfig = true
+    let steps: [SetupWizardStep]
+    let hasGhosttyConfig: Bool
     private(set) var currentStepIndex = 0
     /// Bumped on every presentation. The panel is reused across dismiss
     /// (`orderOut`, not `close`) and `hostSwiftUIContent` only swaps `rootView`,
@@ -118,8 +118,13 @@ final class FirstRunTourController {
     /// where `NSHostingView` reports a degenerate fitting size.
     private static let fallbackSize = CGSize(width: 480, height: 420)
 
-    init(defaults: UserDefaults = .standard) {
+    /// `hasGhosttyConfig` must be read before `GhosttyRuntime` starts:
+    /// libghostty writes a template `config.ghostty` when no config exists,
+    /// which would make every clean install look configured.
+    init(defaults: UserDefaults = .standard, hasGhosttyConfig: Bool = true) {
         self.defaults = defaults
+        self.hasGhosttyConfig = hasGhosttyConfig
+        steps = SetupWizardStep.steps(hasGhosttyConfig: hasGhosttyConfig)
         notificationAuthorization = NotificationAuthorizationModel()
     }
 
@@ -133,11 +138,6 @@ final class FirstRunTourController {
         if let existing = self.panel {
             panel = existing
         } else {
-            // ponytail: Ghostty config presence is read once per session; a
-            // config created mid-session shows up on the next launch.
-            let environment = GhosttyConfigEnvironment.snapshot()
-            hasGhosttyConfig = environment.userXDGConfigExists || environment.userAppSupportConfigExists
-            steps = SetupWizardStep.steps(hasGhosttyConfig: hasGhosttyConfig)
             agents = SetupWizardAgentsModel(store: store)
             panel = makePanel()
             self.panel = panel

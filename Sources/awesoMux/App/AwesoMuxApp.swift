@@ -230,7 +230,7 @@ struct AwesoMuxApp: App {
     @State private var commandPaletteController = CommandPaletteController()
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
     @State private var aboutPanelController = AboutPanelController()
-    @State private var firstRunTourController = FirstRunTourController()
+    @State private var firstRunTourController: FirstRunTourController
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
     @State private var worktreeManagerController = WorktreeManagerController()
@@ -410,6 +410,13 @@ struct AwesoMuxApp: App {
             eventRecorder: diagnosticEvents
         )
         _diagnosticsModel = State(initialValue: diagnosticsModel)
+        // ponytail: one launch-time read; a config created later counts from
+        // the next launch.
+        let ghosttyEnvironment = GhosttyConfigEnvironment.snapshot()
+        _firstRunTourController = State(
+            initialValue: FirstRunTourController(
+                hasGhosttyConfig: ghosttyEnvironment.userXDGConfigExists
+                    || ghosttyEnvironment.userAppSupportConfigExists))
         let ghosttyRuntime = GhosttyRuntime(
             terminalAppearanceProvider: {
                 let appearance = appSettingsStore.appearance.value
@@ -770,6 +777,9 @@ struct AwesoMuxApp: App {
                 aboutPanelController.appSettingsStore = appSettingsStore
                     firstRunTourController.appSettingsStore = appSettingsStore
                     firstRunTourController.onCreateFirstWorkspace = { paletteActions.newWorkspace() }
+                    appDelegate.notificationBridge.defersAutomaticAuthorization = { [firstRunTourController] in
+                        firstRunTourController.isVisible
+                    }
                     firstRunTourController.requestNotificationAuthorization = { completion in
                         appDelegate.notificationBridge.requestAuthorizationFromUser(completion: completion)
                     }

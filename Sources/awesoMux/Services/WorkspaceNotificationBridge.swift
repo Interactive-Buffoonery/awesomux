@@ -35,6 +35,11 @@ final class WorkspaceNotificationBridge {
     /// exceeds it.
     private static let pendingAuthorizationEventLimit = 8
 
+    /// True while the setup wizard is open: it asks from its own Agents step,
+    /// so the automatic prompt waits and undetermined events stay queued.
+    /// `requestAuthorizationFromUser` is the wizard's ask and ignores this.
+    var defersAutomaticAuthorization: @MainActor () -> Bool = { false }
+
     /// `UNUserNotificationCenter.current()` reads `Bundle.main` and crashes
     /// when the calling process isn't a real app bundle — true of the
     /// unbundled `swift test` runner. `lazy` defers that call past
@@ -97,7 +102,7 @@ final class WorkspaceNotificationBridge {
             return
         }
 
-        guard !isAuthorizationRequestInFlight else {
+        guard !isAuthorizationRequestInFlight, !defersAutomaticAuthorization() else {
             return
         }
 
@@ -133,6 +138,11 @@ final class WorkspaceNotificationBridge {
                 default: false
                 }
             flushPendingAuthorizationEvents(isAuthorized: isAuthorized)
+            return
+        }
+        // The wizard can open during the async status fetch.
+        guard !defersAutomaticAuthorization() else {
+            isAuthorizationRequestInFlight = false
             return
         }
 
