@@ -31,6 +31,8 @@ Full target diagram, persistence, and agent/notification model: [`docs/architect
 
 Managed SSH programs that honor `BROWSER` can open web links in your Mac’s default browser after confirmation. Setup, permissions, and limits: [Remote browser forwarding](docs/remote-browser-forwarding.md).
 
+To move appearance, terminal colors, and app shortcuts to another Mac, see [Portable terminal setup](docs/portable-terminal-setup.md).
+
 ## Default terminal
 
 In **Settings > General > Default terminal**, choose **Make awesoMux the default
