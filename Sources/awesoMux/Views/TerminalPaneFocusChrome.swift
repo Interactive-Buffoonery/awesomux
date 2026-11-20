@@ -117,10 +117,7 @@ struct PaneFocusAccent: View {
 /// recede for a single extra blend, with no offscreen pass — so a background
 /// agent streaming output into an inactive pane stays cheap.
 struct InactivePaneScrim: View {
-    let isInactive: Bool
-
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Tuning dial. Higher = more dramatic. Black reads as "recede" in both
     // themes (darkens in Mocha, greys toward disabled in Latte). Softened
@@ -133,8 +130,6 @@ struct InactivePaneScrim: View {
         Rectangle()
             .fill(Color.black)
             .opacity(reduceTransparency ? Self.reducedDimOpacity : Self.dimOpacity)
-            .opacity(isInactive ? 1 : 0)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isInactive)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

@@ -296,10 +296,13 @@ struct TerminalPaneLayoutView: View {
                             }
                         }
                         .overlay {
-                            // Keep the scrim mounted across focus changes so
-                            // both panes can animate the handoff together.
-                            if showsPaneTitleBar {
-                                InactivePaneScrim(isInactive: session.activePaneID != pane.id)
+                            // Dim every pane that isn't the active one so the
+                            // focused surface reads at a glance. A single-pane
+                            // session never hits this branch (its one pane is
+                            // always active), so the dim only appears once a
+                            // split exists.
+                            if session.activePaneID != pane.id {
+                                InactivePaneScrim()
                             }
                         }
                         .overlay(alignment: .bottom) {
