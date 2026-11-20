@@ -77,28 +77,33 @@ enum FirstRunTourPolicy {
     }
 }
 
-/// Floating-panel presenter for the five-beat welcome tour, mirroring
+/// Floating-panel presenter for the setup wizard, mirroring
 /// `AboutPanelController`. The panel is kept alive across dismiss (orderOut,
 /// not close) so a re-summon within the session resumes rather than restarts.
 @MainActor
 @Observable
 final class FirstRunTourController {
-    static let beatCount = 5
-    /// Beat index (0-based) whose copy introduces notifications. The prime
-    /// policy defers until the user has read it.
-    static let notificationBeatIndex = 2
-
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private var isKeyWindow = false
-    @ObservationIgnored private var isAwaitingAgentSettingsClose = false
     @ObservationIgnored private let defaults: UserDefaults
     // Set by the app so this floating-panel root carries the appearance
     // bridge (accent, glow, UI font, text scale) — same contract as the
     // command palette / About / cheatsheet controllers.
     @ObservationIgnored var appSettingsStore: AppSettingsStore?
+    /// Supplied by the app: the last step's button runs New Workspace.
+    @ObservationIgnored var onCreateFirstWorkspace: () -> Void = {}
+    /// Supplied by the app: shows the macOS notification prompt.
+    @ObservationIgnored var requestNotificationAuthorization: (@escaping @MainActor (Bool) -> Void) -> Void = {
+        $0(false)
+    }
+
+    let notificationAuthorization: NotificationAuthorizationModel
+    private(set) var agents: SetupWizardAgentsModel?
 
     private(set) var isVisible = false
-    private(set) var currentBeat = 0
+    private(set) var steps = SetupWizardStep.allCases
+    private(set) var hasGhosttyConfig = true
+    private(set) var currentStepIndex = 0
     /// Bumped on every presentation. The panel is reused across dismiss
     /// (`orderOut`, not `close`) and `hostSwiftUIContent` only swaps `rootView`,
     /// so SwiftUI keeps the page's identity and its `@State` — a one-shot
@@ -107,48 +112,50 @@ final class FirstRunTourController {
     /// drive VoiceOver focus off presentation instead.
     private(set) var presentationToken = 0
 
-    var hasReachedNotificationBeat: Bool { currentBeat >= Self.notificationBeatIndex }
-
-    /// The single condition `NotificationPrimePolicy` defers on, exposed as one
-    /// derived value so the app can re-evaluate the prime on exactly one
-    /// `.onChange`. Watching `isVisible` and `currentBeat` separately would fire
-    /// on every page turn and on presentation too — six evaluations per tour to
-    /// catch the one transition (reaching beat three, or dismissal) that ends
-    /// the deferral.
-    var isDeferringNotificationPrime: Bool { isVisible && !hasReachedNotificationBeat }
+    var currentStep: SetupWizardStep { steps[min(currentStepIndex, steps.count - 1)] }
 
     /// Used only when measurement can't run — an unbundled/headless context
     /// where `NSHostingView` reports a degenerate fitting size.
     private static let fallbackSize = CGSize(width: 480, height: 420)
 
-    /// Supplied by the app so beat three's button can open the agent settings
-    /// section. A no-op default keeps the tour usable before that wiring exists.
-    @ObservationIgnored var onOpenAgentSettings: () -> Void = {}
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        notificationAuthorization = NotificationAuthorizationModel()
     }
 
-    /// Re-summoning resumes rather than restarting: `currentBeat` is
-    /// deliberately left untouched here and in `beginPresentation()`.
+    /// Re-summoning resumes rather than restarting: `currentStepIndex` is
+    /// deliberately left untouched here.
     func show() {
+        guard let store = appSettingsStore else { return }
         let isFirstPresentation = !isVisible
-        beginPresentation()
 
-        let panel = panel ?? makePanel()
-        self.panel = panel
+        let panel: FloatingSwiftUIPanelWindow
+        if let existing = self.panel {
+            panel = existing
+        } else {
+            // ponytail: Ghostty config presence is read once per session; a
+            // config created mid-session shows up on the next launch.
+            let environment = GhosttyConfigEnvironment.snapshot()
+            hasGhosttyConfig = environment.userXDGConfigExists || environment.userAppSupportConfigExists
+            steps = SetupWizardStep.steps(hasGhosttyConfig: hasGhosttyConfig)
+            agents = SetupWizardAgentsModel(store: store)
+            panel = makePanel()
+            self.panel = panel
+        }
 
-        panel.hostSwiftUIContent(makeRootView())
+        presentationToken += 1
+        isVisible = true
+        panel.hostSwiftUIContent(SetupWizardView(controller: self, store: store).appearanceBridge(store))
 
         if isFirstPresentation {
-            panel.setFixedContentSize(maximumBeatFittingSize())
+            panel.setFixedContentSize(maximumStepFittingSize(store: store))
             panel.center()
         }
         panel.presentAndFocus()
         // `presentAndFocus()` only makes the hosting view first responder; it
         // tells VoiceOver nothing, so a panel that appears over the empty state
         // is silent. The page's own initial accessibility focus then reads the
-        // beat itself.
+        // step itself.
         AccessibilityNotification.Announcement(
             String(
                 localized: "Welcome to awesoMux",
@@ -156,46 +163,43 @@ final class FirstRunTourController {
         ).post()
     }
 
-    private func beginPresentation() {
-        presentationToken += 1
-        isVisible = true
+    func advance() {
+        // Without a Ghostty config the appearance step shows Catppuccin as
+        // already chosen; continuing past it confirms that choice.
+        if currentStep == .appearance, !hasGhosttyConfig,
+            let store = appSettingsStore, store.appearance.value.terminalBackgroundMode == .ghostty
+        {
+            store.appearance.update { $0.terminalBackgroundMode = .catppuccinTheme }
+        }
+        currentStepIndex = min(currentStepIndex + 1, steps.count - 1)
     }
 
-    func advance() { currentBeat = min(currentBeat + 1, Self.beatCount - 1) }
-    func retreat() { currentBeat = max(currentBeat - 1, 0) }
+    func retreat() { currentStepIndex = max(currentStepIndex - 1, 0) }
 
-    /// Records that Settings belongs to the tour's beat-three handoff before
-    /// opening it. A normal Settings visit never sets this marker, so closing
-    /// that window keeps its existing behavior.
-    func openAgentSettingsFromTour() {
-        isAwaitingAgentSettingsClose = true
-        onOpenAgentSettings()
+    func requestNotifications() {
+        requestNotificationAuthorization { [weak self] _ in
+            self?.notificationAuthorization.refresh()
+        }
     }
 
-    /// Called by the singleton Settings scene when its content disappears.
-    /// Consuming first makes duplicate lifecycle callbacks inert and lets
-    /// `show()` return the existing panel to the front on its current beat.
-    func resumeAfterAgentSettingsClose() {
-        guard consumeAgentSettingsHandoff() else { return }
-        show()
-    }
-
-    /// Esc, Cmd-W, the close control, or finishing beat five. Only this path
-    /// silences the tour — a tour that marked itself seen because the user
-    /// clicked its own "Set up agents" button would end onboarding at beat
-    /// three, permanently.
+    /// Esc, Cmd-W, the close control, or Skip. Dismissing mid-wizard resumes
+    /// on the same step next time; dismissing on the last step starts over,
+    /// so the "?" button never reopens on a screen whose only job is done.
     func dismissByUser() {
+        hide(resettingProgress: currentStepIndex == steps.count - 1)
+    }
+
+    func createFirstWorkspace() {
+        hide(resettingProgress: true)
+        onCreateFirstWorkspace()
+    }
+
+    private func hide(resettingProgress: Bool) {
         defaults.set(true, forKey: SettingsKey.hasSeenFirstRunTour)
-        // Explicit dismissal wins even if Settings is still open from the
-        // tour's handoff. Its later close must not resurrect onboarding.
-        isAwaitingAgentSettingsClose = false
-        // Reaching the closing beat *is* completing the tour, whichever control
-        // ends it there. Leaving `currentBeat` on the last beat would make the
-        // "?" button that beat five advertises reopen on a screen whose only
-        // remaining control is Done. Dismissing mid-tour still resumes.
-        if currentBeat == Self.beatCount - 1 { currentBeat = 0 }
+        if resettingProgress { currentStepIndex = 0 }
         isVisible = false
         isKeyWindow = false
+        agents?.cancelPendingWork()
         panel?.orderOut(nil)
     }
 
@@ -207,65 +211,23 @@ final class FirstRunTourController {
         return true
     }
 
-    @ViewBuilder
-    private func makeRootView() -> some View {
-        // The store itself, not a snapshot of its chords: resolving once here
-        // would keep teaching the old key after beat three's own Settings
-        // button is used to rebind one. `FirstRunTourView` resolves inside its
-        // body, so Observation re-renders the live panel on a rebind.
-        let root = FirstRunTourView(
-            controller: self,
-            appSettingsStore: appSettingsStore,
-            presentationToken: presentationToken,
-            onOpenAgentSettings: { [weak self] in self?.openAgentSettingsFromTour() }
-        )
-        if let appSettingsStore {
-            root.appearanceBridge(appSettingsStore)
-        } else {
-            root
-        }
-    }
-
-    private func resolvedShortcuts() -> FirstRunTourShortcuts {
-        FirstRunTourShortcuts(keyboard: appSettingsStore?.keyboard.value ?? .defaultValue)
-    }
-
-    /// Every beat is measured and the panel pinned to the tallest. Sizing to
-    /// the current beat instead would resize the window under the user on each
-    /// page turn, and sizing to beat one would clip the longer beats outright
-    /// at large interface text sizes.
-    private func maximumBeatFittingSize() -> CGSize {
-        let shortcuts = resolvedShortcuts()
+    /// Every step is measured and the panel pinned to the tallest, capped to
+    /// the screen; the page scrolls past that. Sizing per step would resize
+    /// the window under the user on each page turn. Measured through the same
+    /// appearance bridge the live panel uses, so interface text size counts.
+    private func maximumStepFittingSize(store: AppSettingsStore) -> CGSize {
         var size = CGSize.zero
-        for beat in 0..<Self.beatCount {
-            let fitting = NSHostingView(
-                rootView: measurementRoot(beat: beat, shortcuts: shortcuts)
-            ).fittingSize
+        for step in steps {
+            let page = SetupWizardPage(controller: self, store: store, step: step, isMeasuring: true)
+            let fitting = NSHostingView(rootView: page.appearanceBridge(store)).fittingSize
             size.width = max(size.width, fitting.width)
             size.height = max(size.height, fitting.height)
         }
         guard size.width > 0, size.height > 0 else { return Self.fallbackSize }
-        return size
-    }
-
-    /// Measured through the same appearance bridge the live panel uses —
-    /// without it the probe renders at scale 1.0 and the pinned height is short
-    /// for anyone who moved the interface text-size slider.
-    @ViewBuilder
-    private func measurementRoot(beat: Int, shortcuts: FirstRunTourShortcuts) -> some View {
-        let page = FirstRunTourPage(
-            beat: beat,
-            shortcuts: shortcuts,
-            onBack: {},
-            onNext: {},
-            onDismiss: {},
-            onOpenAgentSettings: {}
-        )
-        if let appSettingsStore {
-            page.appearanceBridge(appSettingsStore)
-        } else {
-            page
+        if let visibleHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height {
+            size.height = min(size.height, visibleHeight - 80)
         }
+        return size
     }
 
     private func makePanel() -> FloatingSwiftUIPanelWindow {
@@ -278,10 +240,10 @@ final class FirstRunTourController {
         panel.setAccessibilityLabel("Welcome to awesoMux")
         panel.showsStandardWindowButtons = true
         // AboutPanelController leaves this at its `true` default, which fires
-        // `onDismiss` whenever another window becomes key. Beat three opens
-        // Settings, which would make it key — and dismiss the tour out from
-        // under the user's own click. The tour must survive its own button,
-        // so focus loss stays inert; only `dismissByUser()` may hide it.
+        // `onDismiss` whenever another window becomes key. The macOS
+        // notification prompt the agents step raises takes key, and so does a
+        // click into the main window to try a setting; neither should end the
+        // wizard. Focus loss stays inert; only `dismissByUser()` may hide it.
         panel.dismissesOnResignKey = false
         panel.onDismiss = { [weak self] in self?.dismissByUser() }
         panel.onKeyStateChanged = { [weak self] isKey in
@@ -302,20 +264,15 @@ final class FirstRunTourController {
         return panel
     }
 
-    /// The single handler both the real panel's `onKeyStateChanged` callback
-    /// and the testing seam below route through. Flags only — this must never
-    /// itself decide to dismiss (that's `dismissesOnResignKey = false`'s job
-    /// above); collapsing the two would reintroduce the beat-three bug this
-    /// controller exists to avoid.
+    /// Flags only — this must never itself decide to dismiss (that's
+    /// `dismissesOnResignKey = false`'s job above).
     private func handleKeyStateChanged(_ isKey: Bool) {
         isKeyWindow = isKey
         // Every other FloatingSwiftUIPanelWindow consumer dismisses on resign,
         // so its `.floating` level never has to coexist with another window.
-        // The tour is the first that stays up after losing key — and floating
-        // above normal windows means beat three's own "Set up agents…" opens
-        // Settings *underneath* the tour, permanently unreachable. Ride normal
-        // ordering while something else is key; float again when refocused so
-        // the tour still sits above the main window during onboarding.
+        // The wizard stays up after losing key, so it rides normal ordering
+        // while something else is key (Settings opened from the menu would
+        // otherwise sit underneath it) and floats again when refocused.
         //
         // Deferred because `onKeyStateChanged` is documented flags-only: it can
         // run inside `sendEvent` via the pointer re-key, and re-ordering a
@@ -326,11 +283,5 @@ final class FirstRunTourController {
             guard let self else { return }
             panel?.level = isKeyWindow ? .floating : .normal
         }
-    }
-
-    private func consumeAgentSettingsHandoff() -> Bool {
-        guard isAwaitingAgentSettingsClose else { return false }
-        isAwaitingAgentSettingsClose = false
-        return true
     }
 }

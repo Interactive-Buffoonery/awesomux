@@ -150,6 +150,17 @@ final class WorkspaceNotificationBridge {
         flushPendingAuthorizationEvents(isAuthorized: granted)
     }
 
+    /// The setup wizard's Allow button. The user asked, so no explanation
+    /// alert first — the system prompt is the whole interaction.
+    func requestAuthorizationFromUser(completion: @escaping @MainActor (Bool) -> Void) {
+        guard !isAuthorizationRequestInFlight else { return }
+        isAuthorizationRequestInFlight = true
+        requestAuthorization { [weak self] granted in
+            self?.handlePrimeRequestResult(granted: granted)
+            completion(granted)
+        }
+    }
+
     private func flushPendingAuthorizationEvents(isAuthorized: Bool) {
         let events = pendingAuthorizationEvents
         pendingAuthorizationEvents.removeAll()

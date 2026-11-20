@@ -529,6 +529,8 @@ public struct AwColors: Sendable {
         public var sidebar: Color { Color.aw.dynamic(\.mantle) }
         public var terminal: Color { Color.aw.dynamic(\.base) }
         public var elevated: Color { Color.aw.dynamic(\.surface0) }
+        /// Off track for compact switches (`AwToggleStyle`).
+        public var track: Color { Color.aw.dynamic(\.surface2) }
         public var hover: Color { Color.aw.dynamic(\.text).opacity(0.06) }
         public var active: Color { Color.aw.dynamic(\.text).opacity(0.10) }
 

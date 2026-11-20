@@ -686,7 +686,7 @@ private struct AgentIntegrationSettingsCard: View {
     private var statusBadge: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(statusColor)
+                .fill(state.status.badgeColor)
                 .frame(width: 7, height: 7)
                 .accessibilityHidden(true)
             Text(state.isAuthoritative ? state.status.label : Self.pendingStatusLabel)
@@ -869,25 +869,6 @@ private struct AgentIntegrationSettingsCard: View {
         }
         return state.status.detail
     }
-
-    private var statusColor: Color {
-        switch state.status {
-        case .disabled:
-            Color.aw.textFaint
-        case .checking:
-            Color.aw.textFaint
-        case .notInstalled:
-            Color.aw.textFaint
-        case .staged:
-            Color.aw.sky
-        case .installed:
-            Color.aw.green
-        case .updateAvailable, .installStateRepairRequired, .timedOut:
-            Color.aw.peach
-        case .blocked:
-            Color.aw.red
-        }
-    }
 }
 
 private struct AgentIntegrationSettingsPathRow: View {
@@ -911,5 +892,22 @@ private struct AgentIntegrationSettingsPathRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: "\(label) \(path)"))
+    }
+}
+
+extension AgentIntegrationSettingsStatus {
+    var badgeColor: Color {
+        switch self {
+        case .disabled, .checking, .notInstalled:
+            Color.aw.textFaint
+        case .staged:
+            Color.aw.sky
+        case .installed:
+            Color.aw.green
+        case .updateAvailable, .installStateRepairRequired, .timedOut:
+            Color.aw.peach
+        case .blocked:
+            Color.aw.red
+        }
     }
 }

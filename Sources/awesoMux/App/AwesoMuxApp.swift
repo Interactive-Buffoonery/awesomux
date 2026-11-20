@@ -769,7 +769,10 @@ struct AwesoMuxApp: App {
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
                 aboutPanelController.appSettingsStore = appSettingsStore
                     firstRunTourController.appSettingsStore = appSettingsStore
-                    firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
+                    firstRunTourController.onCreateFirstWorkspace = { paletteActions.newWorkspace() }
+                    firstRunTourController.requestNotificationAuthorization = { completion in
+                        appDelegate.notificationBridge.requestAuthorizationFromUser(completion: completion)
+                    }
                 sessionManagerController.appSettingsStore = appSettingsStore
                     sessionManagerController.onConfigureAutoCleanup = {
                         openSettingsWindow(section: .terminal)
@@ -856,25 +859,15 @@ struct AwesoMuxApp: App {
                     appDelegate.requestNotificationAuthorizationIfNeeded(
                         notificationPrimeInputs(isLaunchEvaluation: false))
                 }
-                // The prime policy *defers* while the tour is up below beat
-                // three, and nothing else brings the evaluation back: menu
-                // chords stay live over the tour, so a user who follows beat
-                // one's "press ⌘N" mutates `groups` during the deferral, and
-                // paging on to Done mutates nothing at all. Without this the
-                // explanation is never shown and the first real agent event
-                // fires the bare system dialog — exactly what the pre-prompt
-                // exists to prevent.
-                .onChange(of: firstRunTourController.isDeferringNotificationPrime) { _, isDeferring in
-                    guard !isDeferring else { return }
-                    appDelegate.requestNotificationAuthorizationIfNeeded(
-                        notificationPrimeInputs(isLaunchEvaluation: false))
-                }
-                // The empty state's one-shot VoiceOver focus request is
-                // suppressed while the tour is up, and its own retry observers
-                // watch the MAIN window — which fires nothing when the tour is
-                // closed from behind Settings. Restore explicitly instead.
+                // Two things wait for the wizard to close. The notification
+                // prime defers while it is up, and nothing else re-evaluates
+                // it. The empty state's one-shot VoiceOver focus request is
+                // suppressed too, and its retry observers watch the MAIN
+                // window, so restore it explicitly.
                 .onChange(of: firstRunTourController.isVisible) { _, isVisible in
                     guard !isVisible else { return }
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
                     NotificationCenter.default.post(
                         name: .awEmptyWorkspaceInitialFocusShouldRestore, object: NSApp)
                 }
@@ -1720,9 +1713,7 @@ struct AwesoMuxApp: App {
         }
 
         Window("Settings", id: AwesoMuxSceneID.settings) {
-            AwesoMuxSettingsView(
-                onClose: { firstRunTourController.resumeAfterAgentSettingsClose() }
-            )
+            AwesoMuxSettingsView()
                 .environment(appSettingsStore)
             .environment(localAPIAccessStore)
             .environment(companionPairingCoordinator)
@@ -6564,7 +6555,6 @@ extension AwesoMuxApp {
             hasEligibleSession: sessionStore.groups.contains { !$0.sessions.isEmpty },
             isLaunchEvaluation: isLaunchEvaluation,
             tourIsVisible: firstRunTourController.isVisible,
-            tourReachedNotificationBeat: firstRunTourController.hasReachedNotificationBeat,
             anyChannelEnabled: preferences.shouldDeliverNeedsAttention()
                 || preferences.shouldDeliverTurnDone(),
             requestInFlight: appDelegate.isNotificationRequestInFlight,

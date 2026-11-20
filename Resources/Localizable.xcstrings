@@ -274,17 +274,6 @@
         }
       }
     },
-    "%arg opens a temporary Floating Panel for this workspace. %arg opens the Terminal Companion, a single shell that keeps running as you switch workspaces." : {
-      "comment" : "Spoken form of beat four. Arguments are those two shortcuts spelled out.\nWelcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg opens a temporary Floating Panel for this workspace. %2$arg opens the Terminal Companion, a single shell that keeps running as you switch workspaces."
-          }
-        }
-      }
-    },
     "%arg output exceeded the %arg-byte safety limit; reduce the CLI output before retrying" : {
       "comment" : "Command output safety limit exceeded",
       "localizations" : {
@@ -343,6 +332,17 @@
     },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
+    },
+    "%arg through %arg" : {
+      "comment" : "Spoken range of the jump-to-workspace shortcuts, e.g. Command 1 through 9",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg through %2$arg"
+          }
+        }
+      }
     },
     "%arg timed out" : {
       "comment" : "Command timeout"
@@ -412,6 +412,16 @@
     },
     "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, Pi, and Antigravity." : {
       "comment" : "Transcript failure when the pane's agent has no transcript adapter"
+    },
+    "%arg, %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, %2$arg"
+          }
+        }
+      }
     },
     "%arg, %arg added, %arg removed" : {
       "comment" : "VoiceOver label for a branch-changes file section: path, added lines, removed lines",
@@ -626,7 +636,7 @@
 
     },
     "Accent" : {
-      "comment" : "Appearance settings section title"
+      "comment" : "Appearance settings section title\nSetup wizard label for the accent color"
     },
     "Accent color" : {
       "comment" : "Settings field label for the accent color swatches"
@@ -755,7 +765,7 @@
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
     "Agents" : {
-      "comment" : "Global agent sidebar"
+      "comment" : "Global agent sidebar\nSidebar mode option"
     },
     "Agents sidebar opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
@@ -853,13 +863,16 @@
       "comment" : "Companion approval title."
     },
     "Allowed" : {
-      "comment" : "Settings label when macOS notification permission is granted."
+      "comment" : "Settings label when macOS notification permission is granted.\nSetup wizard notification permission status"
     },
     "Allowed clipboard read for %arg" : {
       "comment" : "VoiceOver announcement after the user allows a terminal program to read the clipboard. Argument is the bidi-isolated pane title."
     },
     "Allows typing into every terminal this device may watch. Turn on terminal watching first." : {
       "comment" : "Explains the terminal input permission and its terminal watching prerequisite."
+    },
+    "Allow…" : {
+      "comment" : "Setup wizard button that shows the macOS notification prompt"
     },
     "Alpha" : {
       "comment" : "Companion prerelease badge."
@@ -970,14 +983,14 @@
     "App name" : {
 
     },
+    "Appearance" : {
+      "comment" : "Setup wizard heading for the appearance step"
+    },
     "Appearance settings reset to defaults." : {
       "comment" : "VoiceOver announcement after resetting the Appearance settings pane"
     },
     "Applied layout preset %arg" : {
       "comment" : "VoiceOver announcement after applying a layout preset."
-    },
-    "Applies on next launch." : {
-      "comment" : "Hint for the default sidebar view setting"
     },
     "Applies to executable files opened from Finder. Apps with their own terminal preference must be configured separately." : {
 
@@ -1324,7 +1337,7 @@
       "comment" : "Settings hint while the Open at Login status is being fetched."
     },
     "Checking…" : {
-      "comment" : "Agent integration card status before the first check lands\nAgent integration status badge while a check is in flight\nSettings label while the Open at Login status is being fetched.\nSettings label while the macOS notification permission state is being fetched."
+      "comment" : "Agent integration card status before the first check lands\nAgent integration status badge while a check is in flight\nSettings label while the Open at Login status is being fetched.\nSettings label while the macOS notification permission state is being fetched.\nSetup wizard notification permission status while it loads"
     },
     "Checks" : {
       "comment" : "Section heading in a read-only pull request snapshot"
@@ -1625,6 +1638,9 @@
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
     },
+    "Compact rows" : {
+      "comment" : "Setup wizard switch for sidebar compact mode"
+    },
     "Companion" : {
       "comment" : "Companion settings sidebar title."
     },
@@ -1701,6 +1717,9 @@
     },
     "Connection to %arg may be stale." : {
       "comment" : "VoiceOver announcement when a remote pane connection may be stale"
+    },
+    "Continue" : {
+      "comment" : "Setup wizard button advancing to the next step"
     },
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
@@ -2045,6 +2064,9 @@
         }
       }
     },
+    "Create first workspace" : {
+      "comment" : "Setup wizard button on the last step that closes the wizard and creates a workspace"
+    },
     "Creates a managed SSH workspace in “%arg.”\nOpenSSH will use your existing config and credentials." : {
       "comment" : "Explanation in the Connect via SSH sheet"
     },
@@ -2124,7 +2146,7 @@
       "comment" : "Notification settings title."
     },
     "Denied" : {
-      "comment" : "Settings label when macOS notification permission is denied."
+      "comment" : "Settings label when macOS notification permission is denied.\nSetup wizard notification permission status"
     },
     "Deny" : {
       "comment" : "Button that denies a remote agent's permission request"
@@ -2307,7 +2329,7 @@
       "comment" : "Deny Companion pairing button."
     },
     "Done" : {
-      "comment" : "Agent state label\nButton that closes the companion away activity summary details.\nWelcome tour button closing the tour on the last beat",
+      "comment" : "Agent state label\nButton that closes the companion away activity summary details.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2618,24 +2640,24 @@
     "Find" : {
 
     },
-    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
-      "comment" : "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot.",
+    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The ? button in the sidebar footer brings this tour back." : {
+      "comment" : "Setup wizard closing step. Arguments are the command-palette and cheatsheet shortcuts as symbols.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The ? button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The ? button in the sidebar footer brings this tour back."
           }
         }
       }
     },
-    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
-      "comment" : "Spoken form of beat five. Arguments are those two shortcuts spelled out.",
+    "Find commands with %arg, or open the keyboard cheatsheet with %arg. The question mark button in the sidebar footer brings this tour back." : {
+      "comment" : "Spoken form of the setup wizard closing step. Arguments are those two shortcuts spelled out.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The question mark button in the sidebar footer brings this tour back. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+            "value" : "Find commands with %1$arg, or open the keyboard cheatsheet with %2$arg. The question mark button in the sidebar footer brings this tour back."
           }
         }
       }
@@ -2765,6 +2787,9 @@
     },
     "Glow strength" : {
       "comment" : "Settings field label for the glow strength slider"
+    },
+    "Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Setup wizard sign-off; D.A.V.E. is the mascot."
     },
     "Go to pane" : {
       "comment" : "Navigate to the pane with attention"
@@ -2933,6 +2958,9 @@
     "Insert Checkout Command" : {
 
     },
+    "Install" : {
+      "comment" : "Setup wizard button installing an agent integration"
+    },
     "Install Helper" : {
       "comment" : "Approve remote helper installation button"
     },
@@ -3008,6 +3036,9 @@
     "It's your turn — %arg is waiting for your next message." : {
       "comment" : "Notification body for turn-done banners. Argument is the agent product name."
     },
+    "Jump to Workspace" : {
+      "comment" : "Setup wizard shortcut row for jumping to workspaces 1 to 9"
+    },
     "Jumps to the next matching agent" : {
       "comment" : "Accessibility hint for a collapsed-rail footer chip that jumps to the next agent pane in that state"
     },
@@ -3022,6 +3053,9 @@
     },
     "Keep awesoMux quiet" : {
 
+    },
+    "Keep my Ghostty background" : {
+      "comment" : "Setup wizard option that keeps the Ghostty config's terminal background"
     },
     "Keep sessions running in the background" : {
       "comment" : "Terminal settings label."
@@ -3082,7 +3116,7 @@
       "comment" : "Remote helper setup documentation link"
     },
     "Left" : {
-
+      "comment" : "Sidebar position option"
     },
     "Let AI apps on this Mac, like Claude Desktop or ChatGPT, see what your agents are doing. You choose which panes each app can see." : {
       "comment" : "Outside app access settings subtitle."
@@ -3342,6 +3376,9 @@
     "Move to Previous Group (%arg)" : {
 
     },
+    "Move workspaces that need you to the top" : {
+      "comment" : "Setup wizard switch that promotes workspaces needing input in the sidebar"
+    },
     "Move workspaces with attention alerts, completed Codex responses, or unanswered Claude Code responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default." : {
       "comment" : "Settings field hint for the sidebar needs-attention section toggle"
     },
@@ -3539,9 +3576,6 @@
     "New workspace in %arg" : {
       "comment" : "VoiceOver label for the row that creates a workspace in a sidebar group, naming the group so repeated rows are distinguishable."
     },
-    "Next" : {
-      "comment" : "Welcome tour button advancing to the next beat"
-    },
     "Next Agent Needing Me" : {
       "comment" : "Navigate to the next actionable agent pane"
     },
@@ -3691,7 +3725,7 @@
       "comment" : "Diagnostics freshness"
     },
     "Not requested yet" : {
-      "comment" : "Settings label when macOS notification permission has not been requested."
+      "comment" : "Settings label when macOS notification permission has not been requested.\nSetup wizard notification permission status"
     },
     "Note Removed" : {
 
@@ -3711,11 +3745,14 @@
     "Notification banners and sounds can come through, and you can turn on Dock bouncing." : {
 
     },
+    "Notifications" : {
+      "comment" : "Setup wizard label for notification permission"
+    },
     "Notifications muted for this workspace" : {
 
     },
     "Notify when an agent needs input" : {
-      "comment" : "Notification settings label."
+      "comment" : "Notification settings label.\nSetup wizard switch for needs-input notifications"
     },
     "Notify when my turn is done" : {
       "comment" : "Notification settings label."
@@ -3824,6 +3861,9 @@
     },
     "Open menu" : {
 
+    },
+    "Open on" : {
+      "comment" : "Setup wizard label for the sidebar shown at launch"
     },
     "Open prefilled email?" : {
       "comment" : "OSC 8 confirmation dialog title segment when a mailto URL has prefill parameters."
@@ -4144,7 +4184,7 @@
       "comment" : "Notification settings hint shared with accessibility."
     },
     "Position" : {
-      "comment" : "Settings field label for the sidebar position picker"
+      "comment" : "Settings field label for the sidebar position picker\nSetup wizard label for the sidebar position"
     },
     "Possibly stale remote session on %arg" : {
       "comment" : "VoiceOver label for a possibly stale remote path-bar button; the argument is the SSH host"
@@ -4208,6 +4248,9 @@
     },
     "Press ⌘Return to update clipboard. Return or Esc cancels." : {
       "comment" : "Keyboard hint line on the OSC 52 clipboard-write confirmation dialog."
+    },
+    "Preview" : {
+      "comment" : "Setup wizard label for the terminal preview"
     },
     "Preview of terminal background" : {
 
@@ -4983,7 +5026,7 @@
       "comment" : "Section heading in a read-only pull request snapshot"
     },
     "Right" : {
-
+      "comment" : "Sidebar position option"
     },
     "Rising" : {
       "comment" : "Diagnostics resource trend"
@@ -4997,8 +5040,8 @@
     "Run Shortcut" : {
 
     },
-    "Run an agent you've already installed, such as Claude Code or Codex. Set up its integration in Agents settings for more reliable activity updates. Allow notifications for alerts while you're in another app; delivery follows your notification settings." : {
-      "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
+    "Run an agent you've already installed, such as Claude Code or Codex. Set up its integration below for more reliable activity updates. Allow notifications for alerts while you're in another app; delivery follows your notification settings." : {
+      "comment" : "Setup wizard agents step, introducing agent awareness and notifications."
     },
     "Run this file in awesoMux?" : {
 
@@ -5284,9 +5327,6 @@
     },
     "Set Workspace Group Color to %arg" : {
 
-    },
-    "Set up agents…" : {
-      "comment" : "Welcome tour button opening the agent settings section"
     },
     "Setting this context does not connect over SSH. It lasts only for this pane and is not restored." : {
       "comment" : "Help describing the runtime-only lifetime of remote file context"
@@ -5640,7 +5680,7 @@
       "comment" : "About window field label for the terminal engine\nAdvanced settings label."
     },
     "Terminal background" : {
-      "comment" : "Settings field label for the terminal background source picker"
+      "comment" : "Settings field label for the terminal background source picker\nSetup wizard label for the terminal background choice"
     },
     "Terminal background is controlled by your Ghostty configuration." : {
 
@@ -6003,7 +6043,7 @@
       "comment" : "Recovery replacement failure shown when current workspace data exceeds the snapshot size limit"
     },
     "Theme" : {
-      "comment" : "Appearance settings section title\nSettings field label for the theme picker"
+      "comment" : "Appearance settings section title\nSettings field label for the theme picker\nSetup wizard label for the app theme"
     },
     "These hosts have their own choice. Remove one to use the setting above. Changing the setting above replaces all host choices." : {
       "comment" : "Explains how per-host helper preferences override and reset to the global preference"
@@ -6412,6 +6452,9 @@
     "Use a wrapper executable for environment variables or credentials. Do not put secrets in arguments." : {
 
     },
+    "Use an awesoMux theme" : {
+      "comment" : "Setup wizard option that uses an awesoMux terminal theme"
+    },
     "Use awesoMux shortcuts" : {
 
     },
@@ -6504,7 +6547,7 @@
       "comment" : "Saved remote browser permissions section title"
     },
     "Welcome to awesoMux" : {
-      "comment" : "Announced to VoiceOver when the welcome tour panel presents"
+      "comment" : "Announced to VoiceOver when the welcome tour panel presents\nSetup wizard heading on its first step"
     },
     "What awesoMux does the moment you launch it." : {
       "comment" : "General settings subtitle."
@@ -6564,7 +6607,7 @@
       "comment" : "Reciprocal sidebar preview"
     },
     "Workspaces" : {
-      "comment" : "Workspace preview and sidebar destination",
+      "comment" : "Sidebar mode option\nWorkspace preview and sidebar destination",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6624,6 +6667,9 @@
     "Your config file has an error, so this choice can’t be saved. Fix it in Settings › Advanced, then try again." : {
       "comment" : "Error shown when a managed SSH preference cannot persist because the config file on disk is invalid"
     },
+    "Your shortcuts" : {
+      "comment" : "Setup wizard heading for the shortcut list"
+    },
     "`codex agents` and remote control need the shared server. With the alias, start them with `command codex`." : {
       "comment" : "Codex --no-daemon tradeoff. Preserve the commands in backticks."
     },
@@ -6675,9 +6721,6 @@
     },
     "agy timed out" : {
       "comment" : "Antigravity integration status or repair guidance"
-    },
-    "always within reach" : {
-      "comment" : "Welcome tour heading for the floating panel and Terminal Companion beat"
     },
     "amx:" : {
 

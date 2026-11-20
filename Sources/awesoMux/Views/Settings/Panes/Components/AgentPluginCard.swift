@@ -352,7 +352,7 @@ struct AgentPluginFolderSection: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { payload in
-            Text(confirmationMessage(payload))
+            Text(payload.message)
         }
     }
 
@@ -581,15 +581,6 @@ struct AgentPluginFolderSection: View {
         action == .uninstall ? .destructive : nil
     }
 
-    private func confirmationMessage(_ payload: AgentPluginConfirmation) -> String {
-        var lines = ["Runs \(payload.executablePath):"]
-        lines.append(contentsOf: payload.commandLines.map { "  \($0)" })
-        if !payload.configTargets.isEmpty {
-            lines.append("Affects: \(payload.configTargets.joined(separator: ", "))")
-        }
-        return lines.joined(separator: "\n")
-    }
-
     private func buttonHelp(title: String, enabled: Bool) -> String {
         enabled ? "\(title) \(state.title) status plugin" : "\(title) is unavailable for the current status"
     }
@@ -683,5 +674,16 @@ struct AgentPluginStatusBadge: View {
         case .needsRepair, .unsupported:
             Color.aw.red
         }
+    }
+}
+
+extension AgentPluginConfirmation {
+    var message: String {
+        var lines = ["Runs \(executablePath):"]
+        lines.append(contentsOf: commandLines.map { "  \($0)" })
+        if !configTargets.isEmpty {
+            lines.append("Affects: \(configTargets.joined(separator: ", "))")
+        }
+        return lines.joined(separator: "\n")
     }
 }
