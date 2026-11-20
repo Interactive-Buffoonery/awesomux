@@ -53,6 +53,17 @@ public extension PlanAnnotationAuthor {
 /// Composes the plain-English nudge text injected into the document's associated
 /// terminal when the user taps a document handoff action.
 public enum NudgeComposer {
+    /// Shared verbatim with the bundled document-review skill.
+    public static let commentConventionSummary =
+        "Annotations are HTML comment markers: <!-- USER COMMENT N: … --> or "
+        + "<!-- AMX id=… by=… …: … -->. A marker right after <mark>highlighted</mark> text "
+        + "is a request about that span; the single AMX marker on its own line is the note "
+        + "about the whole document. intent=replace carries suggested replacement text for the span; "
+        + "intent=delete asks you to remove it. When you've handled one: for AMX markers, "
+        + "set status=resolved inside the marker (keep it so I can verify) or remove the "
+        + "<mark> wrapper and marker; for USER COMMENT markers, remove the wrapper and "
+        + "marker."
+
     /// A local handoff must name the same absolute path before and after staging.
     /// Control characters are forbidden even though the multiline draft allows
     /// tabs and newlines; replacing them would name a different file.
@@ -119,14 +130,8 @@ public enum NudgeComposer {
         return "Address my review annotations in \(shellSingleQuoted(displayPath)). "
             + context
             + "Read the file yourself; the prompt contains ids only, not hidden annotation text. "
-            + "Annotations are HTML comment markers: <!-- USER COMMENT N: … --> or "
-            + "<!-- AMX id=… by=… …: … -->. A marker right after <mark>highlighted</mark> text "
-            + "is a request about that span; the single AMX marker on its own line is the note "
-            + "about the whole document. intent=replace carries suggested replacement text for the span; "
-            + "intent=delete asks you to remove it. When you've handled one: for AMX markers, "
-            + "set status=resolved inside the marker (keep it so I can verify) or remove the "
-            + "<mark> wrapper and marker; for USER COMMENT markers, remove the wrapper and "
-            + "marker. Inline annotations can have replies using "
+            + commentConventionSummary
+            + " Inline annotations can have replies using "
             + "<!-- AMX re=<id> by=\(provider?.rawValue ?? "your-provider-id"): note -->"
             + " and the document note has no replies."
     }
