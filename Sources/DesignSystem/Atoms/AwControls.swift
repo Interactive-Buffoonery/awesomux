@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Compact chrome buttons for awesoMux panels. Apply with
-/// `.awButtonStyle(_:)` so the stock focus effect gives way to the
-/// accent focus ring.
+/// Mono chrome buttons for awesoMux panels, cut from the sidebar's Update
+/// Available button. Apply with `.awButtonStyle(_:)` so the stock focus
+/// effect gives way to the accent focus ring.
 public struct AwButtonStyle: ButtonStyle {
     public enum Kind: Sendable {
+        /// Accent-soft fill, primary text: the Update Available look.
         case primary
+        /// Hairline outline, secondary text.
         case ghost
+        /// Bare accent text.
         case link
     }
 
@@ -28,16 +31,20 @@ private struct AwButtonBody: View {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.isFocused) private var isFocused
     @Environment(\.awAccent) private var accentResolver
-    @Environment(\.self) private var environment
     @State private var isHovered = false
 
     private var accent: AwAccent { accentResolver.accent }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: AwRadius.pill) }
+    private var isActive: Bool { isEnabled && (isHovered || configuration.isPressed) }
 
     var body: some View {
         styledLabel
-            .contentShape(RoundedRectangle(cornerRadius: AwRadius.button))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
-            .awFocusRing(isFocused, cornerRadius: AwRadius.button, inset: -2)
+            .awFont(AwFont.Mono.meta)
+            .lineLimit(1)
+            .frame(minHeight: 28)
+            .contentShape(shape)
+            .opacity(isEnabled ? 1 : 0.4)
+            .awFocusRing(isFocused, cornerRadius: AwRadius.pill, inset: -2)
             .onHover { isHovered = $0 }
     }
 
@@ -45,49 +52,31 @@ private struct AwButtonBody: View {
     private var styledLabel: some View {
         switch kind {
         case .primary:
-            let fill = Color.aw.accent(accent)
             configuration.label
-                .awFont(AwFont.UI.meta)
-                .fontWeight(.semibold)
-                .foregroundStyle(onAccent(fill))
-                .padding(.horizontal, 12)
-                .frame(height: 26)
-                .background(fill, in: RoundedRectangle(cornerRadius: AwRadius.button))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AwRadius.button)
-                        .fill(Color.white.opacity(isHovered && isEnabled ? 0.12 : 0))
+                .fontWeight(.medium)
+                .foregroundStyle(Color.aw.text)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 28)
+                .background {
+                    ZStack {
+                        shape.fill(Color.aw.accentSoft(accent))
+                        shape.fill(Color.aw.accent(accent).opacity(configuration.isPressed ? 0.3 : isActive ? 0.15 : 0))
+                    }
                 }
-                .awGlow(color: Color.aw.accentSoft(accent), radius: 6)
         case .ghost:
             configuration.label
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
-                .padding(.horizontal, 12)
-                .frame(height: 26)
-                .background(
-                    isHovered && isEnabled ? Color.aw.surface.hover : Color.clear,
-                    in: RoundedRectangle(cornerRadius: AwRadius.button)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: AwRadius.button)
-                        .stroke(Color.aw.border2, lineWidth: 0.5)
-                }
+                .foregroundStyle(isActive ? Color.aw.text : Color.aw.text2)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 28)
+                .background(isActive ? Color.aw.surface.hover : Color.clear, in: shape)
+                .overlay { shape.stroke(Color.aw.border2, lineWidth: 0.5) }
         case .link:
             configuration.label
-                .awFont(AwFont.UI.meta)
                 .fontWeight(.medium)
                 .foregroundStyle(Color.aw.accentOnChrome(accent))
-                .underline(isHovered && isEnabled)
+                .underline(isActive)
                 .padding(.horizontal, 4)
-                .frame(height: 26)
         }
-    }
-
-    // Dark accents (several Latte fills) need a light label to keep 4.5:1.
-    private func onAccent(_ fill: Color) -> Color {
-        let resolved = fill.resolve(in: environment)
-        let luminance = 0.2126 * resolved.linearRed + 0.7152 * resolved.linearGreen + 0.0722 * resolved.linearBlue
-        return luminance < 0.18 ? Color.white : Color(nsColor: NSColor.awHex("#11111b"))
     }
 }
 

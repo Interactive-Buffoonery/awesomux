@@ -663,7 +663,7 @@ struct AgentPluginStatusBadge: View {
         .accessibilityHint(accessibilityHint)
     }
 
-    private static func color(for status: AgentPluginStatus) -> Color {
+    static func color(for status: AgentPluginStatus) -> Color {
         switch status {
         case .notConfigured, .notInstalled, .disabled:
             Color.aw.textFaint

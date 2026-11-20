@@ -122,12 +122,19 @@ final class FirstRunTourController {
     /// Handing the page a value that changes per presentation is what lets it
     /// drive VoiceOver focus off presentation instead.
     private(set) var presentationToken = 0
+    /// True only when the current step is taller than the screen allows. The
+    /// page hides its scroller otherwise: a legacy scroller shown during a
+    /// page turn's brief overflow narrows the text, rewraps it taller than
+    /// measured, and never goes away.
+    private(set) var isHeightCapped = false
 
     var currentStep: SetupWizardStep { steps[min(currentStepIndex, steps.count - 1)] }
 
     /// Used only when measurement can't run — an unbundled/headless context
     /// where `NSHostingView` reports a degenerate fitting size.
     private static let fallbackSize = CGSize(width: 480, height: 420)
+    /// Keeps short steps from shrinking to a strip between page turns.
+    private static let minimumHeight: CGFloat = 240
 
     /// `hasGhosttyConfig` must be read before `GhosttyRuntime` starts:
     /// libghostty writes a template `config.ghostty` when no config exists,
@@ -159,7 +166,9 @@ final class FirstRunTourController {
         panel.hostSwiftUIContent(SetupWizardView(controller: self, store: store).appearanceBridge(store))
 
         if isFirstPresentation {
-            panel.setFixedContentSize(maximumStepFittingSize(store: store))
+            let size = panelSize(for: currentStep)
+            isHeightCapped = size.height >= maximumPanelHeight
+            panel.setFixedContentSize(size)
             panel.center()
         }
         panel.presentAndFocus()
@@ -222,23 +231,50 @@ final class FirstRunTourController {
         return true
     }
 
-    /// Every step is measured and the panel pinned to the tallest, capped to
-    /// the screen; the page scrolls past that. Sizing per step would resize
-    /// the window under the user on each page turn. Measured through the same
-    /// appearance bridge the live panel uses, so interface text size counts.
-    private func maximumStepFittingSize(store: AppSettingsStore) -> CGSize {
-        var size = CGSize.zero
-        for step in steps {
-            let page = SetupWizardPage(controller: self, store: store, step: step, isMeasuring: true)
-            let fitting = NSHostingView(rootView: page.appearanceBridge(store)).fittingSize
-            size.width = max(size.width, fitting.width)
-            size.height = max(size.height, fitting.height)
-        }
+    /// Each step gets its own height at the page's fixed width, measured
+    /// through the same appearance bridge the live panel uses so interface
+    /// text size counts. Capped to the screen; the page scrolls past that.
+    func panelSize(for step: SetupWizardStep) -> CGSize {
+        guard let store = appSettingsStore else { return Self.fallbackSize }
+        let page = SetupWizardPage(controller: self, store: store, step: step, isMeasuring: true)
+        var size = NSHostingView(rootView: page.appearanceBridge(store)).fittingSize
         guard size.width > 0, size.height > 0 else { return Self.fallbackSize }
-        if let visibleHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height {
-            size.height = min(size.height, visibleHeight - 80)
-        }
+        size.height = min(max(size.height.rounded(.up), Self.minimumHeight), maximumPanelHeight)
         return size
+    }
+
+    private var maximumPanelHeight: CGFloat {
+        guard let screen = panel?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return .infinity }
+        return screen.visibleFrame.height - 80
+    }
+
+    /// Resizes to the current step, keeping the top edge where it is so the
+    /// footer moves rather than the heading. Deferred a turn because the page
+    /// calls this from a geometry change, and resizing the window inside a
+    /// SwiftUI layout pass re-enters it.
+    func fitPanelToCurrentStep() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let panel, isVisible else { return }
+            let size = panelSize(for: currentStep)
+            isHeightCapped = size.height >= maximumPanelHeight
+            let current = panel.frame
+            guard panel.contentRect(forFrameRect: current).size != size else { return }
+            panel.contentMinSize = size
+            panel.contentMaxSize = size
+            var frame = panel.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+            frame.origin = NSPoint(x: current.minX, y: current.maxY - frame.height)
+            if let visible = panel.screen?.visibleFrame, frame.minY < visible.minY {
+                frame.origin.y = visible.minY
+            }
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                panel.setFrame(frame, display: true)
+            } else {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    panel.animator().setFrame(frame, display: true)
+                }
+            }
+        }
     }
 
     private func makePanel() -> FloatingSwiftUIPanelWindow {

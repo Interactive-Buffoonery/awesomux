@@ -4249,9 +4249,6 @@
     "Press ⌘Return to update clipboard. Return or Esc cancels." : {
       "comment" : "Keyboard hint line on the OSC 52 clipboard-write confirmation dialog."
     },
-    "Preview" : {
-      "comment" : "Setup wizard label for the terminal preview"
-    },
     "Preview of terminal background" : {
 
     },

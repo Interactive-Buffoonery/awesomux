@@ -21,8 +21,8 @@ enum SetupWizardStep: Hashable, CaseIterable {
 // MARK: - Panel root
 
 /// Panel root. Reads `currentStep` inside a `body` so Observation tracks it.
-/// It must stay a bare pass-through: the controller measures `SetupWizardPage`
-/// directly and pins the panel to that size.
+/// It must stay a bare pass-through: the controller sizes the panel by
+/// measuring `SetupWizardPage` for the current step directly.
 struct SetupWizardView: View {
     let controller: FirstRunTourController
     let store: AppSettingsStore
@@ -46,6 +46,9 @@ struct SetupWizardPage: View {
     /// Lays content out at its natural height, without the scroll view the
     /// live panel uses once the panel is capped to the screen.
     var isMeasuring = false
+
+    /// Fixed so a step's height is the only thing that changes between steps.
+    static let width: CGFloat = 460
 
     @Environment(\.awAccent) private var accentResolver
     @AccessibilityFocusState private var stepFocused: Bool
@@ -76,6 +79,7 @@ struct SetupWizardPage: View {
                     content
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(controller.isHeightCapped ? .automatic : .never)
             }
             footer
                 .padding([.horizontal, .bottom], Self.focusInset)
@@ -84,7 +88,7 @@ struct SetupWizardPage: View {
         // Vertical traffic-light clearance: the panel shows standard window
         // buttons and the content starts at the top edge.
         .padding(.top, AwSpacing.titlebar - AwSpacing.panelPadding)
-        .frame(width: 420, alignment: .leading)
+        .frame(width: Self.width, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .fill(Color.aw.surface.window)
@@ -111,6 +115,12 @@ struct SetupWizardPage: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(stepLabel)
             .accessibilityFocused($stepFocused)
+            // Step turns and in-step changes (a row appearing, an error line)
+            // both move this height; the panel follows it.
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _ in
+                guard !isMeasuring else { return }
+                controller.fitPanelToCurrentStep()
+            }
     }
 
     @ViewBuilder
@@ -162,11 +172,12 @@ struct SetupWizardPage: View {
                 .awButtonStyle(.link)
             }
 
-            Button(String(localized: "Back", comment: "Welcome tour button returning to the previous beat")) {
-                controller.retreat()
+            if !isFirstStep {
+                Button(String(localized: "Back", comment: "Welcome tour button returning to the previous beat")) {
+                    controller.retreat()
+                }
+                .awButtonStyle(.ghost)
             }
-            .awButtonStyle(.ghost)
-            .disabled(isFirstStep)
 
             Button(
                 isLastStep
@@ -194,7 +205,7 @@ struct SetupWizardPage: View {
             }
 
             Text(stepLabel)
-                .awFont(AwFont.UI.meta)
+                .awFont(AwFont.Mono.meta)
                 // Primary text: `text2` is under 4.5:1 on the Latte window.
                 .foregroundStyle(Color.aw.text)
         }
@@ -216,35 +227,43 @@ private struct SetupWizardWelcomeStep: View {
         VStack(alignment: .leading, spacing: 16) {
             DaveMark().daveMarkGap()
             WizardKicker(text: SetupWizardCopy.welcomeTitle)
-            WizardRow(isFirst: true) {
-                VStack(alignment: .leading, spacing: 8) {
-                    WizardLabel(
-                        title: String(
-                            localized: "Terminal background",
-                            comment: "Setup wizard label for the terminal background choice"))
-                    SettingsSegmented(
-                        options: [
-                            .init(
-                                value: .ghostty,
-                                label: String(
-                                    localized: "Keep my Ghostty background",
-                                    comment: "Setup wizard option that keeps the Ghostty config's terminal background")),
-                            .init(
-                                value: .catppuccinTheme,
-                                label: String(
-                                    localized: "Use an awesoMux theme",
-                                    comment: "Setup wizard option that uses an awesoMux terminal theme")),
-                        ],
-                        // A custom background matches neither option, so
-                        // neither shows selected until the user picks one.
-                        selection: store.appearance.binding(\.terminalBackgroundMode),
-                        expandsToFill: true)
-                    TerminalBackgroundPreview(
-                        backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: nil),
-                        usesGhosttyConfig: mode == .ghostty)
+            VStack(alignment: .leading, spacing: 8) {
+                WizardLabel(
+                    title: String(
+                        localized: "Terminal background",
+                        comment: "Setup wizard label for the terminal background choice"))
+                ViewThatFits(in: .horizontal) {
+                    backgroundChips(isVertical: false)
+                    backgroundChips(isVertical: true)
                 }
+                WizardTerminalPreview(
+                    backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: nil),
+                    usesGhosttyConfig: mode == .ghostty)
             }
         }
+    }
+
+    /// A custom background matches neither option, so neither shows selected
+    /// until the user picks one.
+    private func backgroundChips(isVertical: Bool) -> some View {
+        WizardChips(
+            accessibilityLabel: String(
+                localized: "Terminal background",
+                comment: "Setup wizard label for the terminal background choice"),
+            options: [
+                .init(
+                    value: .ghostty,
+                    label: String(
+                        localized: "Keep my Ghostty background",
+                        comment: "Setup wizard option that keeps the Ghostty config's terminal background")),
+                .init(
+                    value: .catppuccinTheme,
+                    label: String(
+                        localized: "Use an awesoMux theme",
+                        comment: "Setup wizard option that uses an awesoMux terminal theme")),
+            ],
+            selection: store.appearance.binding(\.terminalBackgroundMode),
+            isVertical: isVertical)
     }
 }
 
@@ -301,58 +320,35 @@ private struct SetupWizardAppearanceStep: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                WizardRow(isFirst: true) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        WizardLabel(title: String(localized: "Theme", comment: "Setup wizard label for the app theme"))
-                        SettingsThemePreview(selection: store.appearance.binding(\.theme), variant: .grid)
-                    }
-                }
-                WizardRow {
-                    HStack(spacing: 12) {
-                        WizardLabel(title: String(localized: "Accent", comment: "Setup wizard label for the accent color"))
-                        SettingsSwatchGrid(selection: accent)
-                            // Four 30pt swatches and three 12pt gaps on one line.
-                            .frame(width: 156)
-                    }
-                }
+                WizardChoiceRow(
+                    title: String(localized: "Theme", comment: "Setup wizard label for the app theme"), isFirst: true,
+                    options: AppearanceConfig.Theme.cardDisplayOrder.map { .init(value: $0, label: $0.displayName) },
+                    selection: store.appearance.binding(\.theme))
+                WizardChoiceRow(
+                    title: String(localized: "Accent", comment: "Setup wizard label for the accent color"),
+                    options: AwAccent.allCases.map {
+                        .init(value: $0, label: $0.displayName, swatch: Color.aw.accent($0))
+                    },
+                    selection: accent)
                 if showsTerminalTheme {
-                    WizardRow {
-                        HStack(spacing: 12) {
-                            WizardLabel(
-                                title: String(
-                                    localized: "Terminal theme", comment: "Label for the terminal color theme picker"))
-                            AppDropdownPicker(
-                                title: String(
-                                    localized: "Terminal theme", comment: "Label for the terminal color theme picker"),
-                                selection: terminalTheme,
-                                options: [
-                                    (
-                                        TerminalThemeCatalog.catppuccinID,
-                                        String(
-                                            localized: "Catppuccin",
-                                            comment: "Name of the Catppuccin terminal color theme")
-                                    ),
-                                    (
-                                        TerminalThemeCatalog.selenizedID,
-                                        String(
-                                            localized: "Selenized",
-                                            comment: "Name of the Selenized terminal color theme")
-                                    ),
-                                ]
-                            )
-                            .fixedSize()
-                            .accessibilityLabel("Terminal theme")
-                        }
-                    }
+                    WizardChoiceRow(
+                        title: String(localized: "Terminal theme", comment: "Label for the terminal color theme picker"),
+                        options: [
+                            .init(
+                                value: TerminalThemeCatalog.catppuccinID,
+                                label: String(
+                                    localized: "Catppuccin", comment: "Name of the Catppuccin terminal color theme")),
+                            .init(
+                                value: TerminalThemeCatalog.selenizedID,
+                                label: String(
+                                    localized: "Selenized", comment: "Name of the Selenized terminal color theme")),
+                        ],
+                        selection: terminalTheme)
                 }
                 WizardRow {
-                    VStack(alignment: .leading, spacing: 8) {
-                        WizardLabel(
-                            title: String(localized: "Preview", comment: "Setup wizard label for the terminal preview"))
-                        TerminalBackgroundPreview(
-                            backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: colorScheme),
-                            usesGhosttyConfig: !showsTerminalTheme)
-                    }
+                    WizardTerminalPreview(
+                        backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: colorScheme),
+                        usesGhosttyConfig: !showsTerminalTheme)
                 }
             }
         }
@@ -389,30 +385,25 @@ private struct SetupWizardSidebarStep: View {
                     comment: "Welcome tour beat two, explaining the sidebar and panes."))
 
             VStack(alignment: .leading, spacing: 0) {
-                WizardRow(isFirst: true) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        WizardLabel(
-                            title: String(localized: "Position", comment: "Setup wizard label for the sidebar position"))
-                        SidebarPositionCards(selection: store.appearance.binding(\.sidebarPosition))
-                    }
-                }
-                WizardRow {
-                    HStack(spacing: 12) {
-                        WizardLabel(
-                            title: String(
-                                localized: "Open on", comment: "Setup wizard label for the sidebar shown at launch"))
-                        SettingsSegmented(
-                            options: [
-                                .init(
-                                    value: AppearanceConfig.SidebarMode.workspaces,
-                                    label: String(localized: "Workspaces", comment: "Sidebar mode option")),
-                                .init(
-                                    value: AppearanceConfig.SidebarMode.agents,
-                                    label: String(localized: "Agents", comment: "Sidebar mode option")),
-                            ],
-                            selection: store.appearance.binding(\.defaultSidebar))
-                    }
-                }
+                WizardChoiceRow(
+                    title: String(localized: "Position", comment: "Setup wizard label for the sidebar position"),
+                    isFirst: true,
+                    options: [
+                        .init(value: .left, label: String(localized: "Left", comment: "Sidebar position option")),
+                        .init(value: .right, label: String(localized: "Right", comment: "Sidebar position option")),
+                    ],
+                    selection: store.appearance.binding(\.sidebarPosition))
+                WizardChoiceRow(
+                    title: String(localized: "Open on", comment: "Setup wizard label for the sidebar shown at launch"),
+                    options: [
+                        .init(
+                            value: AppearanceConfig.SidebarMode.workspaces,
+                            label: String(localized: "Workspaces", comment: "Sidebar mode option")),
+                        .init(
+                            value: AppearanceConfig.SidebarMode.agents,
+                            label: String(localized: "Agents", comment: "Sidebar mode option")),
+                    ],
+                    selection: store.appearance.binding(\.defaultSidebar))
                 WizardRow {
                     WizardSwitch(
                         title: String(
@@ -451,6 +442,14 @@ private struct SetupWizardAgentsStep: View {
         }
     }
 
+    private var notificationStatusColor: Color {
+        switch notifications.status {
+        case .unknown, .notDetermined: Color.aw.textFaint
+        case .authorized: Color.aw.green
+        case .denied: Color.aw.red
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             WizardBeat(
@@ -462,24 +461,20 @@ private struct SetupWizardAgentsStep: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(AgentIntegrationDisplayProvider.allCases, id: \.self) { display in
-                    if display != AgentIntegrationDisplayProvider.allCases.first {
-                        Divider().overlay(Color.aw.border)
+                    WizardRow(isFirst: display == AgentIntegrationDisplayProvider.allCases.first) {
+                        SetupWizardAgentRow(display: display, agents: agents)
                     }
-                    SetupWizardAgentRow(display: display, agents: agents)
                 }
-            }
-            .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
-            .overlay {
-                RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5)
-            }
-
-            VStack(alignment: .leading, spacing: 0) {
-                WizardRow(isFirst: true) {
-                    HStack(spacing: 12) {
+                WizardRow {
+                    HStack(spacing: 10) {
                         WizardLabel(
                             title: String(
-                                localized: "Notifications", comment: "Setup wizard label for notification permission"),
-                            hint: notificationStatus)
+                                localized: "Notifications", comment: "Setup wizard label for notification permission"))
+                        WizardStatus(
+                            label: notificationStatus, color: notificationStatusColor,
+                            accessibilityLabel: String(
+                                localized: "Notifications",
+                                comment: "Setup wizard label for notification permission"))
                         // macOS shows its prompt once per app; after that the
                         // choice lives in System Settings.
                         if notifications.status == .notDetermined {
@@ -595,8 +590,9 @@ private struct SetupWizardReadyStep: View {
                         localized: "Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
                         comment: "Setup wizard sign-off; D.A.V.E. is the mascot.")
                 )
-                .awFont(AwFont.UI.body)
+                .awFont(AwFont.Mono.meta)
                 .foregroundStyle(Color.aw.text2)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -615,21 +611,23 @@ private struct SetupWizardAgentRow: View {
         let isEnabled = agents.setup(for: display).enabled
         if let provider = display.pluginProvider {
             let state = agents.pluginState(provider)
-            row(
-                title: state.title, subtitle: state.subtitle, isEnabled: isEnabled, isBusy: state.isBusy,
-                needsAttention: isEnabled && state.needsAttention
-            ) {
+            row(title: state.title, isEnabled: isEnabled, isBusy: state.isBusy) {
                 if isEnabled {
-                    AgentPluginStatusBadge(state: state)
+                    WizardStatus(
+                        label: state.statusLabel,
+                        color: AgentPluginStatusBadge.color(for: state.status),
+                        accessibilityLabel: statusAccessibilityLabel(state.title),
+                        accessibilityHint: state.statusDetail)
                     if state.allowsEnable {
                         installButton { pendingConfirmation = agents.confirmation(provider) }
                     }
                 }
             } detail: {
+                // Only problems earn a second line; healthy rows stay one line.
                 if isEnabled {
                     detailText(
                         agents.pluginInstallFailures[provider] ?? state.failureSummary ?? state.guidance
-                            ?? state.statusDetail)
+                            ?? (state.needsAttention ? state.statusDetail : nil))
                 }
             }
             .confirmationDialog(
@@ -648,21 +646,16 @@ private struct SetupWizardAgentRow: View {
         } else if let provider = display.installable {
             let state = agents.installableState(provider)
             let error = agents.installErrors[provider]
-            row(
-                title: state.title, subtitle: state.subtitle, isEnabled: isEnabled, isBusy: false,
-                needsAttention: isEnabled && error != nil
-            ) {
+            row(title: state.title, isEnabled: isEnabled, isBusy: false) {
                 if isEnabled {
-                    AgentPluginStatusBadge(
+                    WizardStatus(
                         label: state.isAuthoritative
                             ? state.status.label
                             : String(
                                 localized: "Checking…",
                                 comment: "Agent integration status badge while a check is in flight"),
                         color: state.status.badgeColor,
-                        accessibilityLabel: String(
-                            localized: "\(state.title) status",
-                            comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
+                        accessibilityLabel: statusAccessibilityLabel(state.title),
                         accessibilityHint: state.status.detail)
                     if state.canInstall {
                         installButton { agents.install(provider) }
@@ -670,40 +663,50 @@ private struct SetupWizardAgentRow: View {
                 }
             } detail: {
                 if isEnabled {
-                    detailText(error ?? state.status.detail)
+                    detailText(error ?? (Self.needsAttention(state.status) ? state.status.detail : nil))
                 }
             }
         }
     }
 
+    private static func needsAttention(_ status: AgentIntegrationSettingsStatus) -> Bool {
+        switch status {
+        case .updateAvailable, .installStateRepairRequired, .timedOut, .blocked: true
+        default: false
+        }
+    }
+
+    private func statusAccessibilityLabel(_ title: String) -> String {
+        String(
+            localized: "\(title) status",
+            comment: "Accessibility label for an agent plugin status badge; argument is the provider name.")
+    }
+
     private func row(
         title: String,
-        subtitle: String,
         isEnabled: Bool,
         isBusy: Bool,
-        needsAttention: Bool,
         @ViewBuilder status: () -> some View,
         @ViewBuilder detail: () -> some View
     ) -> some View {
-        AgentIntegrationDisclosureRow(
-            title: title, subtitle: subtitle, needsAttention: needsAttention, enabledSetupCount: 0
-        ) {
-            status()
-        } toggle: {
-            // Enabling only opts in to status checks; Install is its own click.
-            Toggle(
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { agents.setEnabled($0, for: display) })
-            ) {
-                EmptyView()
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                WizardLabel(title: title)
+                status()
+                // Enabling only opts in to status checks; Install is its own click.
+                Toggle(
+                    isOn: Binding(
+                        get: { isEnabled },
+                        set: { agents.setEnabled($0, for: display) })
+                ) {
+                    EmptyView()
+                }
+                .toggleStyle(AwToggleStyle())
+                .disabled(isBusy)
+                .help(isEnabled ? "Disable \(title)" : "Enable \(title)")
+                .accessibilityLabel("\(title) integration")
+                .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
             }
-            .toggleStyle(AwToggleStyle())
-            .disabled(isBusy)
-            .help(isEnabled ? "Disable \(title)" : "Enable \(title)")
-            .accessibilityLabel("\(title) integration")
-            .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
-        } content: {
             detail()
         }
     }
@@ -714,11 +717,11 @@ private struct SetupWizardAgentRow: View {
     }
 
     @ViewBuilder
-    private func detailText(_ text: String) -> some View {
-        if !text.isEmpty {
+    private func detailText(_ text: String?) -> some View {
+        if let text, !text.isEmpty {
             Text(text)
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
+                .awFont(AwFont.Mono.meta)
+                .foregroundStyle(Color.aw.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -913,8 +916,8 @@ private struct WizardRow<Content: View>: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, isFirst ? 0 : 11)
-            .padding(.bottom, 11)
+            .padding(.top, isFirst ? 0 : 9)
+            .padding(.bottom, 9)
             .overlay(alignment: .top) {
                 if !isFirst {
                     Rectangle().fill(Color.aw.border).frame(height: 0.5)
@@ -925,21 +928,39 @@ private struct WizardRow<Content: View>: View {
 
 private struct WizardLabel: View {
     let title: String
-    var hint: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .awFont(AwFont.UI.label)
-                .foregroundStyle(Color.aw.text)
-            if let hint {
-                Text(hint)
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text3)
-            }
+        Text(title)
+            .awFont(AwFont.Mono.meta)
+            .fontWeight(.medium)
+            .foregroundStyle(Color.aw.text)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Status dot plus mono label, the wizard's flat take on the Settings badge.
+private struct WizardStatus: View {
+    let label: String
+    let color: Color
+    let accessibilityLabel: String
+    var accessibilityHint = ""
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(label)
+                .awFont(AwFont.Mono.meta)
+                .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(label)
+        .accessibilityHint(accessibilityHint)
     }
 }
 
@@ -952,6 +973,168 @@ private struct WizardSwitch: View {
             WizardLabel(title: title)
         }
         .toggleStyle(AwToggleStyle())
+    }
+}
+
+private struct WizardChoice<Value: Hashable> {
+    let value: Value
+    let label: String
+    var swatch: Color?
+}
+
+/// Mono pill chips for a single choice. Callers stack them in a column when
+/// a row is too narrow, so large text sizes never clip a label.
+private struct WizardChips<Value: Hashable>: View {
+    let accessibilityLabel: String
+    let options: [WizardChoice<Value>]
+    @Binding var selection: Value
+    var isVertical = false
+
+    var body: some View {
+        Group {
+            if isVertical {
+                VStack(alignment: .leading, spacing: 6) { chips }
+            } else {
+                HStack(spacing: 6) { chips }.fixedSize()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var chips: some View {
+        ForEach(options, id: \.value) { option in
+            let isSelected = option.value == selection
+            Button {
+                selection = option.value
+            } label: {
+                HStack(spacing: 6) {
+                    if let swatch = option.swatch {
+                        Circle()
+                            .fill(swatch)
+                            .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
+                    }
+                    Text(option.label)
+                }
+            }
+            .buttonStyle(WizardChipStyle(isSelected: isSelected))
+            .focusEffectDisabled()
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        }
+    }
+}
+
+/// A labelled chip row: chips beside the label, then under it, then in a
+/// column, whichever fits first.
+private struct WizardChoiceRow<Value: Hashable>: View {
+    let title: String
+    var isFirst = false
+    let options: [WizardChoice<Value>]
+    @Binding var selection: Value
+
+    var body: some View {
+        WizardRow(isFirst: isFirst) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    WizardLabel(title: title)
+                    chips(isVertical: false)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    WizardLabel(title: title)
+                    chips(isVertical: false)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    WizardLabel(title: title)
+                    chips(isVertical: true)
+                }
+            }
+        }
+    }
+
+    private func chips(isVertical: Bool) -> some View {
+        WizardChips(accessibilityLabel: title, options: options, selection: $selection, isVertical: isVertical)
+    }
+}
+
+private struct WizardChipStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        WizardChipBody(configuration: configuration, isSelected: isSelected)
+    }
+}
+
+private struct WizardChipBody: View {
+    let configuration: ButtonStyleConfiguration
+    let isSelected: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.awAccent) private var accentResolver
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var isHovered = false
+
+    var body: some View {
+        let accent = accentResolver.accent
+        let shape = RoundedRectangle(cornerRadius: AwRadius.pill)
+        let isActive = isEnabled && (isHovered || configuration.isPressed)
+        configuration.label
+            .awFont(AwFont.Mono.meta)
+            .fontWeight(isSelected ? .medium : .regular)
+            .foregroundStyle(isSelected || isActive ? Color.aw.text : Color.aw.text2)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 28)
+            .background {
+                if isSelected {
+                    shape.fill(Color.aw.accentSoft(accent))
+                } else if isActive {
+                    shape.fill(Color.aw.surface.hover)
+                }
+            }
+            .overlay {
+                shape.strokeBorder(
+                    isSelected ? Color.aw.accent(accent) : Color.aw.border2,
+                    lineWidth: isSelected ? (contrast == .increased ? 2 : 1) : 0.5)
+            }
+            .contentShape(shape)
+            .opacity(isEnabled ? 1 : 0.4)
+            .awFocusRing(isFocused, cornerRadius: AwRadius.pill, inset: -2)
+            .onHover { isHovered = $0 }
+    }
+}
+
+/// A mono terminal sample on the chosen background. In Ghostty-config mode
+/// the user's config owns the color, so a swatch would guess wrong.
+private struct WizardTerminalPreview: View {
+    let backgroundHex: String
+    let usesGhosttyConfig: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: AwRadius.panel)
+        if usesGhosttyConfig {
+            Text("Your Ghostty config controls the terminal background.")
+                .awFont(AwFont.Mono.meta)
+                .foregroundStyle(Color.aw.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay { shape.strokeBorder(Color.aw.border2, lineWidth: 0.5) }
+        } else {
+            let background = NSColor.awesoMuxSettingsHex(backgroundHex) ?? .black
+            Text(verbatim: "you@awesomux ~/project\n❯ claude\n✓ background preview text")
+                .awFont(AwFont.Mono.meta)
+                .lineSpacing(2)
+                .foregroundStyle(TerminalBackgroundPreviewForeground.color(for: background))
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: background), in: shape)
+                .overlay { shape.strokeBorder(Color.aw.border2, lineWidth: 0.5) }
+                // The sample prompt is purely visual; speaking it is noise.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Preview of terminal background")
+        }
     }
 }
 
@@ -981,106 +1164,11 @@ private struct WizardBeat: View {
         VStack(alignment: .leading, spacing: 10) {
             WizardKicker(text: heading)
             Text(visible)
-                .awFont(AwFont.UI.body)
+                .awFont(AwFont.Mono.meta)
                 .foregroundStyle(Color.aw.text2)
+                .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(spoken ?? visible)
-        }
-    }
-}
-
-/// Left/Right cards in the `SettingsThemePreview` grid card style.
-private struct SidebarPositionCards: View {
-    @Binding var selection: AppearanceConfig.SidebarPosition
-    @Environment(\.awAccent) private var accentResolver
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    var body: some View {
-        HStack(spacing: 8) {
-            card(.left, title: String(localized: "Left", comment: "Sidebar position option"))
-            card(.right, title: String(localized: "Right", comment: "Sidebar position option"))
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sidebar position")
-    }
-
-    private func card(_ position: AppearanceConfig.SidebarPosition, title: String) -> some View {
-        let isSelected = selection == position
-        let accentColor = Color.aw.accent(accentResolver.accent)
-        return Button {
-            selection = position
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                preview(position)
-                    .frame(height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: AwRadius.panel - 2))
-                Text(title)
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(isSelected ? Color.aw.text : Color.aw.text2)
-            }
-            .padding(8)
-            .frame(width: 90, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: AwRadius.panel).fill(Color.aw.surface.elevated))
-            .overlay {
-                RoundedRectangle(cornerRadius: AwRadius.panel)
-                    .stroke(
-                        isSelected ? accentColor : Color.aw.border,
-                        lineWidth: isSelected ? (contrast == .increased ? 2.5 : 1.5) : 0.5)
-            }
-            .overlay(alignment: .topTrailing) {
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(accentColor)
-                        .padding(6)
-                        .accessibilityHidden(true)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-    }
-
-    private func preview(_ position: AppearanceConfig.SidebarPosition) -> some View {
-        let sidebar = Rectangle()
-            .fill(Color.aw.surface.sidebar)
-            .frame(width: 16)
-            .overlay(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(Color.aw.text.opacity(0.55))
-                            .frame(width: 10, height: 3)
-                    }
-                }
-                .padding(4)
-            }
-        let main = Rectangle()
-            .fill(Color.aw.surface.window)
-            .overlay(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 3) {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.aw.accent(accentResolver.accent))
-                        .frame(width: 16, height: 3)
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.aw.text.opacity(0.4))
-                        .frame(width: 26, height: 3)
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.aw.text.opacity(0.4))
-                        .frame(width: 20, height: 3)
-                }
-                .padding(6)
-            }
-        return HStack(spacing: 0) {
-            if position == .left {
-                sidebar
-                main
-            } else {
-                main
-                sidebar
-            }
         }
     }
 }

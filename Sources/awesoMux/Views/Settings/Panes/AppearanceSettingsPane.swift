@@ -883,7 +883,7 @@ private struct GlowSlider: View {
     }
 }
 
-private extension NSColor {
+extension NSColor {
     static func awesoMuxSettingsHex(_ hex: String) -> NSColor? {
         guard let normalized = AppearanceConfig.normalizedTerminalBackgroundColor(hex),
             let value = UInt32(String(normalized.dropFirst()), radix: 16)
