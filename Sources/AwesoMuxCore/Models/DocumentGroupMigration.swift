@@ -123,7 +123,8 @@ public enum DocumentGroupMigration {
                         orientation: split.orientation,
                         first: firstLayout,
                         second: secondLayout,
-                        firstFraction: split.firstFraction
+                        firstFraction: split.firstFraction,
+                        preservesFraction: split.preservesFraction
                     )),
                 first.firstPaneID ?? second.firstPaneID
             )
@@ -178,7 +179,8 @@ public enum DocumentGroupMigration {
                         orientation: split.orientation,
                         first: first,
                         second: second,
-                        firstFraction: split.firstFraction
+                        firstFraction: split.firstFraction,
+                        preservesFraction: split.preservesFraction
                     ))
             case let (.some(layout), nil), let (nil, .some(layout)):
                 return layout

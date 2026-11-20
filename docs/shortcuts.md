@@ -50,6 +50,8 @@ Workspace lifecycle, navigation, and notifications. Layout presets live here too
 
 Everything scoped to a pane inside the selected workspace: splits, close/rename, find, resize, focus, movement, and the document tab strip.
 
+Splitting or closing a terminal pane redistributes space along the affected row or column. Dividers you have resized keep their proportions. A group of panes split in the other direction shares one space in the parent row or column. Use Balance Splits to even out the existing layout explicitly.
+
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |
 | ⌘D | Split Right | Disabled if no session selected |

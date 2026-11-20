@@ -15,6 +15,8 @@ public struct PaneMoveOrigin: Codable, Hashable, Sendable {
     public var sibling: Sibling
     public var edge: PaneMoveEdge
     public var fraction: Double
+    let preservesFraction: Bool?
+    let sourcePaneIDsAfterMove: [TerminalPane.ID]?
 
     public init(
         sourceSessionID: TerminalSession.ID,
@@ -22,7 +24,9 @@ public struct PaneMoveOrigin: Codable, Hashable, Sendable {
         parentSplitID: TerminalSplit.ID,
         sibling: Sibling,
         edge: PaneMoveEdge,
-        fraction: Double
+        fraction: Double,
+        preservesFraction: Bool? = nil,
+        sourcePaneIDsAfterMove: [TerminalPane.ID]? = nil
     ) {
         self.sourceSessionID = sourceSessionID
         self.paneID = paneID
@@ -30,5 +34,7 @@ public struct PaneMoveOrigin: Codable, Hashable, Sendable {
         self.sibling = sibling
         self.edge = edge
         self.fraction = fraction
+        self.preservesFraction = preservesFraction
+        self.sourcePaneIDsAfterMove = sourcePaneIDsAfterMove
     }
 }

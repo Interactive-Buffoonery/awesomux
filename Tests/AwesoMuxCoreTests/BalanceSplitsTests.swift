@@ -8,6 +8,100 @@ import Testing
 struct BalanceSplitsTests {
     private let pane = TerminalPane(title: "shell", workingDirectory: "/tmp", executionPlan: .local)
 
+    @Test
+    func returnRebalancesWhenSourceReplacesAPane() throws {
+        let (store, id) = fixture(.pane(pane))
+        let second = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let third = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let moved = try #require(store.movePaneToNewWorkspace(id: third, in: id))
+        store.setActivePane(id: pane.id, in: id)
+        _ = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        _ = try #require(store.closePane(id: second, in: id))
+        #expect(store.returnPaneToSourceWorkspace(sessionID: moved))
+        let returned = try #require(store.session(id: id))
+        guard case let .split(root) = returned.layout else {
+            Issue.record("Expected a split")
+            return
+        }
+        #expect(abs(root.firstFraction - 1.0 / 3) < 0.001)
+    }
+
+    @Test
+    func immediateReturnPreservesAutomaticParentOfManualSibling() throws {
+        let (store, id) = fixture(.pane(pane))
+        _ = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        _ = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let original = try #require(store.session(id: id))
+        guard case let .split(root) = original.layout, case let .split(sibling) = root.second else {
+            Issue.record("Expected nested splits")
+            return
+        }
+        store.resizeSplit(id: sibling.id, firstFraction: 0.4, in: id)
+        let moved = try #require(store.movePaneToNewWorkspace(id: pane.id, in: id))
+        #expect(store.returnPaneToSourceWorkspace(sessionID: moved))
+        let returned = try #require(store.session(id: id))
+        #expect(returned.layout.split(id: root.id)?.firstFraction == root.firstFraction)
+        #expect(returned.layout.split(id: sibling.id)?.firstFraction == 0.4)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func returningPaneRebalancesUntouchedDividers(editSource: Bool, detachFirst: Bool) throws {
+        let (store, id) = fixture(.pane(pane))
+        _ = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let third = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let detached = detachFirst ? pane.id : third
+        let moved = try #require(store.movePaneToNewWorkspace(id: detached, in: id))
+        if editSource {
+            store.setActivePane(id: detachFirst ? third : pane.id, in: id)
+            _ = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        }
+        #expect(store.returnPaneToSourceWorkspace(sessionID: moved))
+        let restored = try #require(store.session(id: id))
+        guard case let .split(root) = restored.layout else {
+            Issue.record("Expected a split")
+            return
+        }
+        let expected = editSource ? (detachFirst ? 0.25 : 0.5) : 1.0 / 3
+        #expect(abs(root.firstFraction - expected) < 0.001)
+        #expect(restored.activePaneID == detached)
+    }
+
+    @Test
+    func splitAndCloseRebalanceUntouchedDividers() throws {
+        let (store, id) = fixture(.pane(pane))
+        let second = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let third = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let triple = try #require(store.session(id: id))
+        guard case let .split(root) = triple.layout else {
+            Issue.record("Expected three panes")
+            return
+        }
+        #expect(abs(root.firstFraction - 1.0 / 3) < 0.001)
+        #expect(triple.activePaneID == third)
+        #expect(triple.layout.pane(id: pane.id)?.localTerminalSessionName == pane.localTerminalSessionName)
+        _ = try #require(store.closePane(id: third, in: id))
+        let pair = try #require(store.session(id: id))
+        #expect(pair.layout.split(id: root.id)?.firstFraction == 0.5)
+        #expect(pair.activePaneID == second)
+    }
+
+    @Test
+    func splitAndCloseRespectADividerManuallyReturnedToHalf() throws {
+        let (store, id) = fixture(.pane(pane))
+        _ = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        let pair = try #require(store.session(id: id))
+        guard case let .split(root) = pair.layout else {
+            Issue.record("Expected a divider")
+            return
+        }
+        store.resizeSplit(id: root.id, firstFraction: 0.4, in: id)
+        store.resizeSplit(id: root.id, firstFraction: 0.5, in: id)
+        let third = try #require(store.splitActivePane(orientation: .vertical, in: id))
+        #expect(store.session(id: id)?.layout.split(id: root.id)?.firstFraction == 0.5)
+        _ = try #require(store.closePane(id: third, in: id))
+        #expect(store.session(id: id)?.layout.split(id: root.id)?.firstFraction == 0.5)
+    }
+
     @Test(arguments: [480.0, 481.0, 482.0], [true, false])
     func equalizesTwoPanesAndBothThreePaneNestings(width: Double, nestedFirst: Bool) throws {
         let leaf = TerminalPaneLayout.pane(pane)

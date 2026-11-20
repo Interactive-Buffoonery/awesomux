@@ -27,7 +27,8 @@ public extension TerminalPaneLayout {
         beside sibling: PaneMoveOrigin.Sibling,
         parentSplitID: TerminalSplit.ID,
         on edge: PaneMoveEdge,
-        fraction: Double
+        fraction: Double,
+        preservesFraction: Bool? = nil
     ) -> TerminalPaneLayout? {
         if matchesMoveOriginSibling(sibling) {
             let moved = TerminalPaneLayout.pane(pane)
@@ -37,7 +38,8 @@ public extension TerminalPaneLayout {
                     orientation: edge.orientation,
                     first: edge.placesMovedPaneFirst ? moved : self,
                     second: edge.placesMovedPaneFirst ? self : moved,
-                    firstFraction: fraction
+                    firstFraction: fraction,
+                    preservesFraction: preservesFraction
                 ))
         }
         guard case let .split(split) = self else { return nil }
@@ -46,7 +48,8 @@ public extension TerminalPaneLayout {
             beside: sibling,
             parentSplitID: parentSplitID,
             on: edge,
-            fraction: fraction
+            fraction: fraction,
+            preservesFraction: preservesFraction
         ) {
             return .split(split.rebuilding(first: first))
         }
@@ -55,7 +58,8 @@ public extension TerminalPaneLayout {
             beside: sibling,
             parentSplitID: parentSplitID,
             on: edge,
-            fraction: fraction
+            fraction: fraction,
+            preservesFraction: preservesFraction
         ) {
             return .split(split.rebuilding(second: second))
         }
@@ -321,22 +325,22 @@ public extension TerminalPaneLayout {
         }
     }
 
-    func resizingSplit(id: TerminalSplit.ID, firstFraction: Double) -> TerminalPaneLayout {
+    func resizingSplit(id: TerminalSplit.ID, firstFraction: Double, manually: Bool = false) -> TerminalPaneLayout {
         switch self {
         case .pane:
             return self
 
         case let .split(split):
             if split.id == id {
-                return .split(split.rebuilding(firstFraction: firstFraction))
+                return .split(manually ? split.manuallyResized(to: firstFraction) : split.rebuilding(firstFraction: firstFraction))
             }
 
-            let first = split.first.resizingSplit(id: id, firstFraction: firstFraction)
+            let first = split.first.resizingSplit(id: id, firstFraction: firstFraction, manually: manually)
             if first != split.first {
                 return .split(split.rebuilding(first: first))
             }
 
-            let second = split.second.resizingSplit(id: id, firstFraction: firstFraction)
+            let second = split.second.resizingSplit(id: id, firstFraction: firstFraction, manually: manually)
             if second != split.second {
                 return .split(split.rebuilding(second: second))
             }
@@ -363,11 +367,11 @@ public extension TerminalPaneLayout {
             }
 
             if split.first.contains(paneID: paneID) {
-                return .split(split.rebuilding(firstFraction: split.firstFraction + delta))
+                return .split(split.manuallyResized(to: split.firstFraction + delta))
             }
 
             if split.second.contains(paneID: paneID) {
-                return .split(split.rebuilding(firstFraction: split.firstFraction - delta))
+                return .split(split.manuallyResized(to: split.firstFraction - delta))
             }
 
             return nil

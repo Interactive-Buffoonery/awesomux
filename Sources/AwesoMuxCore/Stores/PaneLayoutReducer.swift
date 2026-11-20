@@ -106,7 +106,7 @@ struct PaneLayoutReducer: Sendable {
             return nil
         }
 
-        session.layout = layout
+        session.layout = layout.resizingAfterPaneCountChange(from: session.layout)
         session.activePaneID = newPane.id
         // Re-sync chrome for the transition out of the lone-pane carve-out: a
         // pinned lone pane owns the workspace title, but the moment it gains a
@@ -606,7 +606,8 @@ struct PaneLayoutReducer: Sendable {
 
         let nextLayout = session.layout.resizingSplit(
             id: splitID,
-            firstFraction: firstFraction
+            firstFraction: firstFraction,
+            manually: true
         )
         guard nextLayout != session.layout else {
             return nil
@@ -637,7 +638,8 @@ struct PaneLayoutReducer: Sendable {
 
     static func closePane(
         id paneID: TerminalPane.ID,
-        in session: TerminalSession
+        in session: TerminalSession,
+        automaticallySize: Bool = true
     ) -> (result: PaneCloseResult, session: TerminalSession?)? {
         var session = session
         let paneIDs = session.layout.paneIDs
@@ -664,7 +666,7 @@ struct PaneLayoutReducer: Sendable {
                 ]
         }
 
-        session.layout = layout
+        session.layout = automaticallySize ? layout.resizingAfterPaneCountChange(from: session.layout) : layout
         session.activePaneID = activeReplacementID
         syncSessionChromeToActivePane(&session)
         return (.pane(paneID), session)
@@ -680,7 +682,7 @@ struct PaneLayoutReducer: Sendable {
             pane.executionPlan == .local,
             session.layout.hasMultiplePanes,
             let origin = session.layout.moveOrigin(of: paneID),
-            let close = closePane(id: paneID, in: session),
+            let close = closePane(id: paneID, in: session, automaticallySize: false),
             case .pane = close.result,
             let source = close.session
         else {
@@ -698,7 +700,9 @@ struct PaneLayoutReducer: Sendable {
                 parentSplitID: origin.parentSplitID,
                 sibling: origin.sibling,
                 edge: origin.edge,
-                fraction: origin.fraction
+                fraction: origin.fraction,
+                preservesFraction: session.layout.split(id: origin.parentSplitID)?.preservesFraction,
+                sourcePaneIDsAfterMove: source.layout.paneIDs
             ),
             layout: .pane(pane)
         )
@@ -729,7 +733,8 @@ struct PaneLayoutReducer: Sendable {
                 parentSplitID: parentSplitIDIsLive || source.layout.split(id: origin.parentSplitID) != nil
                     ? UUID() : origin.parentSplitID,
                 on: origin.edge,
-                fraction: origin.fraction
+                fraction: origin.fraction,
+                preservesFraction: origin.preservesFraction
             )
                 ?? source.layout.splittingPane(
                     id: source.activePaneID,

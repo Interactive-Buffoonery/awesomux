@@ -2346,7 +2346,7 @@ public final class SessionStore {
             origin.sourceSessionID != sessionID,
             let sourcePosition = position(for: origin.sourceSessionID),
             sourcePosition != movedPosition,
-            let source = PaneLayoutReducer.returnPane(
+            var source = PaneLayoutReducer.returnPane(
                 from: moved,
                 to: _groups[sourcePosition.groupIndex].sessions[sourcePosition.sessionIndex],
                 parentSplitIDIsLive: _groups.contains { group in
@@ -2357,6 +2357,12 @@ public final class SessionStore {
             return false
         }
 
+        let originalLayout = _groups[sourcePosition.groupIndex].sessions[sourcePosition.sessionIndex].layout
+        // Returning a pane is also an undo of its move. Keep the recorded
+        // geometry when the source still has the same panes in the same order.
+        if let originalPaneIDs = origin.sourcePaneIDsAfterMove, originalLayout.paneIDs != originalPaneIDs {
+            source.layout = source.layout.resizingAfterPaneCountChange(from: originalLayout)
+        }
         _groups[sourcePosition.groupIndex].sessions[sourcePosition.sessionIndex] = source
         // Not `closeSession`: that records a recently-closed entry and wipes
         // pane-keyed runtime state for a pane that is still alive in the source.
