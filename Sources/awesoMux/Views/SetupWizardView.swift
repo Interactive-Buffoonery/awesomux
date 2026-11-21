@@ -78,6 +78,8 @@ struct SetupWizardPage: View {
                 ScrollView {
                     content
                 }
+                // A new step opens at its top, not at the last step's offset.
+                .id(step)
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollIndicators(controller.isHeightCapped ? .automatic : .never)
             }
@@ -139,6 +141,7 @@ struct SetupWizardPage: View {
                     agents: agents,
                     notifications: controller.notificationAuthorization,
                     isMeasuring: isMeasuring,
+                    presentationToken: presentationToken,
                     requestNotifications: { controller.requestNotifications() })
             }
         case .ready:
@@ -159,7 +162,11 @@ struct SetupWizardPage: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            stepIndicator
+            // Large text sizes drop the label first; the buttons never shrink.
+            ViewThatFits(in: .horizontal) {
+                stepIndicator(showsLabel: true)
+                stepIndicator(showsLabel: false)
+            }
 
             Spacer(minLength: 12)
 
@@ -172,12 +179,12 @@ struct SetupWizardPage: View {
                 .awButtonStyle(.link)
             }
 
-            if !isFirstStep {
-                Button(String(localized: "Back", comment: "Welcome tour button returning to the previous beat")) {
-                    controller.retreat()
-                }
-                .awButtonStyle(.ghost)
+            // Shown disabled on the first step so the buttons beside it hold still.
+            Button(String(localized: "Back", comment: "Welcome tour button returning to the previous beat")) {
+                controller.retreat()
             }
+            .awButtonStyle(.ghost)
+            .disabled(isFirstStep)
 
             Button(
                 isLastStep
@@ -194,7 +201,7 @@ struct SetupWizardPage: View {
     }
 
     /// The text carries the position (WCAG 1.4.1); the dots are decoration.
-    private var stepIndicator: some View {
+    private func stepIndicator(showsLabel: Bool) -> some View {
         HStack(spacing: 6) {
             HStack(spacing: 5) {
                 ForEach(steps.indices, id: \.self) { dot in
@@ -204,10 +211,13 @@ struct SetupWizardPage: View {
                 }
             }
 
-            Text(stepLabel)
-                .awFont(AwFont.Mono.meta)
-                // Primary text: `text2` is under 4.5:1 on the Latte window.
-                .foregroundStyle(Color.aw.text)
+            if showsLabel {
+                Text(stepLabel)
+                    .awFont(AwFont.Mono.meta)
+                    // Primary text: `text2` is under 4.5:1 on the Latte window.
+                    .foregroundStyle(Color.aw.text)
+                    .fixedSize()
+            }
         }
         // The step group already announces "Step N of M".
         .accessibilityHidden(true)
@@ -218,6 +228,8 @@ struct SetupWizardPage: View {
 
 private struct SetupWizardWelcomeStep: View {
     let store: AppSettingsStore
+
+    @Environment(\.colorScheme) private var colorScheme
 
     private var mode: AppearanceConfig.TerminalBackgroundMode {
         store.appearance.value.terminalBackgroundMode
@@ -231,13 +243,17 @@ private struct SetupWizardWelcomeStep: View {
                 WizardLabel(
                     title: String(
                         localized: "Terminal background",
-                        comment: "Setup wizard label for the terminal background choice"))
+                        comment: "Setup wizard label for the terminal background choice")
+                )
+                // The chip group carries the same name.
+                .accessibilityHidden(true)
                 ViewThatFits(in: .horizontal) {
                     backgroundChips(isVertical: false)
                     backgroundChips(isVertical: true)
                 }
+                if mode == .custom { WizardCustomBackgroundCaption() }
                 WizardTerminalPreview(
-                    backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: nil),
+                    backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: colorScheme),
                     usesGhosttyConfig: mode == .ghostty)
             }
         }
@@ -289,6 +305,8 @@ private struct SetupWizardAppearanceStep: View {
     private var terminalTheme: Binding<String> {
         Binding(
             get: {
+                // A custom background matches no theme, so no chip shows it.
+                guard appearance.terminalBackgroundMode != .custom else { return "" }
                 // Same trim/lowercase normalization as the catalog, matching
                 // the Appearance pane's picker.
                 let normalized = appearance.terminalThemeID?
@@ -346,9 +364,12 @@ private struct SetupWizardAppearanceStep: View {
                         selection: terminalTheme)
                 }
                 WizardRow {
-                    WizardTerminalPreview(
-                        backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: colorScheme),
-                        usesGhosttyConfig: !showsTerminalTheme)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if appearance.terminalBackgroundMode == .custom { WizardCustomBackgroundCaption() }
+                        WizardTerminalPreview(
+                            backgroundHex: SetupWizardCopy.themeBackground(store: store, colorScheme: colorScheme),
+                            usesGhosttyConfig: !showsTerminalTheme)
+                    }
                 }
             }
         }
@@ -427,6 +448,7 @@ private struct SetupWizardAgentsStep: View {
     let agents: SetupWizardAgentsModel
     let notifications: NotificationAuthorizationModel
     let isMeasuring: Bool
+    let presentationToken: Int
     let requestNotifications: () -> Void
 
     private var notificationStatus: String {
@@ -469,7 +491,10 @@ private struct SetupWizardAgentsStep: View {
                     HStack(spacing: 10) {
                         WizardLabel(
                             title: String(
-                                localized: "Notifications", comment: "Setup wizard label for notification permission"))
+                                localized: "Notifications", comment: "Setup wizard label for notification permission")
+                        )
+                        // The status element carries the same name.
+                        .accessibilityHidden(true)
                         WizardStatus(
                             label: notificationStatus, color: notificationStatusColor,
                             accessibilityLabel: String(
@@ -489,17 +514,30 @@ private struct SetupWizardAgentsStep: View {
                     }
                 }
                 WizardRow {
-                    WizardSwitch(
-                        title: String(
-                            localized: "Notify when an agent needs input",
-                            comment: "Setup wizard switch for needs-input notifications"),
-                        isOn: store.notifications.binding(\.notifyOnNeedsAttention)
-                    )
-                    .disabled(notifications.status != .authorized)
+                    let isAvailable = notifications.status == .authorized
+                    let hint = String(
+                        localized: "Allow notifications first",
+                        comment: "Setup wizard hint under the needs-input switch while notifications are not allowed")
+                    VStack(alignment: .leading, spacing: 4) {
+                        WizardSwitch(
+                            title: String(
+                                localized: "Notify when an agent needs input",
+                                comment: "Setup wizard switch for needs-input notifications"),
+                            isOn: store.notifications.binding(\.notifyOnNeedsAttention)
+                        )
+                        .disabled(!isAvailable)
+                        .accessibilityHint(isAvailable ? "" : hint)
+                        if !isAvailable {
+                            WizardCaption(text: hint)
+                                .accessibilityHidden(true)
+                        }
+                    }
                 }
             }
         }
-        .onAppear {
+        // Also per presentation: the page outlives a dismiss, and dismissing
+        // cancelled the probes a reopen on this step must restart.
+        .onChange(of: presentationToken, initial: true) { _, _ in
             guard !isMeasuring else { return }
             notifications.refresh()
             agents.refreshAll()
@@ -583,17 +621,23 @@ private struct SetupWizardReadyStep: View {
                         "Find commands with \(palette.spokenForm), or open the keyboard cheatsheet with \(cheatsheet.spokenForm). The question mark button in the sidebar footer brings this tour back.",
                     comment: "Spoken form of the setup wizard closing step. Arguments are those two shortcuts spelled out."))
 
-            HStack(spacing: 10) {
-                DaveMark(isSmall: true)
-                Text(
-                    String(
-                        localized: "Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
-                        comment: "Setup wizard sign-off; D.A.V.E. is the mascot.")
-                )
-                .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text2)
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
+            // Tighter below: the goose's first row is mostly empty space, so
+            // this reads as the same gap as above the dots.
+            VStack(alignment: .leading, spacing: 8) {
+                WizardDotsDivider()
+
+                HStack(spacing: 10) {
+                    DaveMark(isSmall: true)
+                    Text(
+                        String(
+                            localized: "Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
+                            comment: "Setup wizard sign-off; D.A.V.E. is the mascot.")
+                    )
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(Color.aw.railText)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -619,15 +663,18 @@ private struct SetupWizardAgentRow: View {
                         accessibilityLabel: statusAccessibilityLabel(state.title),
                         accessibilityHint: state.statusDetail)
                     if state.allowsEnable {
-                        installButton { pendingConfirmation = agents.confirmation(provider) }
+                        installButton(title: state.title) { pendingConfirmation = agents.confirmation(provider) }
                     }
                 }
             } detail: {
                 // Only problems earn a second line; healthy rows stay one line.
                 if isEnabled {
-                    detailText(
-                        agents.pluginInstallFailures[provider] ?? state.failureSummary ?? state.guidance
-                            ?? (state.needsAttention ? state.statusDetail : nil))
+                    if let failure = agents.pluginInstallFailures[provider] {
+                        detailText(failure, isFailure: true)
+                    } else {
+                        detailText(
+                            state.failureSummary ?? state.guidance ?? (state.needsAttention ? state.statusDetail : nil))
+                    }
                 }
             }
             .confirmationDialog(
@@ -658,12 +705,16 @@ private struct SetupWizardAgentRow: View {
                         accessibilityLabel: statusAccessibilityLabel(state.title),
                         accessibilityHint: state.status.detail)
                     if state.canInstall {
-                        installButton { agents.install(provider) }
+                        installButton(title: state.title) { agents.install(provider) }
                     }
                 }
             } detail: {
                 if isEnabled {
-                    detailText(error ?? (Self.needsAttention(state.status) ? state.status.detail : nil))
+                    if let error {
+                        detailText(error, isFailure: true)
+                    } else {
+                        detailText(Self.needsAttention(state.status) ? state.status.detail : nil)
+                    }
                 }
             }
         }
@@ -691,7 +742,15 @@ private struct SetupWizardAgentRow: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
+                // The row's spare width toggles too. Hidden from VoiceOver:
+                // the switch and status already carry the name.
                 WizardLabel(title: title)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !isBusy else { return }
+                        agents.setEnabled(!isEnabled, for: display)
+                    }
+                    .accessibilityHidden(true)
                 status()
                 // Enabling only opts in to status checks; Install is its own click.
                 Toggle(
@@ -704,24 +763,37 @@ private struct SetupWizardAgentRow: View {
                 .toggleStyle(AwToggleStyle())
                 .disabled(isBusy)
                 .help(isEnabled ? "Disable \(title)" : "Enable \(title)")
-                .accessibilityLabel("\(title) integration")
-                .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
+                .accessibilityLabel(
+                    String(
+                        localized: "\(title) integration",
+                        comment: "Accessibility label for an agent integration switch; argument is the provider name.")
+                )
+                .accessibilityValue(
+                    isEnabled
+                        ? String(localized: "Enabled", comment: "Accessibility value of an agent integration switch")
+                        : String(localized: "Disabled", comment: "Accessibility value of an agent integration switch"))
             }
             detail()
         }
     }
 
-    private func installButton(action: @escaping () -> Void) -> some View {
+    private func installButton(title: String, action: @escaping () -> Void) -> some View {
         Button(String(localized: "Install", comment: "Setup wizard button installing an agent integration"), action: action)
             .awButtonStyle(.primary)
+            .accessibilityLabel(
+                String(
+                    localized: "Install \(title) integration",
+                    comment: "Accessibility label for a setup wizard install button; argument is the provider name."))
     }
 
+    /// Install failures read in the error color (4.8:1 on the Latte window);
+    /// other notes use the corrected secondary text.
     @ViewBuilder
-    private func detailText(_ text: String?) -> some View {
+    private func detailText(_ text: String?, isFailure: Bool = false) -> some View {
         if let text, !text.isEmpty {
             Text(text)
                 .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text3)
+                .foregroundStyle(isFailure ? Color.aw.red : Color.aw.railText)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -804,8 +876,18 @@ final class SetupWizardAgentsModel {
     func installPlugin(_ provider: AgentPluginProvider) {
         pluginInstallFailures[provider] = nil
         runPluginTask(provider, isProbe: false) { [weak self] model, target, setup in
-            await model.perform(action: .enableOrInstall, target: target, setup: setup)
-            self?.pluginInstallFailures[provider] = model.cardState(target: target, setup: setup).failureSummary
+            let outcome = await model.perform(action: .enableOrInstall, target: target, setup: setup)
+            self?.pluginInstallFailures[provider] = outcome.flatMap(Self.installFailure)
+        }
+    }
+
+    /// Taken from the outcome, not the card: a failure without diagnostics
+    /// (install-state lock contention) has no failure summary, and the next
+    /// probe replaces its status.
+    private static func installFailure(_ outcome: AgentPluginActionOutcome) -> String? {
+        switch outcome.status {
+        case .needsRepair, .unsupported: outcome.status.detail
+        default: AgentPluginSettingsViewModel.failureSummary(outcome)
         }
     }
 
@@ -953,7 +1035,7 @@ private struct WizardStatus: View {
                 .frame(width: 7, height: 7)
             Text(label)
                 .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.railText)
                 .lineLimit(1)
         }
         .fixedSize()
@@ -1037,19 +1119,24 @@ private struct WizardChoiceRow<Value: Hashable>: View {
         WizardRow(isFirst: isFirst) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
-                    WizardLabel(title: title)
+                    label
                     chips(isVertical: false)
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    WizardLabel(title: title)
+                    label
                     chips(isVertical: false)
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    WizardLabel(title: title)
+                    label
                     chips(isVertical: true)
                 }
             }
         }
+    }
+
+    /// The chip group carries the same name for VoiceOver.
+    private var label: some View {
+        WizardLabel(title: title).accessibilityHidden(true)
     }
 
     private func chips(isVertical: Bool) -> some View {
@@ -1073,35 +1160,49 @@ private struct WizardChipBody: View {
     @Environment(\.isFocused) private var isFocused
     @Environment(\.awAccent) private var accentResolver
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @State private var isHovered = false
 
     var body: some View {
         let accent = accentResolver.accent
         let shape = RoundedRectangle(cornerRadius: AwRadius.pill)
         let isActive = isEnabled && (isHovered || configuration.isPressed)
-        configuration.label
-            .awFont(AwFont.Mono.meta)
-            .fontWeight(isSelected ? .medium : .regular)
-            .foregroundStyle(isSelected || isActive ? Color.aw.text : Color.aw.text2)
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 28)
-            .background {
-                if isSelected {
-                    shape.fill(Color.aw.accentSoft(accent))
-                } else if isActive {
-                    shape.fill(Color.aw.surface.hover)
-                }
+        HStack(spacing: 6) {
+            configuration.label
+            // Same cue as `SettingsSegmented`: selection without relying on fill.
+            if isSelected, differentiateWithoutColor {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .accessibilityHidden(true)
             }
-            .overlay {
+        }
+        .awFont(AwFont.Mono.meta)
+        .fontWeight(isSelected ? .medium : .regular)
+        .foregroundStyle(isSelected || isActive ? Color.aw.text : Color.aw.railText)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 28)
+        .background {
+            if isSelected {
+                shape.fill(Color.aw.accentSoft(accent))
+            } else if isActive {
+                shape.fill(Color.aw.surface.hover)
+            }
+        }
+        .overlay {
+            // Softer than the primary button, so the chip never reads as the CTA.
+            if isSelected {
                 shape.strokeBorder(
-                    isSelected ? Color.aw.accent(accent) : Color.aw.border2,
-                    lineWidth: isSelected ? (contrast == .increased ? 2 : 1) : 0.5)
+                    Color.aw.accent(accent).opacity(contrast == .increased ? 1 : 0.4),
+                    lineWidth: contrast == .increased ? 2 : 1)
+            } else {
+                shape.strokeBorder(Color.aw.border2, lineWidth: 0.5)
             }
-            .contentShape(shape)
-            .opacity(isEnabled ? 1 : 0.4)
-            .awFocusRing(isFocused, cornerRadius: AwRadius.pill, inset: -2)
-            .onHover { isHovered = $0 }
+        }
+        .contentShape(shape)
+        .opacity(isEnabled ? 1 : 0.4)
+        .awFocusRing(isFocused, cornerRadius: AwRadius.pill, inset: -2)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -1114,13 +1215,14 @@ private struct WizardTerminalPreview: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: AwRadius.panel)
         if usesGhosttyConfig {
+            // Filled, not outlined: an empty outline reads as a text field.
             Text("Your Ghostty config controls the terminal background.")
                 .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.railText)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay { shape.strokeBorder(Color.aw.border2, lineWidth: 0.5) }
+                .background(Color.aw.surface.chrome, in: shape)
         } else {
             let background = NSColor.awesoMuxSettingsHex(backgroundHex) ?? .black
             Text(verbatim: "you@awesomux ~/project\n❯ claude\n✓ background preview text")
@@ -1135,6 +1237,43 @@ private struct WizardTerminalPreview: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Preview of terminal background")
         }
+    }
+}
+
+/// Secondary mono line. `railText` because stock `text2` is 4.37:1 on the
+/// Latte window, under 4.5:1.
+private struct WizardCaption: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .awFont(AwFont.Mono.meta)
+            .foregroundStyle(Color.aw.railText)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct WizardCustomBackgroundCaption: View {
+    var body: some View {
+        WizardCaption(
+            text: String(
+                localized: "Using your custom background.",
+                comment: "Setup wizard note shown while a custom terminal background color is set"))
+    }
+}
+
+/// Three spaced dots, like the WordPress separator block's dots style.
+/// Decorative, so it is softer than text and hidden from VoiceOver.
+private struct WizardDotsDivider: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<3, id: \.self) { _ in
+                Circle().frame(width: 4, height: 4)
+            }
+        }
+        .foregroundStyle(Color.aw.railText.opacity(0.6))
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1165,7 +1304,7 @@ private struct WizardBeat: View {
             WizardKicker(text: heading)
             Text(visible)
                 .awFont(AwFont.Mono.meta)
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.railText)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(spoken ?? visible)

@@ -96,6 +96,15 @@ enum FirstRunTourPolicy {
 final class FirstRunTourController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private var isKeyWindow = false
+    /// The top edge every refit keeps. Captured at presentation and on user
+    /// moves, never read off an in-flight animated frame.
+    @ObservationIgnored private var anchoredTop: CGFloat?
+    @ObservationIgnored private var isFitScheduled = false
+    /// Bumped per applied fit so a superseded animation's completion does not
+    /// pin the panel to its old size.
+    @ObservationIgnored private var fitGeneration = 0
+    @ObservationIgnored private var isApplyingFit = false
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private let defaults: UserDefaults
     // Set by the app so this floating-panel root carries the appearance
     // bridge (accent, glow, UI font, text scale) — same contract as the
@@ -163,13 +172,16 @@ final class FirstRunTourController {
 
         presentationToken += 1
         isVisible = true
+        // Set before hosting: a reopen must not inherit the last session's
+        // scroller state.
+        let size = panelSize(for: currentStep)
+        isHeightCapped = size.height >= maximumPanelHeight
         panel.hostSwiftUIContent(SetupWizardView(controller: self, store: store).appearanceBridge(store))
 
         if isFirstPresentation {
-            let size = panelSize(for: currentStep)
-            isHeightCapped = size.height >= maximumPanelHeight
             panel.setFixedContentSize(size)
             panel.center()
+            anchoredTop = panel.frame.maxY
         }
         panel.presentAndFocus()
         // `presentAndFocus()` only makes the hosting view first responder; it
@@ -248,33 +260,77 @@ final class FirstRunTourController {
         return screen.visibleFrame.height - 80
     }
 
-    /// Resizes to the current step, keeping the top edge where it is so the
-    /// footer moves rather than the heading. Deferred a turn because the page
-    /// calls this from a geometry change, and resizing the window inside a
-    /// SwiftUI layout pass re-enters it.
+    /// Resizes to the current step at the anchored top edge, so the footer
+    /// moves rather than the heading, clamped inside the panel's screen.
+    /// Deferred a turn because the page calls this from a geometry change, and
+    /// resizing the window inside a SwiftUI layout pass re-enters it. Calls in
+    /// the same turn coalesce into one fit.
     func fitPanelToCurrentStep() {
+        guard !isFitScheduled else { return }
+        isFitScheduled = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, let panel, isVisible else { return }
-            let size = panelSize(for: currentStep)
-            isHeightCapped = size.height >= maximumPanelHeight
-            let current = panel.frame
-            guard panel.contentRect(forFrameRect: current).size != size else { return }
-            panel.contentMinSize = size
-            panel.contentMaxSize = size
-            var frame = panel.frameRect(forContentRect: NSRect(origin: .zero, size: size))
-            frame.origin = NSPoint(x: current.minX, y: current.maxY - frame.height)
-            if let visible = panel.screen?.visibleFrame, frame.minY < visible.minY {
-                frame.origin.y = visible.minY
-            }
-            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                panel.setFrame(frame, display: true)
-            } else {
-                NSAnimationContext.runAnimationGroup { context in
+            guard let self else { return }
+            isFitScheduled = false
+            applyFit()
+        }
+    }
+
+    private func applyFit() {
+        guard let panel, isVisible else { return }
+        let size = panelSize(for: currentStep)
+        isHeightCapped = size.height >= maximumPanelHeight
+        var frame = panel.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: panel.frame.minX, y: (anchoredTop ?? panel.frame.maxY) - frame.height)
+        if let visible = (panel.screen ?? NSScreen.main)?.visibleFrame {
+            frame.origin.y = max(min(frame.minY, visible.maxY - frame.height), visible.minY)
+        }
+        guard frame != panel.frame else { return }
+
+        fitGeneration += 1
+        let generation = fitGeneration
+        // Pinned only once the frame lands: a min/max size the current frame
+        // violates makes AppKit snap to it before the animation starts.
+        panel.contentMinSize = .zero
+        panel.contentMaxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        isApplyingFit = true
+        let finish: @MainActor () -> Void = { [weak self] in
+            guard let self, generation == fitGeneration else { return }
+            isApplyingFit = false
+            self.panel?.contentMinSize = size
+            self.panel?.contentMaxSize = size
+        }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.setFrame(frame, display: true)
+            finish()
+        } else {
+            NSAnimationContext.runAnimationGroup(
+                { context in
                     context.duration = 0.18
                     panel.animator().setFrame(frame, display: true)
-                }
-            }
+                }, completionHandler: { MainActor.assumeIsolated { finish() } })
         }
+    }
+
+    private func observePanel(_ panel: NSWindow) {
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.isApplyingFit, let panel = self.panel else { return }
+                    self.anchoredTop = panel.frame.maxY
+                }
+            },
+            center.addObserver(forName: NSWindow.didChangeScreenNotification, object: panel, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated { self?.fitPanelToCurrentStep() }
+            },
+            center.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.fitPanelToCurrentStep() }
+            },
+        ]
     }
 
     private func makePanel() -> FloatingSwiftUIPanelWindow {
@@ -308,6 +364,7 @@ final class FirstRunTourController {
             }
             return false
         }
+        observePanel(panel)
         return panel
     }
 

@@ -41,6 +41,8 @@ private struct AwButtonBody: View {
         styledLabel
             .awFont(AwFont.Mono.meta)
             .lineLimit(1)
+            // Rows and footers give way around buttons; labels never truncate.
+            .fixedSize()
             .frame(minHeight: 28)
             .contentShape(shape)
             .opacity(isEnabled ? 1 : 0.4)
@@ -60,12 +62,14 @@ private struct AwButtonBody: View {
                 .background {
                     ZStack {
                         shape.fill(Color.aw.accentSoft(accent))
-                        shape.fill(Color.aw.accent(accent).opacity(configuration.isPressed ? 0.3 : isActive ? 0.15 : 0))
+                        // Kept light: any stronger accent wash drops `text` under
+                        // 4.5:1 (Mocha green, Latte mauve are the tightest).
+                        shape.fill(Color.aw.accent(accent).opacity(configuration.isPressed ? 0.10 : isActive ? 0.05 : 0))
                     }
                 }
         case .ghost:
             configuration.label
-                .foregroundStyle(isActive ? Color.aw.text : Color.aw.text2)
+                .foregroundStyle(isActive ? Color.aw.text : Color.aw.railText)
                 .padding(.horizontal, 10)
                 .frame(minHeight: 28)
                 .background(isActive ? Color.aw.surface.hover : Color.clear, in: shape)
@@ -80,13 +84,21 @@ private struct AwButtonBody: View {
     }
 }
 
-/// A flat 24x13 switch: accent track when on, `surface.track` when off,
-/// window-colour knob, no shadow. VoiceOver reads it as a standard switch.
+/// A flat 24x13 switch: accent track when on, outlined `surface.track` when
+/// off, window-colour knob, no shadow. VoiceOver reads it as a standard switch.
 public struct AwToggleStyle: ToggleStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
         AwToggleBody(configuration: configuration)
+    }
+}
+
+/// `.plain` dims a disabled button's whole label on macOS; the toggle dims
+/// only its track, so a disabled row's text stays readable.
+private struct UndimmedButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
 
@@ -108,10 +120,9 @@ private struct AwToggleBody: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(UndimmedButtonStyle())
         .focusEffectDisabled()
         .focused($isFocused)
-        .opacity(isEnabled ? 1 : 0.45)
         .accessibilityRepresentation {
             // Not rendered; only gives VoiceOver the native switch role.
             Toggle(isOn: configuration.$isOn) { configuration.label }
@@ -122,6 +133,12 @@ private struct AwToggleBody: View {
     private var track: some View {
         Capsule()
             .fill(configuration.isOn ? Color.aw.accent(accentResolver.accent) : Color.aw.surface.track)
+            // The off track alone is under 3:1 against the window (WCAG 1.4.11).
+            .overlay {
+                if !configuration.isOn {
+                    Capsule().strokeBorder(Color.aw.text2, lineWidth: 1)
+                }
+            }
             .frame(width: 24, height: 13)
             .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                 Circle()
@@ -129,6 +146,7 @@ private struct AwToggleBody: View {
                     .frame(width: 9, height: 9)
                     .padding(2)
             }
+            .opacity(isEnabled ? 1 : 0.45)
             .awFocusRing(isFocused, cornerRadius: 7, inset: -2)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isOn)
     }

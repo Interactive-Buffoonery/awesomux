@@ -224,7 +224,7 @@
       "comment" : "Accessibility lead for a remote document restored from its saved copy"
     },
     "%arg integration" : {
-
+      "comment" : "Accessibility label for an agent integration switch; argument is the provider name."
     },
     "%arg is empty" : {
 
@@ -814,6 +814,9 @@
     },
     "Allow enables this iPhone to see every workspace and pane’s status, each terminal’s last output line, and live terminal output. You can turn previews and watching off in Companion settings; this phone can also change its own preview setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
+    },
+    "Allow notifications first" : {
+      "comment" : "Setup wizard hint under the needs-input switch while notifications are not allowed"
     },
     "Allow once" : {
       "comment" : "Allow this Claude permission request only; do not remember a grant."
@@ -2242,6 +2245,9 @@
     "Disable the Antigravity status plugin" : {
       "comment" : "Confirmation dialog title for the Antigravity status plugin action"
     },
+    "Disabled" : {
+      "comment" : "Accessibility value of an agent integration switch"
+    },
     "Disabling stops awesoMux from probing this provider" : {
       "comment" : "Accessibility hint for an enabled agent integration toggle."
     },
@@ -2443,6 +2449,9 @@
     },
     "Enable the %arg integration in Settings to send" : {
       "comment" : "Unavailable reason when the target agent's integration is disabled in settings"
+    },
+    "Enabled" : {
+      "comment" : "Accessibility value of an agent integration switch"
     },
     "Enable…" : {
 
@@ -2960,6 +2969,9 @@
     },
     "Install" : {
       "comment" : "Setup wizard button installing an agent integration"
+    },
+    "Install %arg integration" : {
+      "comment" : "Accessibility label for a setup wizard install button; argument is the provider name."
     },
     "Install Helper" : {
       "comment" : "Approve remote helper installation button"
@@ -6463,6 +6475,9 @@
     },
     "Used by the libghostty terminal surface." : {
       "comment" : "Settings field hint for the terminal font picker"
+    },
+    "Using your custom background." : {
+      "comment" : "Setup wizard note shown while a custom terminal background color is set"
     },
     "Version" : {
       "comment" : "About window field label for the app version\nAdvanced settings label."

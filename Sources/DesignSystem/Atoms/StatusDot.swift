@@ -188,7 +188,8 @@ public struct KBD: View {
         Text(label)
             .awFont(AwFont.Mono.kbd)
             .fontWeight(.semibold)
-            .foregroundStyle(Color.aw.text2)
+            // `text2` on `surface.elevated` is 3.20:1 in Latte, under 4.5:1.
+            .foregroundStyle(Color.aw.text)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.kbd))
