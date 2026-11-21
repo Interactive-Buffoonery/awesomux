@@ -270,7 +270,7 @@ enum EmptyWorkspaceMode: Equatable {
     }
 }
 
-/// Empty-state body copy in two renderings, matching `FirstRunTourCopy`:
+/// Empty-state body copy in two renderings, matching the setup wizard's beats:
 /// `visible` carries the glyph chord, `spoken` carries the spelled-out one for
 /// VoiceOver. Both interpolate the *resolved* binding — a literal chord here
 /// would keep teaching the old key after a rebind.
