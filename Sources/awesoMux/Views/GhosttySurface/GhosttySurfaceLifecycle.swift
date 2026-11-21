@@ -182,6 +182,7 @@ extension GhosttySurfaceNSView {
         lifecycleState.pendingSurfaceCreationWorkItem = nil
         lifecycleState.coldStartCreationState = ColdStartSurfaceCreationState()
         lifecycleState.windowFrameSettleState = WindowFrameSettleState()
+        runtime.clearInteractiveSplit(paneID)
         logSurfaceGeometryDiagnostics(event: "surface-create-before")
         // The enactor decides attach-vs-local-shell, mints/arms the status
         // channel on attach, and clears bridge state on fallback. A nil command
@@ -992,22 +993,28 @@ extension GhosttySurfaceNSView {
             scheduleColdStartRecheck(event: "surface-create-awaiting-window")
             return
         }
-        switch WindowFrameSettlePolicy.decision(
-            state: &lifecycleState.windowFrameSettleState,
-            windowFrame: window.frame,
-            now: ContinuousClock.now
-        ) {
-        case .proceed:
-            break
-        case .wait:
-            scheduleColdStartRecheck(event: "surface-create-window-frame-settling")
-            return
+        // A split sourced from a live surface in this window needs only to
+        // settle its new pane width. Restored panes still need both checks.
+        let isInteractiveSplit = runtime.isInteractiveSplit(self, in: window)
+        if !isInteractiveSplit {
+            switch WindowFrameSettlePolicy.decision(
+                state: &lifecycleState.windowFrameSettleState,
+                windowFrame: window.frame,
+                now: ContinuousClock.now
+            ) {
+            case .proceed:
+                break
+            case .wait:
+                scheduleColdStartRecheck(event: "surface-create-window-frame-settling")
+                return
+            }
         }
 
         switch ColdStartSurfaceCreationPolicy.decision(
             state: &lifecycleState.coldStartCreationState,
             width: contentSize.width,
-            now: ContinuousClock.now
+            now: ContinuousClock.now,
+            allowsNarrowSettledWidth: isInteractiveSplit
         ) {
         case .create:
             createSurfaceIfNeeded()

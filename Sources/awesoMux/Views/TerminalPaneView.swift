@@ -68,6 +68,11 @@ struct TerminalPaneView: View {
                 suppressTopFocusAccentForActivePane: false,
                 abutsWindowTop: abutsWindowTop
             )
+            .modifier(
+                TerminalPaneMotion(
+                    sessionID: session.id, paneIDs: session.layout.paneIDs,
+                    enabled: primaryContext != nil && session.layout.firstDocumentGroup == nil)
+            )
             .environment(\.primaryPaneTreeContext, primaryContext)
             .background {
                 if let primaryContext {
@@ -296,13 +301,10 @@ struct TerminalPaneLayoutView: View {
                             }
                         }
                         .overlay {
-                            // Dim every pane that isn't the active one so the
-                            // focused surface reads at a glance. A single-pane
-                            // session never hits this branch (its one pane is
-                            // always active), so the dim only appears once a
-                            // split exists.
-                            if session.activePaneID != pane.id {
-                                InactivePaneScrim()
+                            // Keep the scrim mounted across focus changes so
+                            // both panes can animate the handoff together.
+                            if showsPaneTitleBar {
+                                InactivePaneScrim(isInactive: session.activePaneID != pane.id)
                             }
                         }
                         .overlay(alignment: .bottom) {
@@ -398,6 +400,7 @@ struct TerminalPaneLayoutView: View {
                     }
                 }
             }
+            .modifier(TerminalPaneMotionEffect(paneID: pane.id))
 
         case let .split(split):
             TerminalSplitLayoutView(

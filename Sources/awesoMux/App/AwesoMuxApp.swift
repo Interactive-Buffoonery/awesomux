@@ -3193,10 +3193,14 @@ struct AwesoMuxApp: App {
 
     @discardableResult
     private func splitActivePane(orientation: TerminalSplitOrientation) -> TerminalPane.ID? {
+        let sourcePaneID = sessionStore.selectedSessionID.flatMap { sessionStore.session(id: $0)?.activePaneID }
         guard let paneID = sessionStore.splitActivePane(orientation: orientation) else {
             return nil
         }
 
+        if let sourcePaneID {
+            ghosttyRuntime.noteInteractiveSplit(paneID, from: sourcePaneID)
+        }
         announceSplit(orientation: orientation)
         return paneID
     }

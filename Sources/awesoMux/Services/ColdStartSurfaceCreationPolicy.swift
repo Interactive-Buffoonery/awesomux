@@ -40,15 +40,9 @@ struct ColdStartSurfaceCreationState: Equatable {
 /// for `widthStabilityInterval` — the placeholder→real ramp resolves to the
 /// final width before spawn.
 ///
-/// A width below the floor is left for `safetyCapInterval` and then spawned at
-/// anyway. This is deliberately NOT optimized: a below-floor width can't be told
-/// apart from a placeholder about to jump (a 1 pt jitter from rounding or a
-/// scrollbar toggle would otherwise masquerade as a settled real width and spawn
-/// squished). Waiting for the cap costs a genuinely-narrow pane — a small window,
-/// or a split sub-pane under ~480 pt — up to a second before its shell appears,
-/// but by then the layout has settled and it spawns at its *real* width, where
-/// PTY == viewport and fastfetch renders fine. Correct-but-slow beats fast-but-
-/// occasionally-squished for that rare case.
+/// Below-floor widths normally wait for the safety cap because they can be
+/// placeholders. An interactive split sourced from a live terminal in the same
+/// window may instead start after its narrow width holds steady.
 ///
 /// The delay is deliberately NOT gated on Reduce Motion: it is layout-settle
 /// timing, not animation. Honoring Reduce Motion here would hand motion-
@@ -92,9 +86,8 @@ enum ColdStartSurfaceCreationPolicy {
     /// ~32-column PTY that one-shot `.zshrc` tools (fastfetch) never reflow. A
     /// below-floor width is never trustworthy as "settled" here, so it falls
     /// through to `decision(...)` where the floor + safety cap govern the spawn.
-    /// The cost is that a genuinely narrow warm split (<floor) waits for the cap
-    /// rather than spawning instantly — the same correct-but-slow tradeoff the
-    /// cold-start path already accepts for narrow panes.
+    /// A narrow interactive split still needs to hold a stable width before
+    /// it can spawn via `decision(...)`.
     static func canSpawnImmediately(
         isColdStartPhase: Bool,
         paneEnteredColdStartWait: Bool,
@@ -108,7 +101,8 @@ enum ColdStartSurfaceCreationPolicy {
     static func decision(
         state: inout ColdStartSurfaceCreationState,
         width: CGFloat,
-        now: ContinuousClock.Instant
+        now: ContinuousClock.Instant,
+        allowsNarrowSettledWidth: Bool = false
     ) -> ColdStartSurfaceCreationDecision {
         if state.anchorAt == nil {
             state.anchorAt = now
@@ -121,7 +115,7 @@ enum ColdStartSurfaceCreationPolicy {
         }
         let stableSince = state.widthStableSince ?? now
         let isStable = (now - stableSince) >= widthStabilityInterval
-        if isStable, width >= plausibleWidthFloor {
+        if isStable, allowsNarrowSettledWidth || width >= plausibleWidthFloor {
             return .create
         }
 
