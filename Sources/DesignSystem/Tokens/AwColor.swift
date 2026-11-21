@@ -171,6 +171,10 @@ public struct AwColors: Sendable {
     /// WCAG 1.4.3 AA. This token steps Latte to subtext1 (5.14:1) while Mocha
     /// and both HC palettes keep subtext0, which already clear AA with room.
     /// Live call sites: group header names, jump digits, pinned section chrome.
+    /// The setup wizard also uses it on the window for its secondary copy:
+    /// step body text, row status and detail lines, captions, unselected chips,
+    /// the Ghostty note, the Ready sign-off and dots, and ghost buttons
+    /// (`AwButtonStyle.ghost`).
     /// See F44 / INT-480 follow-up.
     public var railText: Color {
         Color(nsColor: NSColor.awDynamic(
@@ -179,6 +183,20 @@ public struct AwColors: Sendable {
             mochaHC: mochaHC.subtext0,
             latteHC: latteHC.subtext0
         ))
+    }
+
+    /// Keycap label on `surface.elevated`. Stock `text2` (subtext0) is only
+    /// 3.20:1 there in Latte, so Latte steps to `text` (5.17:1). Mocha (5.65)
+    /// and both HC palettes keep subtext0, so their keycaps stay quieter than
+    /// titles. Live call sites: `KBD`.
+    public var kbdText: Color {
+        Color(
+            nsColor: NSColor.awDynamic(
+                mocha: mocha.subtext0,
+                latte: latte.text,
+                mochaHC: mochaHC.subtext0,
+                latteHC: latteHC.subtext0
+            ))
     }
 
     /// Quiet label on a chrome title-bar band (`surface.chrome2` →

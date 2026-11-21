@@ -3760,6 +3760,9 @@
     "Notifications" : {
       "comment" : "Setup wizard label for notification permission"
     },
+    "Notifications are off." : {
+      "comment" : "Setup wizard hint under the needs-input switch while notifications are denied"
+    },
     "Notifications muted for this workspace" : {
 
     },

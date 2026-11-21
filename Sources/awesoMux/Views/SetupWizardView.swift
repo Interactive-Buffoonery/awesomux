@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxConfig
 import DesignSystem
 import SwiftUI
@@ -78,8 +79,9 @@ struct SetupWizardPage: View {
                 ScrollView {
                     content
                 }
-                // A new step opens at its top, not at the last step's offset.
-                .id(step)
+                // A new step or a reopen starts at the top, not at the last
+                // scroll offset.
+                .id([AnyHashable(step), presentationToken])
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollIndicators(controller.isHeightCapped ? .automatic : .never)
             }
@@ -200,14 +202,15 @@ struct SetupWizardPage: View {
         }
     }
 
-    /// The text carries the position (WCAG 1.4.1); the dots are decoration.
+    /// The text carries the position; the active dot is also wider, so the
+    /// label-less large-text footer does not rely on colour (WCAG 1.4.1).
     private func stepIndicator(showsLabel: Bool) -> some View {
         HStack(spacing: 6) {
             HStack(spacing: 5) {
                 ForEach(steps.indices, id: \.self) { dot in
-                    Circle()
+                    Capsule()
                         .fill(dot == index ? Color.aw.accentOnChrome(accentResolver.accent) : Color.aw.textFaint)
-                        .frame(width: 5, height: 5)
+                        .frame(width: dot == index ? 12 : 5, height: 5)
                 }
             }
 
@@ -515,9 +518,16 @@ private struct SetupWizardAgentsStep: View {
                 }
                 WizardRow {
                     let isAvailable = notifications.status == .authorized
-                    let hint = String(
-                        localized: "Allow notifications first",
-                        comment: "Setup wizard hint under the needs-input switch while notifications are not allowed")
+                    let isDenied = notifications.status == .denied
+                    let hint =
+                        isDenied
+                        ? String(
+                            localized: "Notifications are off.",
+                            comment: "Setup wizard hint under the needs-input switch while notifications are denied")
+                        : String(
+                            localized: "Allow notifications first",
+                            comment:
+                                "Setup wizard hint under the needs-input switch while notifications are not allowed")
                     VStack(alignment: .leading, spacing: 4) {
                         WizardSwitch(
                             title: String(
@@ -528,8 +538,18 @@ private struct SetupWizardAgentsStep: View {
                         .disabled(!isAvailable)
                         .accessibilityHint(isAvailable ? "" : hint)
                         if !isAvailable {
-                            WizardCaption(text: hint)
-                                .accessibilityHidden(true)
+                            HStack(spacing: 8) {
+                                WizardCaption(text: hint)
+                                    .accessibilityHidden(true)
+                                // macOS asks once; after a denial only System Settings can change it.
+                                if isDenied {
+                                    Button("Open System Settings") {
+                                        notifications.openSystemNotificationSettings()
+                                    }
+                                    .awButtonStyle(.link)
+                                    .accessibilityHint("Opens the macOS Notifications settings pane for awesoMux.")
+                                }
+                            }
                         }
                     }
                 }
@@ -541,6 +561,11 @@ private struct SetupWizardAgentsStep: View {
             guard !isMeasuring else { return }
             notifications.refresh()
             agents.refreshAll()
+        }
+        // Back from System Settings with notifications allowed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard !isMeasuring else { return }
+            notifications.refresh()
         }
     }
 }
@@ -662,7 +687,9 @@ private struct SetupWizardAgentRow: View {
                         color: AgentPluginStatusBadge.color(for: state.status),
                         accessibilityLabel: statusAccessibilityLabel(state.title),
                         accessibilityHint: state.statusDetail)
-                    if state.allowsEnable {
+                    // A failed install stays retryable even when its status
+                    // (lock contention reports needsRepair) offers no Install.
+                    if state.allowsEnable || (agents.pluginInstallFailures[provider] != nil && !state.isBusy) {
                         installButton(title: state.title) { pendingConfirmation = agents.confirmation(provider) }
                     }
                 }
@@ -892,8 +919,12 @@ final class SetupWizardAgentsModel {
     }
 
     private func probe(_ provider: AgentPluginProvider) {
-        runPluginTask(provider, isProbe: true) { model, target, setup in
+        runPluginTask(provider, isProbe: true) { [weak self] model, target, setup in
             await model.refreshStatus(target: target, setup: setup)
+            // The plugin is installed after all: an older failure is stale.
+            if model.reports[target]?.presence == .present {
+                self?.pluginInstallFailures[provider] = nil
+            }
         }
     }
 

@@ -45,7 +45,8 @@ private struct AwButtonBody: View {
             .fixedSize()
             .frame(minHeight: 28)
             .contentShape(shape)
-            .opacity(isEnabled ? 1 : 0.4)
+            // Ghost stays legible disabled: Back on the first step keeps its place.
+            .opacity(isEnabled ? 1 : kind == .ghost ? 0.55 : 0.4)
             .awFocusRing(isFocused, cornerRadius: AwRadius.pill, inset: -2)
             .onHover { isHovered = $0 }
     }
@@ -67,6 +68,12 @@ private struct AwButtonBody: View {
                         shape.fill(Color.aw.accent(accent).opacity(configuration.isPressed ? 0.10 : isActive ? 0.05 : 0))
                     }
                 }
+                // Hover and press read from the border, so the fill can stay light.
+                .overlay {
+                    if isActive {
+                        shape.strokeBorder(Color.aw.accent(accent).opacity(0.5), lineWidth: 1)
+                    }
+                }
         case .ghost:
             configuration.label
                 .foregroundStyle(isActive ? Color.aw.text : Color.aw.railText)
@@ -84,8 +91,10 @@ private struct AwButtonBody: View {
     }
 }
 
-/// A flat 24x13 switch: accent track when on, outlined `surface.track` when
-/// off, window-colour knob, no shadow. VoiceOver reads it as a standard switch.
+/// A flat 24x13 switch, no shadow. On: accent-on-chrome track, window-colour
+/// knob. Off: outlined track, smaller `text2` knob. Track edge and knob clear
+/// 3:1 in every palette and accent (WCAG 1.4.11). VoiceOver reads it as a
+/// standard switch.
 public struct AwToggleStyle: ToggleStyle {
     public init() {}
 
@@ -94,33 +103,34 @@ public struct AwToggleStyle: ToggleStyle {
     }
 }
 
-/// `.plain` dims a disabled button's whole label on macOS; the toggle dims
-/// only its track, so a disabled row's text stays readable.
-private struct UndimmedButtonStyle: ButtonStyle {
+/// Draws the track here for its pressed state. Also replaces `.plain`, which
+/// dims a disabled button's whole label on macOS; only the track dims, so a
+/// disabled row's text stays readable.
+private struct AwSwitchButtonStyle: ButtonStyle {
+    let isOn: Bool
+    let isFocused: Bool
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        HStack(spacing: 8) {
+            configuration.label
+            AwSwitchTrack(isOn: isOn, isPressed: configuration.isPressed, isFocused: isFocused)
+        }
+        .contentShape(Rectangle())
     }
 }
 
 private struct AwToggleBody: View {
     let configuration: ToggleStyleConfiguration
 
-    @Environment(\.isEnabled) private var isEnabled
     @FocusState private var isFocused: Bool
-    @Environment(\.awAccent) private var accentResolver
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
             configuration.isOn.toggle()
         } label: {
-            HStack(spacing: 8) {
-                configuration.label
-                track
-            }
-            .contentShape(Rectangle())
+            configuration.label
         }
-        .buttonStyle(UndimmedButtonStyle())
+        .buttonStyle(AwSwitchButtonStyle(isOn: configuration.isOn, isFocused: isFocused))
         .focusEffectDisabled()
         .focused($isFocused)
         .accessibilityRepresentation {
@@ -129,26 +139,36 @@ private struct AwToggleBody: View {
                 .toggleStyle(.switch)
         }
     }
+}
 
-    private var track: some View {
+private struct AwSwitchTrack: View {
+    let isOn: Bool
+    let isPressed: Bool
+    let isFocused: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.awAccent) private var accentResolver
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
         Capsule()
-            .fill(configuration.isOn ? Color.aw.accent(accentResolver.accent) : Color.aw.surface.track)
-            // The off track alone is under 3:1 against the window (WCAG 1.4.11).
+            .fill(isOn ? Color.aw.accentOnChrome(accentResolver.accent) : Color.aw.surface.window)
             .overlay {
-                if !configuration.isOn {
+                if !isOn {
                     Capsule().strokeBorder(Color.aw.text2, lineWidth: 1)
                 }
             }
             .frame(width: 24, height: 13)
-            .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+            .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
-                    .fill(Color.aw.surface.window)
-                    .frame(width: 9, height: 9)
-                    .padding(2)
+                    .fill(isOn ? Color.aw.surface.window : Color.aw.text2)
+                    .frame(width: isOn ? 9 : 7, height: isOn ? 9 : 7)
+                    .padding(isOn ? 2 : 3)
             }
+            .brightness(isPressed ? -0.06 : 0)
             .opacity(isEnabled ? 1 : 0.45)
             .awFocusRing(isFocused, cornerRadius: 7, inset: -2)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isOn)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isOn)
     }
 }
 

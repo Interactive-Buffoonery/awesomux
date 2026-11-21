@@ -159,7 +159,7 @@ final class FirstRunTourController {
     /// deliberately left untouched here.
     func show() {
         guard let store = appSettingsStore else { return }
-        let isFirstPresentation = !isVisible
+        let wasHidden = !isVisible
 
         let panel: FloatingSwiftUIPanelWindow
         if let existing = self.panel {
@@ -178,7 +178,10 @@ final class FirstRunTourController {
         isHeightCapped = size.height >= maximumPanelHeight
         panel.hostSwiftUIContent(SetupWizardView(controller: self, store: store).appearanceBridge(store))
 
-        if isFirstPresentation {
+        // Fits skipped while hidden land here: every reopen re-measures and
+        // re-centers on the current screen, so nothing needs to be queued.
+        if wasHidden {
+            cancelInFlightFit()
             panel.setFixedContentSize(size)
             panel.center()
             anchoredTop = panel.frame.maxY
@@ -231,6 +234,7 @@ final class FirstRunTourController {
         if resettingProgress { currentStepIndex = 0 }
         isVisible = false
         isKeyWindow = false
+        cancelInFlightFit()
         agents?.cancelPendingWork()
         panel?.orderOut(nil)
     }
@@ -282,6 +286,7 @@ final class FirstRunTourController {
         var frame = panel.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         frame.origin = NSPoint(x: panel.frame.minX, y: (anchoredTop ?? panel.frame.maxY) - frame.height)
         if let visible = (panel.screen ?? NSScreen.main)?.visibleFrame {
+            frame.origin.x = max(min(frame.minX, visible.maxX - frame.width), visible.minX)
             frame.origin.y = max(min(frame.minY, visible.maxY - frame.height), visible.minY)
         }
         guard frame != panel.frame else { return }
@@ -309,6 +314,13 @@ final class FirstRunTourController {
                     panel.animator().setFrame(frame, display: true)
                 }, completionHandler: { MainActor.assumeIsolated { finish() } })
         }
+    }
+
+    /// A fit animating when the panel hides or reopens must not pin its stale
+    /// size on completion, nor keep user moves from re-anchoring.
+    private func cancelInFlightFit() {
+        fitGeneration += 1
+        isApplyingFit = false
     }
 
     private func observePanel(_ panel: NSWindow) {
