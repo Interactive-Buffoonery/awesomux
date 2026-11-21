@@ -255,6 +255,9 @@ extension GhosttySurfaceNSView {
             environment: environment,
             command: launch.command
         )
+        // Keep the marker through bridge preflight, then consume it on the
+        // first native creation attempt so any retry uses the normal settle.
+        runtime.clearInteractiveSplit(paneID)
         if let createdSurface {
             if isRecoveryAttach {
                 SessionRecoveryConfirmationCenter.shared.didStartAttach(pane.terminalSessionID)
@@ -266,7 +269,6 @@ extension GhosttySurfaceNSView {
             terminalEventState.nativeRemotePwdOrigin = (sessionID, pane)
             terminalEventState.nativeRemotePwdSnapshot = (sessionID, pane)
             surface = createdSurface
-            runtime.clearInteractiveSplit(paneID)
             awesomux_surface_set_remote_pwd_generation(createdSurface, terminalEventState.nativeRemotePwdGeneration)
             // A VoiceOver accessor firing mid-heal (surface == nil) could have
             // cached an empty read from the OLD surface; don't let it leak
