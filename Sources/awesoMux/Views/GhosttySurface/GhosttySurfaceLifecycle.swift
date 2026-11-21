@@ -255,6 +255,9 @@ extension GhosttySurfaceNSView {
             environment: environment,
             command: launch.command
         )
+        // Keep the marker through bridge preflight, then consume it on the
+        // first native creation attempt so any retry uses the normal settle.
+        runtime.clearInteractiveSplit(paneID)
         if let createdSurface {
             if isRecoveryAttach {
                 SessionRecoveryConfirmationCenter.shared.didStartAttach(pane.terminalSessionID)
@@ -992,22 +995,28 @@ extension GhosttySurfaceNSView {
             scheduleColdStartRecheck(event: "surface-create-awaiting-window")
             return
         }
-        switch WindowFrameSettlePolicy.decision(
-            state: &lifecycleState.windowFrameSettleState,
-            windowFrame: window.frame,
-            now: ContinuousClock.now
-        ) {
-        case .proceed:
-            break
-        case .wait:
-            scheduleColdStartRecheck(event: "surface-create-window-frame-settling")
-            return
+        // A split sourced from a live surface in this window needs only to
+        // settle its new pane width. Restored panes still need both checks.
+        let isInteractiveSplit = runtime.isInteractiveSplit(self, in: window)
+        if !isInteractiveSplit {
+            switch WindowFrameSettlePolicy.decision(
+                state: &lifecycleState.windowFrameSettleState,
+                windowFrame: window.frame,
+                now: ContinuousClock.now
+            ) {
+            case .proceed:
+                break
+            case .wait:
+                scheduleColdStartRecheck(event: "surface-create-window-frame-settling")
+                return
+            }
         }
 
         switch ColdStartSurfaceCreationPolicy.decision(
             state: &lifecycleState.coldStartCreationState,
             width: contentSize.width,
-            now: ContinuousClock.now
+            now: ContinuousClock.now,
+            allowsNarrowSettledWidth: isInteractiveSplit
         ) {
         case .create:
             createSurfaceIfNeeded()

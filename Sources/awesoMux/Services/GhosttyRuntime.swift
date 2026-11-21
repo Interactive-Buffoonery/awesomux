@@ -134,6 +134,7 @@ final class GhosttyRuntime {
 
     @ObservationIgnored
     nonisolated(unsafe) private var surfaceViews: [TerminalPane.ID: GhosttySurfaceNSView] = [:]
+    @ObservationIgnored private var interactiveSplitSources: [TerminalPane.ID: TerminalPane.ID] = [:]
 
     @ObservationIgnored
     private var commandRetryTasks: [TerminalPane.ID: Task<Void, Never>] = [:]
@@ -412,6 +413,24 @@ final class GhosttyRuntime {
             logSurfaceCacheEvent("create-finish", sessionID: session.id, paneID: pane.id)
         #endif
         return surfaceView
+    }
+
+    func noteInteractiveSplit(_ paneID: TerminalPane.ID, from sourcePaneID: TerminalPane.ID) {
+        // Repeated splits can target a sibling that is still waiting to spawn.
+        let liveSourceID = interactiveSplitSources[sourcePaneID] ?? sourcePaneID
+        guard let source = surfaceViews[liveSourceID], source.hasNativeSurface, source.windowIsVisible else { return }
+        interactiveSplitSources[paneID] = liveSourceID
+    }
+
+    func isInteractiveSplit(_ pane: GhosttySurfaceNSView, in window: NSWindow) -> Bool {
+        guard let sourceID = interactiveSplitSources[pane.paneID],
+            let source = surfaceViews[sourceID]
+        else { return false }
+        return source.hasNativeSurface && source.window === window && source.sessionID == pane.sessionID
+    }
+
+    func clearInteractiveSplit(_ paneID: TerminalPane.ID) {
+        interactiveSplitSources.removeValue(forKey: paneID)
     }
 
     func cachedSurfaceView(for paneID: TerminalPane.ID) -> GhosttySurfaceNSView? {
@@ -795,6 +814,7 @@ final class GhosttyRuntime {
     }
 
     func discardSurface(for paneID: TerminalPane.ID, preservingRestartNotice: Bool = false) {
+        clearInteractiveSplit(paneID)
         if !preservingRestartNotice {
             clearSessionRestartNotice(for: paneID, afterLayout: true)
         }
@@ -896,6 +916,7 @@ final class GhosttyRuntime {
     }
 
     func discardAllSurfaces() {
+        interactiveSplitSources.removeAll()
         for task in commandRetryTasks.values { task.cancel() }
         commandRetryTasks.removeAll()
         #if DEBUG
@@ -937,7 +958,8 @@ final class GhosttyRuntime {
     }
 
     func discardSurfacesNotIn(_ retainedPaneIDs: Set<TerminalPane.ID>) {
-        let stalePaneIDs = Set(surfaceViews.keys).union(commandRetryTasks.keys).union(restartedSessionNotices.keys).subtracting(
+        let stalePaneIDs = Set(surfaceViews.keys).union(commandRetryTasks.keys).union(restartedSessionNotices.keys)
+            .union(interactiveSplitSources.keys).subtracting(
             retainedPaneIDs)
         guard !stalePaneIDs.isEmpty else {
             return
