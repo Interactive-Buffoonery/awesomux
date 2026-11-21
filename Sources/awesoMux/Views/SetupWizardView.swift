@@ -538,17 +538,24 @@ private struct SetupWizardAgentsStep: View {
                         .disabled(!isAvailable)
                         .accessibilityHint(isAvailable ? "" : hint)
                         if !isAvailable {
-                            HStack(spacing: 8) {
-                                WizardCaption(text: hint)
-                                    .accessibilityHidden(true)
-                                // macOS asks once; after a denial only System Settings can change it.
-                                if isDenied {
-                                    Button("Open System Settings") {
-                                        notifications.openSystemNotificationSettings()
-                                    }
-                                    .awButtonStyle(.link)
-                                    .accessibilityHint("Opens the macOS Notifications settings pane for awesoMux.")
+                            let caption = WizardCaption(text: hint).accessibilityHidden(true)
+                            // macOS asks once; after a denial only System Settings can change it.
+                            if isDenied {
+                                let link = Button("Open System Settings") {
+                                    notifications.openSystemNotificationSettings()
                                 }
+                                .awButtonStyle(.link)
+                                .accessibilityHint("Opens the macOS Notifications settings pane for awesoMux.")
+                                ViewThatFits(in: .horizontal) {
+                                    HStack(spacing: 8) {
+                                        caption; link
+                                    }
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        caption; link
+                                    }
+                                }
+                            } else {
+                                caption
                             }
                         }
                     }
@@ -921,8 +928,9 @@ final class SetupWizardAgentsModel {
     private func probe(_ provider: AgentPluginProvider) {
         runPluginTask(provider, isProbe: true) { [weak self] model, target, setup in
             await model.refreshStatus(target: target, setup: setup)
-            // The plugin is installed after all: an older failure is stale.
-            if model.reports[target]?.presence == .present {
+            // Only a healthy plugin makes an older failure stale; present but
+            // disabled or needing repair still needs the retry.
+            if model.reports[target]?.status == .enabled {
                 self?.pluginInstallFailures[provider] = nil
             }
         }
