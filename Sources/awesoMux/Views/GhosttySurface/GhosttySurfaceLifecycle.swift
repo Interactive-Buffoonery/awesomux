@@ -182,7 +182,6 @@ extension GhosttySurfaceNSView {
         lifecycleState.pendingSurfaceCreationWorkItem = nil
         lifecycleState.coldStartCreationState = ColdStartSurfaceCreationState()
         lifecycleState.windowFrameSettleState = WindowFrameSettleState()
-        runtime.clearInteractiveSplit(paneID)
         logSurfaceGeometryDiagnostics(event: "surface-create-before")
         // The enactor decides attach-vs-local-shell, mints/arms the status
         // channel on attach, and clears bridge state on fallback. A nil command
@@ -267,6 +266,7 @@ extension GhosttySurfaceNSView {
             terminalEventState.nativeRemotePwdOrigin = (sessionID, pane)
             terminalEventState.nativeRemotePwdSnapshot = (sessionID, pane)
             surface = createdSurface
+            runtime.clearInteractiveSplit(paneID)
             awesomux_surface_set_remote_pwd_generation(createdSurface, terminalEventState.nativeRemotePwdGeneration)
             // A VoiceOver accessor firing mid-heal (surface == nil) could have
             // cached an empty read from the OLD surface; don't let it leak
