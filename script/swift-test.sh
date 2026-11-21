@@ -18,6 +18,10 @@ if [[ "$#" -eq 0 ]]; then
     exec "$ROOT_DIR/script/test.sh" all
 fi
 
+# The license check below rejects artifacts built from another Ghostty pin,
+# so let ensure rebuild them instead of reusing them with a warning.
+export AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH="${AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH:-1}"
+
 "$ROOT_DIR/script/check-toolchain.sh"
 "$ROOT_DIR/script/ensure_ghostty_artifacts.sh"
 "$ROOT_DIR/script/check_ghostty_third_party_licenses.sh"
