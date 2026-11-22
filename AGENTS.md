@@ -1,6 +1,6 @@
 # Agent instructions — awesoMux
 
-Shared rules for Codex and Claude (`CLAUDE.md` imports this file).
+Shared rules for AI agents.
 awesoMux is a SwiftPM macOS 15+ terminal built on libghostty, with a native
 single-window sidebar/session shell.
 
@@ -14,11 +14,8 @@ Read the docs relevant to your change:
   [signing](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md),
   [targets](Package.swift), and [UI tokens](Sources/DesignSystem/), as applicable.
 
-The maintained shared roadmap is optional context. Use
-[read-awesomux-plan](.agents/skills/read-awesomux-plan/SKILL.md) when explicitly
-requested or when available planning context would help. Routine issue work
-proceeds without planning access or setup. When consulting the plan, reconcile
-it with current code, ADRs, and GitHub; flag conflicts.
+Use [read-awesomux-plan](.agents/skills/read-awesomux-plan/SKILL.md) only when
+asked or when it clearly helps; reconcile it with current code, ADRs, and GitHub.
 
 ## Guardrails
 
@@ -64,14 +61,11 @@ it with current code, ADRs, and GitHub; flag conflicts.
   tests, preflight, native UI, and accessibility evidence separate.
 - Use repository scripts for Ghostty/Zig setup. Never bypass commit or PR hooks.
 - `./script/build_and_run.sh` builds/runs the app; `./script/test.sh all` runs
-  zmx and existing Swift tests. Filters match identifiers: require a non-zero count.
+  zmx and existing Swift tests. A filter that matches 0 tests is a failure.
 - Rerun one failing test with `./script/swift-test.sh --filter <Suite>/<test>`.
   Commit once it passes, not once per attempt.
 - Before a non-docs PR, run `./script/preflight.sh` directly and preserve its exit
   status. Docs-only changes can use `git diff --check`.
 - After preflight, run [merge-risk](.agents/skills/merge-risk/SKILL.md) and add its
   one-line result under Notes in the PR.
-- Link the issue and follow the exact [PR template](.github/pull_request_template.md)
-  headings. Remove placeholders. Write PR text and merge risk updates in simple
-  English or ASD-STE100 (Simplified Technical English).
-- List the models that worked on the change after `Models:` in the PR, or `None`.
+- Link the issue and fill in the [PR template](.github/pull_request_template.md).
