@@ -1,6 +1,6 @@
 # Agent instructions — awesoMux
 
-Shared rules for Codex and Claude, which both read this file directly.
+Shared rules for AI agents.
 awesoMux is a SwiftPM macOS 15+ terminal built on libghostty, with a native
 single-window sidebar/session shell.
 
