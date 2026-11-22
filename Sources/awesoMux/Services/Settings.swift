@@ -20,4 +20,6 @@ enum SettingsKey {
     /// non-nil forever (the registration domain is process-wide, so it would
     /// also leak across suites in tests).
     static let hasSeenFirstRunTour = "settings.hasSeenFirstRunTour"
+    /// Whether a Ghostty config existed before libghostty first wrote its template.
+    static let hadGhosttyConfigAtFirstLaunch = "settings.hadGhosttyConfigAtFirstLaunch"
 }

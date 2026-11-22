@@ -322,17 +322,19 @@ final class AgentPluginSettingsViewModel {
         actionGuidance[target] = nil
     }
 
+    /// Returns the outcome, or nil when the action did not run or was cancelled.
+    @discardableResult
     func perform(
         action: AgentPluginAction,
         target: AgentPluginTarget,
         setup: AgentIntegrationSetup
-    ) async {
+    ) async -> AgentPluginActionOutcome? {
         let provider = target.provider
         let setup = self.setup(for: target, from: setup)
         // Every action is chosen from an observed status; an unresolved folder
         // (queued, cancelled, or reset) must be checked first.
-        guard setup.enabled, reports[target] != nil else { return }
-        guard !mutating.contains(provider), !probing.contains(where: { $0.provider == provider }) else { return }
+        guard setup.enabled, reports[target] != nil else { return nil }
+        guard !mutating.contains(provider), !probing.contains(where: { $0.provider == provider }) else { return nil }
         mutating.insert(provider)
         inflightOp[target] = .mutation
         actionFailures[target] = nil
@@ -355,7 +357,7 @@ final class AgentPluginSettingsViewModel {
             outcome = await runner.uninstall(provider: provider, setup: setup)
         }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return nil }
         renderedSourcePaths[provider] = renderedSourcePathProvider(provider)
         reports[target] = AgentPluginStatusReport(status: outcome.status, diagnostics: outcome.diagnostics)
         if outcome.diagnostics != nil {
@@ -363,6 +365,7 @@ final class AgentPluginSettingsViewModel {
         } else if let guidance = outcome.guidance {
             actionGuidance[target] = guidance
         }
+        return outcome
     }
 
     // MARK: Helpers

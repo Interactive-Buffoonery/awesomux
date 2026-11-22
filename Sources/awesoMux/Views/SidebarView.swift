@@ -787,6 +787,10 @@ struct SidebarView: View {
         .onChange(of: appSettingsStore.appearance.value.promoteWorkspacesNeedingInput) { _, enabled in
             sessionStore.needsInputSectionEnabled = enabled
         }
+            // Changing the default is an explicit choice of view, so it applies now.
+            .onChange(of: appSettingsStore.appearance.value.defaultSidebar) { _, mode in
+                activityPanelOpen = mode == .agents
+            }
         .onChange(of: sessionStore.selectedSessionID) { _, newValue in
                 // The Workspaces list is hidden here, so expanding now would be
                 // invisible; a return to Workspaces reveals the selection instead.

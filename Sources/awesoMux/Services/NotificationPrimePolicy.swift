@@ -10,7 +10,6 @@ enum NotificationPrimePolicy {
         var hasEligibleSession: Bool
         var isLaunchEvaluation: Bool
         var tourIsVisible: Bool
-        var tourReachedNotificationBeat: Bool
         var anyChannelEnabled: Bool
         var requestInFlight: Bool
         var isNotDetermined: Bool
@@ -24,9 +23,9 @@ enum NotificationPrimePolicy {
         // reintroduce the launch-time ask under a different condition.
         guard !inputs.isLaunchEvaluation else { return false }
         guard inputs.hasEligibleSession else { return false }
-        // The modal explanation would otherwise stack over the tour — the exact
-        // two-competing-surfaces failure this work exists to remove.
-        if inputs.tourIsVisible, !inputs.tourReachedNotificationBeat { return false }
+        // The setup wizard asks from its own Agents step; a modal explanation
+        // over it would be two competing surfaces for one question.
+        guard !inputs.tourIsVisible else { return false }
         return true
     }
 }

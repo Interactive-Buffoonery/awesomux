@@ -181,7 +181,6 @@ struct AppearanceSettingsPane: View {
             ) {
                 SettingsField(
                     label: String(localized: "Default sidebar", comment: "Settings label for the sidebar view used at launch"),
-                    hint: String(localized: "Applies on next launch.", comment: "Hint for the default sidebar view setting"),
                     isFirst: true
                 ) {
                     Picker("Default sidebar", selection: appSettingsStore.appearance.binding(\.defaultSidebar)) {
@@ -191,7 +190,6 @@ struct AppearanceSettingsPane: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .accessibilityLabel("Default sidebar")
-                    .accessibilityHint("Applies on next launch.")
                 }
 
                 SettingsField(
@@ -771,7 +769,7 @@ enum TerminalBackgroundPreviewForeground {
     }
 }
 
-private struct TerminalBackgroundPreview: View {
+struct TerminalBackgroundPreview: View {
     let backgroundHex: String
     let usesGhosttyConfig: Bool
 
@@ -885,7 +883,7 @@ private struct GlowSlider: View {
     }
 }
 
-private extension NSColor {
+extension NSColor {
     static func awesoMuxSettingsHex(_ hex: String) -> NSColor? {
         guard let normalized = AppearanceConfig.normalizedTerminalBackgroundColor(hex),
             let value = UInt32(String(normalized.dropFirst()), radix: 16)
@@ -918,7 +916,7 @@ private extension NSColor {
     }
 }
 
-private extension AwAccent {
+extension AwAccent {
     var configAccent: AppearanceConfig.Accent {
         switch self {
         case .peach: .peach

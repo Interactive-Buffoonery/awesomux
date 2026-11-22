@@ -188,7 +188,7 @@ public struct KBD: View {
         Text(label)
             .awFont(AwFont.Mono.kbd)
             .fontWeight(.semibold)
-            .foregroundStyle(Color.aw.text2)
+            .foregroundStyle(Color.aw.kbdText)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.kbd))

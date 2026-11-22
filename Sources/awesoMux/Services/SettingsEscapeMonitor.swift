@@ -14,12 +14,7 @@ final class SettingsEscapeMonitor {
     /// its window (if `.onDisappear` is late) is harmless: no event targets it.
     weak var window: NSWindow?
 
-    private let onClose: () -> Void
     private var monitor: Any?
-
-    init(onClose: @escaping () -> Void = {}) {
-        self.onClose = onClose
-    }
 
     func start() {
         guard monitor == nil else { return }
@@ -70,11 +65,6 @@ final class SettingsEscapeMonitor {
         }
 
         window.performClose(nil)
-        // SwiftUI's reusable Settings scene can order out after this custom
-        // close path without posting `NSWindow.willCloseNotification`. Report
-        // the completed keyboard close directly; the tour handoff is one-shot,
-        // so a native notification delivered as well is harmless.
-        onClose()
         return nil
     }
 }
