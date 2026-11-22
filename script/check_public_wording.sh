@@ -19,7 +19,6 @@ PUBLIC_SURFACE_PATHS=(
     Sources
     Tests
     AGENTS.md
-    CLAUDE.md
     CONTEXT.md
     CONTRIBUTING.md
     README.md
