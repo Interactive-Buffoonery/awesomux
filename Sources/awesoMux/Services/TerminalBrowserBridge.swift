@@ -78,9 +78,19 @@ final class TerminalBrowserBridge {
         }
         guard bound == 0, listen(fd, 8) == 0 else { throw POSIXError(.EIO) }
         let queue = DispatchQueue(label: "awesomux.terminal-browser", qos: .utility)
+        let clients = DispatchSemaphore(value: 4)
         listener = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         listener.setEventHandler(handler: { @Sendable in
-            Self.acceptRequest(fd, approvedExecutable: approvedExecutable, handle: handle)
+            let client = accept(fd, nil, nil)
+            guard client >= 0 else { return }
+            guard fcntl(client, F_SETFD, FD_CLOEXEC) == 0, clients.wait(timeout: .now()) == .success else {
+                close(client)
+                return
+            }
+            DispatchQueue.global(qos: .utility).async {
+                defer { clients.signal() }
+                Self.serveRequest(client, approvedExecutable: approvedExecutable, handle: handle)
+            }
         })
         listener.setCancelHandler(handler: { @Sendable in
             close(fd)
@@ -147,15 +157,12 @@ final class TerminalBrowserBridge {
         return created ? ["result": [String: String]()] : error("Could not start Terminal Browser in the new pane")
     }
 
-    private nonisolated static func acceptRequest(
-        _ listener: Int32,
+    private nonisolated static func serveRequest(
+        _ fd: Int32,
         approvedExecutable: String,
         handle: @escaping @MainActor @Sendable (Request, SplitPreparation?, ContinuousClock.Instant) async -> [String: Any]
     ) {
-        let fd = accept(listener, nil, nil)
-        guard fd >= 0 else { return }
         defer { close(fd) }
-        guard fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else { return }
 
         var uid: uid_t = 0
         var gid: gid_t = 0
@@ -186,7 +193,7 @@ final class TerminalBrowserBridge {
             else { return }
 
             let preparation = request.method == "split" ? prepareSplit(request, executable: approvedExecutable) : nil
-            // Keep one active client on the worker queue. The main actor never waits for socket I/O.
+            // The main actor never waits for socket I/O.
             let finished = DispatchSemaphore(value: 0)
             let reply = Mutex<Data?>(nil)
             Task { @MainActor in

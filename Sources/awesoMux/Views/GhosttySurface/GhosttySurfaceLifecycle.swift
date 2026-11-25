@@ -250,6 +250,7 @@ extension GhosttySurfaceNSView {
             kind: sessionStore.compactTerminalKind
         )
         var command = launch.command
+        var usedBrowserCommand = false
         let browserLaunch = runtime.terminalBrowserLaunchCommands.removeValue(forKey: paneID)
         if case .localShell = launch, case .local = pane.executionPlan,
             !runtime.isCommandBridgeEnabled, runtime.terminalBrowserAuthorized(),
@@ -260,6 +261,7 @@ extension GhosttySurfaceNSView {
             environment["PIXEL_SKIP_GRAPHICS_CHECK"] = "1"
             if let browserLaunch, .now < browserLaunch.deadline {
                 command = browserLaunch.command
+                usedBrowserCommand = true
             }
         }
         let createdSurface = runtime.createSurface(
@@ -269,7 +271,7 @@ extension GhosttySurfaceNSView {
             command: command
         )
         if let browserLaunch {
-            let usedBrowserCommand = command == browserLaunch.command
+            // A fallback shell does not satisfy the pending browser request.
             if createdSurface == nil, usedBrowserCommand, .now < browserLaunch.deadline {
                 runtime.terminalBrowserLaunchCommands[paneID] = browserLaunch
             } else {
