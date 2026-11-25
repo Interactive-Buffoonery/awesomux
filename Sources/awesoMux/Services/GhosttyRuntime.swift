@@ -282,6 +282,14 @@ final class GhosttyRuntime {
     private let performanceSampler = PerformanceSampler()
 
     @ObservationIgnored
+    var terminalBrowserBridge: TerminalBrowserBridge?
+    @ObservationIgnored
+    var terminalBrowserLaunchCommands:
+        [TerminalPane.ID: (command: String, deadline: ContinuousClock.Instant, completion: CheckedContinuation<Bool, Never>)] = [:]
+    @ObservationIgnored
+    var terminalBrowserAuthorized: @MainActor () -> Bool = { false }
+
+    @ObservationIgnored
     private let agentRuntimeEventBridge: AgentRuntimeEventBridge
 
     @ObservationIgnored
@@ -814,6 +822,7 @@ final class GhosttyRuntime {
     }
 
     func discardSurface(for paneID: TerminalPane.ID, preservingRestartNotice: Bool = false) {
+        terminalBrowserLaunchCommands.removeValue(forKey: paneID)?.completion.resume(returning: false)
         clearInteractiveSplit(paneID)
         if !preservingRestartNotice {
             clearSessionRestartNotice(for: paneID, afterLayout: true)

@@ -249,12 +249,33 @@ extension GhosttySurfaceNSView {
             to: environment,
             kind: sessionStore.compactTerminalKind
         )
+        var command = launch.command
+        let browserLaunch = runtime.terminalBrowserLaunchCommands.removeValue(forKey: paneID)
+        if case .localShell = launch, case .local = pane.executionPlan,
+            !runtime.isCommandBridgeEnabled, runtime.terminalBrowserAuthorized(),
+            let bridge = runtime.terminalBrowserBridge
+        {
+            environment["TERMINAL_BROWSER_TERMINAL_SOCKET"] = bridge.socketPath
+            // A delayed Device Attributes reply from the probe can land at the source shell prompt.
+            environment["PIXEL_SKIP_GRAPHICS_CHECK"] = "1"
+            if let browserLaunch, .now < browserLaunch.deadline {
+                command = browserLaunch.command
+            }
+        }
         let createdSurface = runtime.createSurface(
             attachedTo: self,
             workingDirectory: pane.workingDirectory,
             environment: environment,
-            command: launch.command
+            command: command
         )
+        if let browserLaunch {
+            let usedBrowserCommand = command == browserLaunch.command
+            if createdSurface == nil, usedBrowserCommand, .now < browserLaunch.deadline {
+                runtime.terminalBrowserLaunchCommands[paneID] = browserLaunch
+            } else {
+                browserLaunch.completion.resume(returning: createdSurface != nil && usedBrowserCommand)
+            }
+        }
         // Keep the marker through bridge preflight, then consume it on the
         // first native creation attempt so any retry uses the normal settle.
         runtime.clearInteractiveSplit(paneID)

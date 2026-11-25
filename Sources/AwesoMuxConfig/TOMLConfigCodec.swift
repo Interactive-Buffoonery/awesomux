@@ -20,6 +20,7 @@ public struct TOMLConfigCodec: Sendable {
         "command_bridge_enabled",
         "daemon_idle_cap_enabled",
         "daemon_idle_cap_minutes",
+        "terminal_browser_executable",
     ]
     /// Owned sections whose unknown body lines are preserved via
     /// `extractSectionPreservation`. Unknown sub-tables under these roots

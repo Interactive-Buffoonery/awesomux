@@ -46,6 +46,8 @@ public struct TerminalConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultDaemonIdleCapEnabled> public var daemonIdleCapEnabled: Bool
     @TOMLDefault<DefaultDaemonIdleCapMinutes> public var daemonIdleCapMinutes: Int
 
+    public var terminalBrowserExecutable: String?
+
     public static let defaultValue = TerminalConfig()
 
     public init(
@@ -59,7 +61,8 @@ public struct TerminalConfig: Codable, Equatable, Sendable {
         copyOnSelect: CopyOnSelect = DefaultCopyOnSelect.defaultValue,
         commandBridgeEnabled: Bool = DefaultCommandBridgeEnabled.defaultValue,
         daemonIdleCapEnabled: Bool = DefaultDaemonIdleCapEnabled.defaultValue,
-        daemonIdleCapMinutes: Int = DefaultDaemonIdleCapMinutes.defaultValue
+        daemonIdleCapMinutes: Int = DefaultDaemonIdleCapMinutes.defaultValue,
+        terminalBrowserExecutable: String? = nil
     ) {
         self.clipboardWritePolicy = clipboardWritePolicy
         self.confirmClipboardRead = confirmClipboardRead
@@ -67,6 +70,7 @@ public struct TerminalConfig: Codable, Equatable, Sendable {
         self.commandBridgeEnabled = commandBridgeEnabled
         self.daemonIdleCapEnabled = daemonIdleCapEnabled
         self.daemonIdleCapMinutes = daemonIdleCapMinutes
+        self.terminalBrowserExecutable = terminalBrowserExecutable
     }
 
     enum CodingKeys: String, CodingKey {
@@ -76,6 +80,7 @@ public struct TerminalConfig: Codable, Equatable, Sendable {
         case commandBridgeEnabled = "command_bridge_enabled"
         case daemonIdleCapEnabled = "daemon_idle_cap_enabled"
         case daemonIdleCapMinutes = "daemon_idle_cap_minutes"
+        case terminalBrowserExecutable = "terminal_browser_executable"
     }
 }
 

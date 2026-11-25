@@ -425,6 +425,32 @@ struct AwesoMuxApp: App {
             initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
             diagnosticEventHandler: { diagnosticEvents.record($0) }
         )
+        if let executable = appSettingsStore.terminal.value.terminalBrowserExecutable {
+            if let approvedExecutable = TerminalBrowserBridge.executablePath(executable) {
+                let store = loadResult.store
+                ghosttyRuntime.terminalBrowserAuthorized = { [weak appSettingsStore] in
+                    guard let appSettingsStore, !appSettingsStore.isDiskConfigInvalid else { return false }
+                    return appSettingsStore.terminal.value.terminalBrowserExecutable == executable
+                }
+                do {
+                    ghosttyRuntime.terminalBrowserBridge = try TerminalBrowserBridge(approvedExecutable: approvedExecutable) {
+                        [weak store, weak ghosttyRuntime] request, preparation, deadline in
+                        guard let store, let ghosttyRuntime, ghosttyRuntime.terminalBrowserAuthorized() else {
+                            return ["error": ["message": "Terminal Browser integration is disabled."]]
+                        }
+                        let response = await TerminalBrowserBridge.response(
+                            to: request, preparation: preparation, deadline: deadline, store: store, runtime: ghosttyRuntime
+                        )
+                        if request.method == "split", response["result"] != nil { Self.announceSplit(orientation: .vertical) }
+                        return response
+                    }
+                } catch {
+                    logger.error("Could not start the Terminal Browser integration socket")
+                }
+            } else {
+                logger.error("The configured Terminal Browser executable is missing or invalid")
+            }
+        }
         _ghosttyRuntime = State(initialValue: ghosttyRuntime)
         _updateController = State(initialValue: UpdateController())
         _terminalAppearancePreferencesCache = State(initialValue: terminalAppearancePreferencesCache)
@@ -3201,11 +3227,11 @@ struct AwesoMuxApp: App {
         if let sourcePaneID {
             ghosttyRuntime.noteInteractiveSplit(paneID, from: sourcePaneID)
         }
-        announceSplit(orientation: orientation)
+        Self.announceSplit(orientation: orientation)
         return paneID
     }
 
-    private func announceSplit(orientation: TerminalSplitOrientation) {
+    private static func announceSplit(orientation: TerminalSplitOrientation) {
         let announcement: String
         switch orientation {
         case .vertical:
@@ -3219,7 +3245,7 @@ struct AwesoMuxApp: App {
                 comment: "VoiceOver announcement after creating a horizontal split below the active pane."
             )
         }
-        postAccessibilityAnnouncement(announcement)
+        TerminalAccessibilityAnnouncer.announce(announcement)
     }
 
     private func closeActivePane() {
