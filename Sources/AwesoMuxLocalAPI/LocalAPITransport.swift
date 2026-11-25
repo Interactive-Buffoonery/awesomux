@@ -1,11 +1,16 @@
 import Darwin
 import Foundation
 
-struct LocalAPIIO {
+package struct LocalAPIIO {
     let deadline: ContinuousClock.Instant
     let cancelled: @Sendable () -> Bool
 
-    func wait(_ fd: Int32, events: Int16) throws {
+    package init(deadline: ContinuousClock.Instant, cancelled: @escaping @Sendable () -> Bool) {
+        self.deadline = deadline
+        self.cancelled = cancelled
+    }
+
+    package func wait(_ fd: Int32, events: Int16) throws {
         let queue = kqueue()
         guard queue >= 0 else { throw LocalAPIError.transportFailure }
         defer { close(queue) }
