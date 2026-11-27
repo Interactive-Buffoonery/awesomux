@@ -277,10 +277,11 @@ classified as product/test, runner, or workflow infrastructure failures.
 Actions CodeQL runs automatically on pull requests and `main`. Its aggregate
 `CodeQL interpreted complete` check does not wait for Swift.
 
-Swift CodeQL runs on `xcode-27` (or `NATIVE_CI_RUNNER`) every Tuesday at
-`17 8 * * 2` and through manual dispatch. It retains manual-build analysis and
-the committed Ghostty exact-pin preparation, but does not run on pull requests
-or every `main` push.
+Swift CodeQL runs on the arm64 `macos-26` image with Xcode 26.6 and Swift 6.3.3
+every Tuesday at `17 8 * * 2` and through manual dispatch. These versions support
+manual-build tracing. The job prepares Ghostty at the committed pin and caches
+the artifacts under the analysis toolchain's identity. Normal native CI and
+releases use the project's pinned toolchain.
 
 ## Native CI policy
 
