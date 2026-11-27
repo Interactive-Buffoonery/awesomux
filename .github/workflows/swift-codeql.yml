@@ -15,7 +15,8 @@ concurrency:
 jobs:
   swift:
     name: Analyze (swift)
-    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
+    # CodeQL manual-build tracing requires macOS 26, Xcode 26 and Swift 6.3.
+    runs-on: macos-26
     timeout-minutes: 120
     permissions:
       contents: read
@@ -32,13 +33,14 @@ jobs:
       - name: Prepare native build
         uses: ./.github/actions/prepare-native
         with:
+          toolchain: swift-codeql
           save-cache: "true"
 
       - name: Resolve Swift dependencies
         run: swift package resolve
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           languages: swift
           build-mode: manual
@@ -47,4 +49,4 @@ jobs:
         run: swift build --arch arm64
 
       - name: Analyze
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5

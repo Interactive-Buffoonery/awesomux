@@ -2,6 +2,10 @@ name: Prepare native build
 description: Restore or build exact-pin Ghostty artifacts for native validation.
 
 inputs:
+  toolchain:
+    description: Select the native toolchain or the Swift CodeQL tracing toolchain.
+    required: false
+    default: native
   save-cache:
     description: Save newly built Ghostty artifacts when true.
     required: false
@@ -39,11 +43,40 @@ runs:
       id: context
       shell: bash
       working-directory: ${{ github.workspace }}
+      env:
+        NATIVE_TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
         set -euo pipefail
 
-        export DEVELOPER_DIR="/Applications/Xcode_$(tr -d '[:space:]' < .xcode-version).app/Contents/Developer"
-        ./script/check-toolchain.sh
+        case "$NATIVE_TOOLCHAIN" in
+          native)
+            export DEVELOPER_DIR="/Applications/Xcode_$(tr -d '[:space:]' < .xcode-version).app/Contents/Developer"
+            ./script/check-toolchain.sh
+            swift_pin="$(tr -d '[:space:]' < .swift-version-macos)"
+            if [[ -z "$swift_pin" ]]; then
+              echo ".swift-version-macos is empty" >&2
+              exit 1
+            fi
+            ;;
+          swift-codeql)
+            export DEVELOPER_DIR="/Applications/Xcode_26.6.app/Contents/Developer"
+            swift_pin=6.3.3
+            swift_version="$(swift --version)"
+            if [[ "$(xcodebuild -version | awk '/^Xcode /{print $2}')" != 26.6 ||
+                  "$(sw_vers -productVersion | cut -d. -f1)" != 26 ||
+                  -n "${SWIFT_EXEC:-}${SWIFT_EXEC_MANIFEST:-}" ||
+                  "${TOOLCHAINS:-com.apple.dt.toolchain.XcodeDefault}" != com.apple.dt.toolchain.XcodeDefault ||
+                  "$swift_version" != "$(xcrun swift --version)" ||
+                  "$(sed -nE 's/.*Swift version ([^ ]+).*/\1/p' <<< "$swift_version")" != "$swift_pin" ]]; then
+              echo "Swift CodeQL requires macOS 26, Xcode 26.6, and its default Swift $swift_pin toolchain" >&2
+              exit 1
+            fi
+            ;;
+          *)
+            echo "toolchain must be native or swift-codeql" >&2
+            exit 2
+            ;;
+        esac
         echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
         case "${{ inputs.save-cache }}" in
@@ -83,12 +116,6 @@ runs:
           exit 1
         fi
         zmx_zig_formula="zig@${zmx_zig_version%.*}"
-
-        swift_pin="$(tr -d '[:space:]' < .swift-version-macos)"
-        if [[ -z "$swift_pin" ]]; then
-          echo ".swift-version-macos is empty" >&2
-          exit 1
-        fi
 
         version_string="$(xcodebuild -version)"
         xcode_version="$(awk '/^Xcode /{print $2}' <<<"$version_string")"
